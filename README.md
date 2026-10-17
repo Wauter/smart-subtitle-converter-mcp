@@ -75,7 +75,7 @@ Unknown `SUBTITLE_MCP_*` variables fail startup (typo protection).
 
 | Variable | Flag | Default | Description |
 |---|---|---|---|
-| `SUBTITLE_API_URL` | `--api-url` | **required** | API base URL, e.g. `http://api:8080` |
+| `SUBTITLE_API_URL` | `--api-url` | **required** | API base URL: `http://localhost:4041` for the API's Compose on your machine (host port 4041), `http://api:8080` from a container on the same Docker network (container port) |
 | `SUBTITLE_API_KEY` / `SUBTITLE_API_KEY_FILE` | – | unset | Bearer key sent to the API (the only upstream key; never taken from requests) |
 | `SUBTITLE_MCP_HTTP_TOKEN` / `SUBTITLE_MCP_HTTP_TOKEN_FILE` | – | unset | HTTP mode: inbound token(s), ≥ 32 chars, comma list / one per line, file re-read on change. Required with `--http` |
 | `SUBTITLE_MCP_HTTP` | `--http [host:]port` | stdio | Serve Streamable HTTP on `/mcp` |
@@ -110,9 +110,21 @@ Content, base64, profile values, API keys and tokens are never logged.
 // Claude Desktop / Cursor (stdio)
 { "mcpServers": { "subtitleedit": {
     "command": "npx", "args": ["-y", "subtitleedit-converter-mcp"],
-    "env": { "SUBTITLE_API_URL": "http://localhost:8080",
+    "env": { "SUBTITLE_API_URL": "http://localhost:4041",
              "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/Subtitles" } } } }
 ```
+
+Claude Code (stdio):
+
+```bash
+claude mcp add --transport stdio \
+  --env SUBTITLE_API_URL=http://localhost:4041 \
+  --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/Subtitles \
+  subtitleedit -- node /path/to/subtitleedit-converter-mcp/dist/index.js
+```
+
+`http://localhost:4041` is the host port the API's `docker-compose.yml` publishes (bound to `127.0.0.1`; the
+container itself listens on 8080). If you changed that mapping, use your host port here.
 
 On Windows some clients need `"command": "cmd", "args": ["/c", "npx", "-y", "subtitleedit-converter-mcp"]`, and
 `SUBTITLE_MCP_ALLOWED_DIRS` uses `;` as the separator. Until the package is published, point `command` at
@@ -144,16 +156,16 @@ A copy of the reference Compose from the API repo:
 ```yaml
 services:
   api:
-    image: ghcr.io/wauter/subtitleedit-converter-api:1.1.0      # pinned, never latest
+    image: ghcr.io/wauter/subtitleedit-converter-api:1.1.1      # pinned, never latest
     read_only: true
     tmpfs: [/tmp]
     networks: [internal]
     # API_KEYS / API_KEYS_FILE optional
   mcp:
-    image: ghcr.io/wauter/subtitleedit-converter-mcp:1.1.0      # pinned, never latest
+    image: ghcr.io/wauter/subtitleedit-converter-mcp:1.1.2      # pinned, never latest
     read_only: true
     environment:
-      SUBTITLE_API_URL: http://api:8080
+      SUBTITLE_API_URL: http://api:8080              # container port on the internal network (host port 4041 is not involved)
       SUBTITLE_MCP_READONLY_DIRS: /data/in
       SUBTITLE_MCP_ALLOWED_DIRS: /data/out
       SUBTITLE_MCP_ALLOWED_HOSTS: mcp,localhost,127.0.0.1
@@ -185,10 +197,10 @@ npm ci
 npm run lint && npm run typecheck
 npm test                     # unit + MCP-level
 npm run build && npm run test:e2e
-scripts/contract.sh ghcr.io/wauter/subtitleedit-converter-api:1.1.0   # contract suite against a real API image
+scripts/contract.sh ghcr.io/wauter/subtitleedit-converter-api:edge   # contract suite against a real API image
 ```
 
-The contract suite can also target a running API: `CONTRACT_API_URL=http://127.0.0.1:8080 npm run test:contract`
+The contract suite can also target a running API: `CONTRACT_API_URL=http://127.0.0.1:4041 npm run test:contract` (the API's Compose)
 (add `CONTRACT_API_KEY` and `CONTRACT_SMALL_LIMITS=1` for an API started with `API_KEYS`, `MAX_UPLOAD_BYTES=1048576`
 and `ZIP_MAX_ENTRIES=3`). In CI the contract job pulls the pinned private API image; it is skipped (with a notice)
 when the image can't be pulled, unless the repo variable `CONTRACT_REQUIRED=true`.

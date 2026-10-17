@@ -1,6 +1,6 @@
 /**
  * Contract suite against a real converter API (§14), the version this MCP targets (D-36/D-37). Gated on CONTRACT_API_URL.
- *   CONTRACT_API_URL      e.g. http://127.0.0.1:8080
+ *   CONTRACT_API_URL      e.g. http://127.0.0.1:4041 (the API's Compose host port)
  *   CONTRACT_API_KEY      key configured on the API (second run)
  *   CONTRACT_SMALL_LIMITS "1" when the API runs with MAX_UPLOAD_BYTES=1048576 ZIP_MAX_ENTRIES=3
  */

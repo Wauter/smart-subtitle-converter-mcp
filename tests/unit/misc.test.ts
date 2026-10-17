@@ -141,6 +141,12 @@ describe("version check (D-37/D-43)", () => {
     }
     apiInfo.versionMismatch = false;
   });
+  it("API 1.1.x is compatible with any MCP 1.1.x (e.g. API 1.1.1 with MCP 1.1.2): no mismatch warning", async () => {
+    const { versionCompatible } = await import("../../src/api/info.js");
+    expect(versionCompatible("1.1.1", "1.1.2")).toBe(true);
+    expect(versionCompatible("1.1.0", "1.1.2")).toBe(true);
+    expect(versionCompatible("1.2.0", "1.1.2")).toBe(false);
+  });
   it("package.json carries the shared 1.1 version line (pairs with API 1.1.x) and stays private", async () => {
     const pkg = JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
     expect(pkg.version).toMatch(/^1\.1\.\d+$/);
