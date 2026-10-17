@@ -1,10 +1,11 @@
-# subtitleedit-mcp
+# Subtitle Edit Converter MCP
 
-A planned [Model Context Protocol](https://modelcontextprotocol.io) server that lets AI agents
-convert subtitles. It is a thin TypeScript client over
-[subtitleedit-api](https://github.com/Wauter/subtitleedit-api) and does no conversion itself.
+`subtitleedit-converter-mcp` is part of a community wrapper around Subtitle Edit's `libse`, not an
+official Subtitle Edit project. It is a planned [Model Context Protocol](https://modelcontextprotocol.io) server that lets AI agents
+convert subtitles: a thin TypeScript client over
+[subtitleedit-converter-api](https://github.com/Wauter/subtitleedit-converter-api) and does no conversion itself.
 
-**Status: design phase. There is no code yet.** Design: [subtitleedit-api/docs/design.md §10](https://github.com/Wauter/subtitleedit-api/blob/main/docs/design.md#10-mcp-server-subtitleedit-mcp).
+**Status: design phase. There is no code yet.** Design: [subtitleedit-converter-api/docs/design.md §10](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/design.md#10-mcp-server-subtitleedit-converter-mcp).
 
 ## Stack
 
@@ -14,7 +15,7 @@ convert subtitles. It is a thin TypeScript client over
 
 ## Tools
 
-| Tool | subtitleedit-api endpoint | Purpose |
+| Tool | subtitleedit-converter-api endpoint | Purpose |
 |---|---|---|
 | `list_formats` | `GET /v1/formats` | Supported formats (id, name, extension, read/write) |
 | `list_presets` | `GET /v1/profiles` | Built-in and mounted presets, with validity and load errors |
@@ -27,25 +28,27 @@ Errors come back as `isError: true` with the API's error `code`, `hint` and `req
 
 ## Transports
 
-- **stdio**: `npx subtitleedit-mcp`, for desktop agents such as Claude Desktop and Cursor
-- **Streamable HTTP**: `subtitleedit-mcp --http :3000`, endpoint `/mcp`, stateless
+- **stdio**: `npx subtitleedit-converter-mcp`, for desktop agents such as Claude Desktop and Cursor
+- **Streamable HTTP**: `subtitleedit-converter-mcp --http :3000`, endpoint `/mcp`, stateless
 
 ## Configuration
 
 | Variable | Required | Description |
 |---|---|---|
-| `SUBTITLE_API_URL` | yes | Base URL of subtitleedit-api, e.g. `http://localhost:8080` (or `--api-url`) |
+| `SUBTITLE_API_URL` | yes | Base URL of subtitleedit-converter-api, e.g. `http://localhost:8080` (or `--api-url`) |
 | `SUBTITLE_API_KEY` | no | Bearer key sent to the API when its auth is enabled |
 | `SUBTITLE_MCP_MAX_BYTES` | no | Max content size accepted by tools |
 | `SUBTITLE_MCP_TIMEOUT_MS` | no | Timeout for API calls |
 
-In HTTP mode, an incoming `Authorization: Bearer` header is passed through to subtitleedit-api unchanged
+In HTTP mode, an incoming `Authorization: Bearer` header is passed through to subtitleedit-converter-api unchanged
 and takes precedence over `SUBTITLE_API_KEY`. The server stores no keys and logs none.
 
 ## Depends on
 
-A running [subtitleedit-api](https://github.com/Wauter/subtitleedit-api) v1 instance.
+A running [subtitleedit-converter-api](https://github.com/Wauter/subtitleedit-converter-api) v1 instance.
 
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+Formerly `subtitleedit-mcp` (renamed 2026-10-17 with the API, formerly `subtitleedit-api`).
