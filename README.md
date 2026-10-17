@@ -37,6 +37,20 @@ Errors come back as `isError: true` with a structured `error` (`source`, `code`,
 for local write failures `path` + `osError`). Report every warning the tools return (e.g. `frame-rate-changed`: an EBU
 STL frame-rate code mismatch, timings move by less than one frame with no cumulative drift).
 
+Since 1.2.0 (API 1.2.x):
+
+- Warnings may carry a `hint` (the setting that fixes them; the API never switches code pages or character tables by
+  itself) and `details` (cue numbers and code points, never cue text). New codes: `text-truncated`, `zero-length-cue`,
+  `source-replacement-chars`, `verification-failed`.
+- Binary outputs carry `verification` (`convert_subtitle`: `outputs[].verification`; `convert_batch`:
+  `entries[].verification`): the written file is read back and compared, with a verdict `lossless` | `quantised` |
+  `lossy` | `unverified`, cue counts, timing shift and replaced characters by cue. The summary shows one line per output.
+  A clean round trip proves the file is self-consistent through the converter's own reader, not that a given playout
+  system accepts it.
+- `detect_format` also returns `bom`, `lineEndings` and source `warnings`.
+- PAC and Unicode PAC (FPC) files that can't be told apart by name fail with `ambiguous-format` (`error.candidates`);
+  pass `profile.source.format` (`pac` or `fpc`).
+
 ### Writing files
 
 - **`convert_subtitle`** writes through a staging file in `<output-root>/.subtitle-mcp-staging/` and commits it with an

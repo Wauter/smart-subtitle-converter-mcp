@@ -179,14 +179,14 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description RFC 7807 problem details with a stable `code` (docs/errors.md). Extra members may appear: `entry` (zip entry name), `phase` (conversion-timeout: queue|running), `groups`/`outputs` (ambiguous-batch-names). */
+        /** @description RFC 7807 problem details with a stable `code` (docs/errors.md). Extra members may appear: `entry` (zip entry name), `phase` (conversion-timeout: queue|running), `groups`/`outputs` (ambiguous-batch-names), `candidates` (ambiguous-format). */
         ApiProblem: {
             /** @description URL of the code's section in docs/errors.md. */
             type: string;
             title: string;
             status: number;
             /** @enum {string} */
-            code: "invalid-request" | "invalid-profile" | "empty-input" | "unauthorized" | "not-found" | "preset-not-found" | "payload-too-large" | "zip-limits-exceeded" | "unsafe-zip" | "unsupported-media-type" | "format-not-detected" | "format-not-supported" | "format-not-writable" | "format-option-invalid" | "invalid-binary-input" | "ambiguous-batch-names" | "encoding-error" | "unsafe-xml" | "input-limits-exceeded" | "conversion-failed" | "rate-limited" | "queue-full" | "conversion-timeout" | "internal-error";
+            code: "invalid-request" | "invalid-profile" | "empty-input" | "unauthorized" | "not-found" | "preset-not-found" | "payload-too-large" | "zip-limits-exceeded" | "unsafe-zip" | "unsupported-media-type" | "format-not-detected" | "format-not-supported" | "format-not-writable" | "format-option-invalid" | "invalid-binary-input" | "ambiguous-batch-names" | "ambiguous-format" | "encoding-error" | "unsafe-xml" | "input-limits-exceeded" | "conversion-failed" | "rate-limited" | "queue-full" | "conversion-timeout" | "internal-error";
             detail: string;
             /** @description What to do about it. */
             hint: string;
@@ -206,6 +206,13 @@ export interface components {
              * @enum {string}
              */
             phase?: "queue" | "running";
+            /** @description ambiguous-format only: the format ids the bytes match; set profile.source.format to one of them. */
+            candidates?: string[];
+        };
+        CodePointCount: {
+            codePoint: string;
+            /** Format: int32 */
+            count: number | string;
         };
         ConvertJsonRequest: {
             content: string;
@@ -225,6 +232,11 @@ export interface components {
             profile: components["schemas"]["JsonObject"];
             entries: null | components["schemas"]["ManifestEntry"][];
         };
+        CueList: {
+            /** Format: int32 */
+            total: number | string;
+            cues: (number | string)[];
+        };
         DetectedInfo: {
             format: string;
             id: string;
@@ -238,6 +250,9 @@ export interface components {
             kind: string;
             codePage?: null | string;
             formatDetails?: null | Record<string, never>;
+            bom?: null | boolean;
+            lineEndings?: null | string;
+            warnings?: null | components["schemas"]["Warning"][];
         };
         /** @description A problem located by a JSON pointer (profile field, zip entry, query parameter, ...). */
         FieldError: {
@@ -337,6 +352,9 @@ export interface components {
              * @enum {null|string}
              */
             reason?: "nested-zip" | "macos-metadata" | null;
+            verification?: null | {
+                [key: string]: components["schemas"]["Verification"];
+            };
         };
         OutputDto: {
             fileName: string;
@@ -351,6 +369,7 @@ export interface components {
             source?: null | string;
             /** @default text */
             kind: string;
+            verification?: null | components["schemas"]["Verification"];
         };
         PresetDetail: {
             name: string;
@@ -385,6 +404,16 @@ export interface components {
             profilesDir: null | string;
             mountError: null | string;
         };
+        ReplacedChars: {
+            /** Format: int32 */
+            total: number | string;
+            /** Format: int32 */
+            cueCount: number | string;
+            cues: (number | string)[];
+            /** Format: int32 */
+            distinctCodePoints: number | string;
+            codePoints: components["schemas"]["CodePointCount"][];
+        };
         StatsDto: {
             /** Format: int32 */
             paragraphsIn: number | string;
@@ -395,17 +424,50 @@ export interface components {
             /** Format: int64 */
             queueWaitMs: number | string;
         };
+        TimingCheck: {
+            /** Format: double */
+            maxShiftMs: number | string;
+            /** Format: double */
+            meanShiftMs: number | string;
+            /** Format: double */
+            frameMs: number | string;
+            /** Format: int32 */
+            cuesOverOneFrame: number | string;
+        };
         ValidateResponse: {
             valid: boolean;
             errors: components["schemas"]["FieldError"][];
             warnings: components["schemas"]["FieldError"][];
             resolved: null | components["schemas"]["JsonObject"];
         };
+        Verification: {
+            verdict: string;
+            /** Format: int32 */
+            cuesWritten: number | string;
+            /** Format: int32 */
+            cuesReadBack: null | number | string;
+            timing: null | components["schemas"]["TimingCheck"];
+            replacedChars: null | components["schemas"]["ReplacedChars"];
+            truncatedCues: null | components["schemas"]["CueList"];
+            missingCues: null | components["schemas"]["CueList"];
+            zeroLengthCues?: null | components["schemas"]["CueList"];
+            reason?: null | string;
+        };
         Warning: {
             code: string;
             message: string;
             /** Format: int32 */
             count?: null | number | string;
+            hint?: null | string;
+            details?: null | components["schemas"]["WarningDetails"];
+        };
+        WarningDetails: {
+            /** Format: int32 */
+            cueCount?: null | number | string;
+            cues?: null | (number | string)[];
+            /** Format: int32 */
+            distinctCodePoints?: null | number | string;
+            codePoints?: null | components["schemas"]["CodePointCount"][];
         };
     };
     responses: never;
@@ -465,8 +527,10 @@ export interface operations {
                     "X-Cue-Count-In"?: string;
                     /** @description Number of warnings. */
                     "X-Warnings-Count"?: string;
-                    /** @description Warnings as compact JSON (ASCII, truncated to 4 KB). */
+                    /** @description Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body / manifest. */
                     "X-Warnings"?: string;
+                    /** @description Single binary output only: read-back verdict lossless | quantised | lossy | unverified (details in the JSON response's outputs[].verification). */
+                    "X-Verification-Verdict"?: string;
                     /** @description Preset name, when one was used. */
                     "X-Profile"?: string;
                     /** @description Zip input: entries converted. */
@@ -619,8 +683,10 @@ export interface operations {
                     "X-Cue-Count-In"?: string;
                     /** @description Number of warnings. */
                     "X-Warnings-Count"?: string;
-                    /** @description Warnings as compact JSON (ASCII, truncated to 4 KB). */
+                    /** @description Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body / manifest. */
                     "X-Warnings"?: string;
+                    /** @description Single binary output only: read-back verdict lossless | quantised | lossy | unverified (details in the JSON response's outputs[].verification). */
+                    "X-Verification-Verdict"?: string;
                     /** @description Preset name, when one was used. */
                     "X-Profile"?: string;
                     /** @description Zip input: entries converted. */

@@ -284,7 +284,75 @@ export const DetectedOutput = z.object({
   candidates: z.array(z.string()).nullish(),
   codePage: z.string().optional(),
   formatDetails: z.record(z.unknown()).optional(),
+  /** detect_format only (API 1.2.0): BOM and line endings of a text source. */
+  bom: z.boolean().optional(),
+  lineEndings: z.enum(["crlf", "lf", "cr", "mixed", "none"]).optional(),
 });
+
+const CueList = z.object({ total: z.number().int(), cues: z.array(z.number().int()) });
+/** API 1.2.0: read-back check of a binary output (positions and code points only, never cue text). */
+export const Verification = z.object({
+  verdict: z.enum(["lossless", "quantised", "lossy", "unverified"]),
+  cuesWritten: z.number().int(),
+  cuesReadBack: z.number().int().optional(),
+  timing: z.object({ maxShiftMs: z.number(), meanShiftMs: z.number(), frameMs: z.number(), cuesOverOneFrame: z.number().int() }).optional(),
+  replacedChars: z
+    .object({
+      total: z.number().int(), cueCount: z.number().int(), cues: z.array(z.number().int()), distinctCodePoints: z.number().int(),
+      codePoints: z.array(z.object({ codePoint: z.string(), count: z.number().int() })),
+    })
+    .optional(),
+  truncatedCues: CueList.optional(),
+  missingCues: CueList.optional(),
+  zeroLengthCues: CueList.optional(),
+  reason: z.string().optional(),
+});
+export type VerificationT = z.infer<typeof Verification>;
+
+const int = (v: unknown) => toInt(v);
+const ints = (v: unknown) => (Array.isArray(v) ? v.map(int) : []);
+const cueList = (v: any) => (v && typeof v === "object" ? { total: int(v.total), cues: ints(v.cues) } : undefined);
+const codePoints = (v: unknown) =>
+  Array.isArray(v) ? v.filter((c) => c && typeof c === "object").map((c: any) => ({ codePoint: String(c.codePoint ?? ""), count: int(c.count) })) : [];
+const VERDICTS = new Set(["lossless", "quantised", "lossy", "unverified"]);
+
+export function mapVerification(v: any): VerificationT | undefined {
+  if (!v || typeof v !== "object" || !VERDICTS.has(v.verdict)) return undefined;
+  const out: VerificationT = { verdict: v.verdict, cuesWritten: int(v.cuesWritten) };
+  if (v.cuesReadBack != null) out.cuesReadBack = int(v.cuesReadBack);
+  if (v.timing && typeof v.timing === "object") {
+    const t = v.timing;
+    out.timing = { maxShiftMs: Number(t.maxShiftMs) || 0, meanShiftMs: Number(t.meanShiftMs) || 0, frameMs: Number(t.frameMs) || 0, cuesOverOneFrame: int(t.cuesOverOneFrame) };
+  }
+  if (v.replacedChars && typeof v.replacedChars === "object") {
+    const r = v.replacedChars;
+    out.replacedChars = { total: int(r.total), cueCount: int(r.cueCount), cues: ints(r.cues), distinctCodePoints: int(r.distinctCodePoints), codePoints: codePoints(r.codePoints) };
+  }
+  for (const k of ["truncatedCues", "missingCues", "zeroLengthCues"] as const) {
+    const l = cueList(v[k]);
+    if (l) out[k] = l;
+  }
+  if (typeof v.reason === "string") out.reason = v.reason.slice(0, 500);
+  return out;
+}
+
+const cuesText = (l: { total: number; cues: number[] }) => `${l.cues.join(", ")}${l.total > l.cues.length ? ", …" : ""}`;
+
+/** One compact line, e.g. "lossy: 3/3 cues read back; 50 chars replaced in cues 1, 2, 3 (U+03B1×5, …); timing max 13 ms (frame 41.7 ms)". */
+export function verificationText(v: VerificationT): string {
+  if (v.verdict === "unverified") return `unverified (${v.reason ?? "the read-back failed"})`;
+  const parts = [`${v.cuesReadBack ?? "?"}/${v.cuesWritten} cues read back`];
+  if (v.missingCues?.total) parts.push(`${v.missingCues.total} cue(s) missing: ${cuesText(v.missingCues)}`);
+  if (v.replacedChars?.total) {
+    const r = v.replacedChars;
+    const cps = r.codePoints.slice(0, 3).map((c) => `${c.codePoint}×${c.count}`).join(", ");
+    parts.push(`${r.total} char(s) replaced in cue(s) ${cuesText({ total: r.cueCount, cues: r.cues })}${cps ? ` (${cps}${r.distinctCodePoints > 3 ? ", …" : ""})` : ""}`);
+  }
+  if (v.truncatedCues?.total) parts.push(`text truncated in cue(s) ${cuesText(v.truncatedCues)}`);
+  if (v.zeroLengthCues?.total) parts.push(`zero-length cue(s) ${cuesText(v.zeroLengthCues)} not stored at their own time`);
+  if (v.timing) parts.push(`timing max ${v.timing.maxShiftMs} ms, mean ${v.timing.meanShiftMs} ms (frame ${v.timing.frameMs} ms${v.timing.cuesOverOneFrame ? `; ${v.timing.cuesOverOneFrame} cue(s) moved more than a frame` : ""})`);
+  return `${v.verdict}: ${parts.join("; ")}`;
+}
 
 export function mapDetected(d: any): z.infer<typeof DetectedOutput> | null {
   if (!d || typeof d !== "object") return null;
@@ -300,12 +368,32 @@ export function mapDetected(d: any): z.infer<typeof DetectedOutput> | null {
   if (Array.isArray(d.candidates)) out.candidates = d.candidates.map(String);
   if (typeof d.codePage === "string") out.codePage = d.codePage;
   if (d.formatDetails && typeof d.formatDetails === "object") out.formatDetails = d.formatDetails;
+  if (typeof d.bom === "boolean") out.bom = d.bom;
+  if (["crlf", "lf", "cr", "mixed", "none"].includes(d.lineEndings)) out.lineEndings = d.lineEndings;
   return out;
 }
 
 export function mapWarnings(ws: unknown): WarningT[] {
   if (!Array.isArray(ws)) return [];
-  return ws.filter((w) => w && typeof w === "object").map((w: any) => ({ code: String(w.code ?? "warning"), message: String(w.message ?? "") + (w.count !== undefined && w.count !== null ? ` (count ${toInt(w.count)})` : "") }));
+  return ws.filter((w) => w && typeof w === "object").map((w: any) => {
+    const out: WarningT = { code: String(w.code ?? "warning"), message: String(w.message ?? "") + (w.count !== undefined && w.count !== null ? ` (count ${toInt(w.count)})` : "") };
+    if (typeof w.hint === "string" && w.hint) out.hint = w.hint;
+    const d = w.details;
+    if (d && typeof d === "object") {
+      const det: NonNullable<WarningT["details"]> = {};
+      if (d.cueCount != null) det.cueCount = toInt(d.cueCount);
+      if (Array.isArray(d.cues)) det.cues = ints(d.cues);
+      if (d.distinctCodePoints != null) det.distinctCodePoints = toInt(d.distinctCodePoints);
+      if (Array.isArray(d.codePoints)) det.codePoints = codePoints(d.codePoints);
+      if (Object.keys(det).length) out.details = det;
+    }
+    return out;
+  });
+}
+
+/** "code: message (hint: …)" for summaries. */
+export function warningText(w: WarningT): string {
+  return `${w.code}: ${w.message}${w.hint ? ` (hint: ${w.hint})` : ""}`;
 }
 
 export function fieldErrors(v: unknown): z.infer<typeof FieldError>[] {

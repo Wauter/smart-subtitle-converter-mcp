@@ -10,7 +10,8 @@ import { sanitizeOutputName, type WriteResult } from "../fs/write.js";
 import { toInt } from "../api/coerce.js";
 import {
   checkDestructive, DetectedOutput, defineTool, ebuSizeWarning, exactlyOne, getCaps, loadProfile, loadSource, mapDetected, mapWarnings,
-  mutuallyExclusive, requirePathsAllowed, tooLarge, Warning, withPartial, type SourceInput,
+  mapVerification, mutuallyExclusive, requirePathsAllowed, tooLarge, Verification, verificationText, Warning, warningText, withPartial,
+  type SourceInput, type VerificationT,
 } from "./common.js";
 
 const IF_EXISTS = z.enum(["error", "replace", "archive", "delete"]);
@@ -28,6 +29,7 @@ export const ConvertOutput = {
       archivedTo: z.string().optional(),
       inline: z.enum(["text", "resource"]).optional(),
       resourceUri: z.string().optional(),
+      verification: Verification.optional(),
     }),
   ),
   detected: DetectedOutput.nullish(),
@@ -49,6 +51,7 @@ interface ApiOutput {
   cues: number;
   data: Buffer;
   text?: string;
+  verification?: VerificationT;
 }
 
 export function describeConvert(deps: Deps): string {
@@ -66,7 +69,9 @@ export function describeConvert(deps: Deps): string {
       (deps.cfg.allowDestructive ? " `delete` removes the old file permanently; it can't be restored." : " `replace` and `delete` are disabled on this server unless the operator allows them; `archive` always works.");
   } else d += " The converted subtitle is returned inline (binary targets as base64).";
   d +=
-    " Note: EBU Tech 3264 has no 29.97 fps code, so a 29.97 fps EBU STL source is written with the STL30.01 code; the API flags such frame-rate code mismatches with the warning `frame-rate-changed`. Timings change by less than one frame (no cumulative drift); tell the user, and see the warning for the workaround. Always report `warnings` to the user: they flag lossy formats, replaced characters, frame quantisation and frame-rate changes. On `conversion-timeout`, split the file and convert the parts.";
+    " Note: EBU Tech 3264 has no 29.97 fps code, so a 29.97 fps EBU STL source is written with the STL30.01 code; the API flags such frame-rate code mismatches with the warning `frame-rate-changed`. Timings change by less than one frame (no cumulative drift); tell the user, and see the warning for the workaround. Always report `warnings` to the user: they flag lossy formats, replaced characters, truncated text, zero-length cues, frame quantisation and frame-rate changes; many carry a `hint` with the setting that fixes them (the API never switches code pages or character tables by itself) and `details` with cue numbers and code points." +
+    " Binary outputs carry `verification`: the file is read back and compared with what was written (verdict lossless | quantised (times rounded to frames only) | lossy | unverified, with cue counts, timing shift and replaced characters by cue number). A clean round trip proves the file is self-consistent through the converter's own reader, not that a given playout system accepts it." +
+    " If a file matches both PAC and Unicode PAC (FPC) and its name doesn't decide, the API fails with `ambiguous-format`; pass `profile.source.format` ('pac' or 'fpc'). On `conversion-timeout`, split the file and convert the parts.";
   if (deps.pathsInSchema) d += ` ${deps.rootsText}`;
   return d;
 }
@@ -237,7 +242,10 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
 }
 
 function meta(o: ApiOutput) {
-  return { fileName: o.fileName, format: o.format, formatId: o.formatId, ...(o.kind ? { kind: o.kind } : {}), mediaType: o.mediaType, encoding: o.encoding, contentEncoding: o.contentEncoding, cues: o.cues, bytes: o.data.length };
+  return {
+    fileName: o.fileName, format: o.format, formatId: o.formatId, ...(o.kind ? { kind: o.kind } : {}), mediaType: o.mediaType, encoding: o.encoding,
+    contentEncoding: o.contentEncoding, cues: o.cues, bytes: o.data.length, ...(o.verification ? { verification: o.verification } : {}),
+  };
 }
 
 export function parseApiOutput(o: any): ApiOutput {
@@ -249,6 +257,7 @@ export function parseApiOutput(o: any): ApiOutput {
     ...(o?.kind === "text" || o?.kind === "binary" ? { kind: o.kind } : {}),
     mediaType: String(o?.mediaType ?? "application/octet-stream"), encoding: String(o?.encoding ?? ""),
     contentEncoding: enc, cues: toInt(o?.cues), data, ...(enc === "text" ? { text: content } : {}),
+    ...(mapVerification(o?.verification) ? { verification: mapVerification(o?.verification) } : {}),
   };
 }
 
@@ -271,7 +280,8 @@ function convertSummary(src: SourceInput, r: any, outputs: any[], warnings: Warn
     else s += ` Wrote ${o.writtenTo}.`;
   }
   if (!toDisk && outputs.some((o) => o.inline === "resource")) s += deps.pathsInSchema ? " The result is attached as an embedded resource; use outputPath/outputDir to write it to disk instead." : " The result is attached as an embedded resource.";
-  if (warnings.length) s += ` ${warnings.length} warning${warnings.length === 1 ? "" : "s"}: ${warnings.map((w) => `${w.code}: ${w.message}`).join("; ")}`;
+  for (const o of outputs) if (o.verification) s += ` Verification of ${o.fileName}: ${verificationText(o.verification)}.`;
+  if (warnings.length) s += ` ${warnings.length} warning${warnings.length === 1 ? "" : "s"}: ${warnings.map(warningText).join("; ")}`;
   // §5.6.5: frame-rate-changed goes on its own line right after the first line, before everything else.
   const frc = warnings.filter((w) => w.code === "frame-rate-changed");
   if (frc.length) {

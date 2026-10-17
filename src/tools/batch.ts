@@ -11,8 +11,10 @@ import { newStats } from "../api/client.js";
 import { ambiguousGroups, selectFromDir, selectFromPaths, stemOf, type SelectedFile } from "../batch/select.js";
 import { buildZip, needsAlias } from "../batch/zip.js";
 import { chunkItems, type ChunkCaps } from "../batch/chunk.js";
-import { defineTool, exactlyOne, getCaps, loadProfile, mapWarnings, mutuallyExclusive, tooLarge, Warning, withPartial } from "./common.js";
-import { timeoutPhase } from "../errors.js";
+import {
+  defineTool, exactlyOne, getCaps, loadProfile, mapVerification, mapWarnings, mutuallyExclusive, tooLarge, Verification, verificationText, Warning, withPartial,
+} from "./common.js";
+import { MCP_HINTS, timeoutPhase } from "../errors.js";
 import { WRITE_FAILURE_CODES } from "../fs/writeErrors.js";
 
 const EntryOut = z.object({
@@ -20,6 +22,8 @@ const EntryOut = z.object({
   outputs: z.array(z.string()),
   detected: z.object({ format: z.string(), id: z.string(), encoding: z.string(), kind: z.string().optional(), codePage: z.string().optional() }).nullish(),
   warnings: z.array(Warning),
+  /** API 1.2.0: read-back check per binary output, keyed by the written output (as in `outputs`). */
+  verification: z.array(Verification.extend({ output: z.string() })).optional(),
 });
 type EntryOutT = z.infer<typeof EntryOut>;
 const Excluded = z.object({ source: z.string(), reason: z.string() });
@@ -29,6 +33,7 @@ const Failure = z.object({
   code: z.string(),
   message: z.string(),
   hint: z.string().optional(),
+  candidates: z.array(z.string()).optional(),
   requestId: z.string().optional(),
   path: z.string().optional(),
   osError: z.object({ code: z.string(), syscall: z.string().optional(), message: z.string() }).optional(),
@@ -76,7 +81,8 @@ export function describeBatch(deps: Deps): string {
     "Convert many subtitle files at once, from a folder (`inputDir` + optional glob `pattern`) or a list of `paths` (exactly one of them), into a NEW folder `outputDir`, which must not exist yet (choose a new folder name, or ask the user to remove the old one). Formats can be mixed: each file is detected and converted on its own with the same preset/target/profile (at least one of preset, target, profile or profilePath), and sub-folders are kept. Large sets are split into several API requests automatically." +
     " Files in the same folder must not share a name stem (e.g. `ep1.srt` and `ep1.vtt`): that is checked before anything is uploaded and fails the whole call; rename them or convert them in separate batches." +
     " All or nothing: `outputDir` appears only when every file has converted and been written. If any file fails (conversion or write), the batch stops at that file, nothing is written, and the result lists what failed with a hint; fix it and rerun the whole batch." +
-    " Always tell the user about warnings (e.g. `lossy-format`, `characters-replaced`, `frame-quantised`, `frame-rate-changed`, which flags an EBU STL frame-rate code mismatch, e.g. a 29.97 fps source written with the STL30.01 code; timings move by less than one frame, with no cumulative drift)." +
+    " Always tell the user about warnings (e.g. `lossy-format`, `characters-replaced`, `frame-quantised`, `frame-rate-changed`, which flags an EBU STL frame-rate code mismatch, e.g. a 29.97 fps source written with the STL30.01 code; timings move by less than one frame, with no cumulative drift); many carry a `hint` with the fixing setting and `details` with cue numbers." +
+    " Binary outputs carry `entries[].verification` (verdict lossless | quantised | lossy | unverified from reading the written file back); a clean round trip proves self-consistency through the converter's own reader, not acceptance by a playout system. A file that matches both PAC and FPC without a .pac/.fpc name fails with `ambiguous-format`; set `profile.source.format`." +
     ` Set \`writeManifest: true\` to also write the report as ${MANIFEST_NAME} inside outputDir. Use convert_subtitle for a single file or to write into an existing folder.` +
     ` ${deps.rootsText}`
   );
@@ -123,6 +129,7 @@ const failureOf = (source: string, e: ToolError, requestId?: string): FailureT =
   code: e.code,
   message: e.detail ?? e.title ?? e.code,
   ...(e.hint ? { hint: e.hint } : {}),
+  ...(e.candidates?.length ? { candidates: e.candidates } : {}),
   ...((requestId ?? e.requestId) ? { requestId: (requestId ?? e.requestId)! } : {}),
   ...(e.path ? { path: e.path } : {}),
   ...(e.osError ? { osError: e.osError } : {}),
@@ -394,6 +401,8 @@ async function runChunk(c: ChunkCtx, items: Item[], rid: string, countChunk: () 
         const shown = await c.stage.write(relDir, name, data, it.file.source, run.staged.get(key));
         run.staged.set(key, it.file.source);
         entry.outputs.push(shown);
+        const v = mapVerification(o.verification);
+        if (v) (entry.verification ??= []).push({ output: shown, ...v });
         run.outputs++;
       } catch (e) {
         if (!(e instanceof ToolFailure)) throw e;
@@ -424,6 +433,7 @@ const ENTRY_HINTS: Record<string, string> = {
   "invalid-binary-input": "Send binary files via path or base64; set profile.source.format if the wrong format was detected.",
   "input-limits-exceeded": "Split the file.",
   "conversion-failed": "Try removing the named operation from the profile.",
+  "ambiguous-format": MCP_HINTS["ambiguous-format"],
 };
 function withEntryHint(te: ToolError): ToolError {
   const extra = ENTRY_HINTS[te.code];
@@ -460,6 +470,7 @@ function mapEntryError(c: ChunkCtx, e: any, requestId?: string): ToolError {
     ...(e.hint ? { hint: String(e.hint) } : {}),
     ...(requestId ?? e.requestId ? { requestId: requestId ?? e.requestId } : {}),
   };
+  if (Array.isArray(e.candidates)) te.candidates = e.candidates.map(String);
   if (Array.isArray(e.errors)) te.errors = e.errors.map((x: any) => ({ pointer: String(x.pointer ?? ""), message: String(x.message ?? ""), ...(x.hint ? { hint: String(x.hint) } : {}) }));
   if (c.deps.cfg.includeDebug && c.deps.cfg.mode !== "hosted" && e.debug !== undefined) te.debug = e.debug;
   return te;
@@ -497,6 +508,16 @@ function batchSummary(a: any, s: any, list: EntryOutT[], run: Run): string {
   const lines = [first];
   const fr = frameRateLine(list);
   if (fr) lines.push(fr);
+  const vs = list.flatMap((e) => e.verification ?? []);
+  if (vs.length) {
+    const by = (k: string) => vs.filter((v) => v.verdict === k);
+    const counts = ["lossless", "quantised", "lossy", "unverified"].map((k) => [k, by(k).length] as const).filter(([, n]) => n);
+    let line = `Verification of ${vs.length} binary output${vs.length === 1 ? "" : "s"}: ${counts.map(([k, n]) => `${n} ${k}`).join(", ")}.`;
+    const bad = [...by("lossy"), ...by("unverified")];
+    for (const v of bad.slice(0, 5)) line += ` ${nodePath.basename(v.output)}: ${verificationText(v)}.`;
+    if (bad.length > 5) line += ` …and ${bad.length - 5} more (see entries[].verification).`;
+    lines.push(line);
+  }
   const warnCount = list.reduce((n, e) => n + e.warnings.length, 0) + run.batchWarnings.length;
   if (warnCount) lines.push(`${warnCount} warning(s); report them to the user (see entries[].warnings and warnings).`);
   if (s.manifestPath) lines.push(`Manifest: ${s.manifestPath}`);

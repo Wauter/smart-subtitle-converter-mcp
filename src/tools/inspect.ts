@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Deps } from "../context.js";
 import { mcpError } from "../errors.js";
 import { readFileChecked } from "../fs/guard.js";
-import { DetectedOutput, defineTool, ebuSizeWarning, exactlyOne, fieldErrors, FieldError, getCaps, loadSource, mapDetected, requirePathsAllowed, Warning } from "./common.js";
+import { DetectedOutput, defineTool, ebuSizeWarning, exactlyOne, fieldErrors, FieldError, getCaps, loadSource, mapDetected, mapWarnings, requirePathsAllowed, Warning, warningText } from "./common.js";
 
 const RO = { readOnlyHint: true, idempotentHint: true } as const;
 
@@ -54,7 +54,7 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
     description: () =>
       "Identify a subtitle file's format, character encoding, language and cue count without converting it. Use it when you don't know what a file is, or before converting when the file extension is missing or misleading." +
       (paths ? " Prefer `path` (the file stays out of your context and binary files stay intact); give exactly one of `content` or `path`." : " Binary files must be sent as base64 content.") +
-      " If detection is ambiguous, `candidates` lists alternatives, and you can force one in a conversion with `profile.source.format`. Zip files aren't accepted here; use convert_batch for folders." +
+      " If detection is ambiguous, `candidates` lists alternatives, and you can force one in a conversion with `profile.source.format`. For text files it also reports `bom` and `lineEndings`, and `warnings` flag source problems by cue number (`zero-length-cue`, `source-replacement-chars` for U+FFFD already in the file). PAC and Unicode PAC (FPC) bytes look alike: without a .pac/.fpc name the API answers `ambiguous-format`; then set `profile.source.format`. Zip files aren't accepted here; use convert_batch for folders." +
       (paths ? ` ${deps.rootsText}` : ""),
     shape: {
       content: z.string().optional().describe("Subtitle content: text, or base64 if contentEncoding is 'base64'"),
@@ -79,12 +79,13 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
       const res = await deps.api.request({ method: "POST", path: "/v1/detect", kind: "conversion", json: body }, call);
       const d = mapDetected(res.json);
       if (!d) throw mcpError("api-protocol-error", "The detect response has no format.", "Report this with the requestId.", { requestId: res.requestId });
-      const warnings = ebuSizeWarning(src, caps);
+      const warnings = [...mapWarnings((res.json as any)?.warnings), ...ebuSizeWarning(src, caps)];
       let summary = `${d.format} (${d.id}), ${d.encoding} (${d.encodingConfidence})${d.language ? `, ${d.language}` : ""}, ${d.paragraphs} cue${d.paragraphs === 1 ? "" : "s"}.`;
       if (d.codePage) summary += ` Code page ${d.codePage}.`;
+      if (d.bom !== undefined || d.lineEndings) summary += ` ${d.bom ? "BOM" : "No BOM"}${d.lineEndings ? `, line endings ${d.lineEndings}` : ""}.`;
       if (d.candidates?.length) summary += ` Other candidates: ${d.candidates.join(", ")}.`;
       if (d.encodingConfidence === "heuristic") summary += " Encoding was guessed; if characters look wrong, convert with `profile.encoding.input` set.";
-      for (const w of warnings) summary += `\nWarning ${w.code}: ${w.message}`;
+      for (const w of warnings) summary += `\nWarning ${warningText(w)}`;
       return { structured: { ...d, ...(res.requestId ? { requestId: res.requestId } : {}), ...(warnings.length ? { warnings } : {}) }, summary };
     },
   });
