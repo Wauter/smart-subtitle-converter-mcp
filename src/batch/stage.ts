@@ -73,7 +73,7 @@ export class BatchStage {
       anc = up;
     }
     const root = await this.guard.outputRoot(anc);
-    if (!root) throw mcpError("path-not-allowed", `Path is outside the writable allowed folders: ${this.callerDir}`);
+    if (!root) throw this.guard.notAllowed(`Path is outside the writable allowed folders: ${this.callerDir}`, "Write to a new folder inside a read-write allowed folder.");
     const stagingRoot = nodePath.join(root, STAGING_DIR);
     this.stagingRoot = stagingRoot;
     const unavailable = (e: unknown) => {

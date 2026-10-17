@@ -4,7 +4,7 @@ import { createLogger, type Logger } from "./log.js";
 import { ApiClient } from "./api/client.js";
 import { LimitsCache } from "./api/limits.js";
 import { StaticKeyAuth, type UpstreamAuth } from "./auth.js";
-import { ClientRoots, PathGuard, StaticRoots, type Root, type RootsProvider } from "./fs/guard.js";
+import { CombinedRoots, ClientRoots, PathGuard, StaticRoots, type Root, type RootsProvider } from "./fs/guard.js";
 import { allowedFoldersText } from "./fs/folders.js";
 import { realFsOps, SafeWriter, type FsOps } from "./fs/write.js";
 import { VERSION } from "./version.js";
@@ -33,7 +33,9 @@ export function buildDeps(cfg: Config, o: DepsOptions = {}): Deps {
   const provider = cfg.mode === "hosted" ? new StaticRoots([], "hosted mode has no file access") : (o.rootsProvider ?? new StaticRoots(roots, cfg.mode === "sidecar" ? "no folders are mounted and allowlisted (SUBTITLE_MCP_ALLOWED_DIRS)" : "no allowed folders are configured and the client provided no roots"));
   const pathsInSchema = cfg.mode === "local" || (cfg.mode === "sidecar" && configured);
   const anyWritable = roots.some((r) => r.writable);
-  const writable = cfg.mode === "local" ? (configured ? anyWritable : true) : cfg.mode === "sidecar" && anyWritable;
+  const dynamicRoots = provider instanceof ClientRoots || provider instanceof CombinedRoots;
+  // Local: client roots (read-write) may still arrive, so writes are possible unless only fixed read-only roots exist.
+  const writable = cfg.mode === "local" ? (configured && !dynamicRoots ? anyWritable : true) : cfg.mode === "sidecar" && anyWritable;
   const batchEnabled = cfg.mode === "local" || (cfg.mode === "sidecar" && anyWritable);
   const guard = new PathGuard(provider);
   const writer = new SafeWriter(log, o.fsOps, o.clock);
@@ -53,7 +55,7 @@ export function buildDeps(cfg: Config, o: DepsOptions = {}): Deps {
     get rootsText() {
       return allowedFoldersText(provider.snapshot());
     },
-    dynamicRoots: provider instanceof ClientRoots,
+    dynamicRoots,
     version: VERSION,
   };
 }
