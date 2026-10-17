@@ -11,7 +11,7 @@
   openssl rand -hex 32 > secrets/mcp_token.txt
   ```
 
-  The inbound token is separate from the API key and is never sent upstream. `--hosted` (hosted hardening) refuses
+  The inbound token is separate from the API key and is never sent upstream. `--hosted` (hosted mode) refuses
   to start; it isn't available yet.
 
 In HTTP mode, `SUBTITLE_MCP_ALLOWED_HOSTS` and `SUBTITLE_MCP_ALLOWED_ORIGINS` guard against DNS rebinding and

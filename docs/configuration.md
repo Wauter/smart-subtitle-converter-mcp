@@ -9,7 +9,7 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 | `SUBTITLE_API_KEY` / `SUBTITLE_API_KEY_FILE` | – | unset | Bearer key sent to the API (the only upstream key; never taken from requests) |
 | `SUBTITLE_MCP_HTTP_TOKEN` / `SUBTITLE_MCP_HTTP_TOKEN_FILE` | – | unset | HTTP mode: inbound token(s), ≥ 32 chars, comma list / one per line, file re-read on change. Required with `--http` |
 | `SUBTITLE_MCP_HTTP` | `--http [host:]port` | stdio | Serve Streamable HTTP on `/mcp` ([http-sidecar.md](http-sidecar.md)) |
-| `SUBTITLE_MCP_HOSTED` | `--hosted` | `false` | Hosted hardening (not available yet: refuses to start) |
+| `SUBTITLE_MCP_HOSTED` | `--hosted` | `false` | Hosted mode (not available yet: refuses to start) |
 | `SUBTITLE_MCP_ALLOWED_DIRS` | `--allow-dir` | unset | Read-write roots (`:`-separated, `;` on Windows, or a JSON array) |
 | `SUBTITLE_MCP_READONLY_DIRS` | `--allow-dir-ro` | unset | Read-only roots |
 | `SUBTITLE_MCP_USE_CLIENT_ROOTS` | – | `true` | Local mode: add the client's `roots/list` folders to the configured ones ([folders-and-roots.md](folders-and-roots.md)) |

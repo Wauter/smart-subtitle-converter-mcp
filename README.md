@@ -1,6 +1,6 @@
 # Subtitle Edit Converter MCP
 
-**Let Claude and other AI agents convert subtitles with Subtitle Edit's engine, safely inside the folders you allow.**
+**Let Claude and other AI agents convert subtitles with Subtitle Edit's engine, only inside the folders you allow.**
 
 > **Built on Subtitle Edit.** Conversions run in the
 > [Subtitle Edit Converter API](https://github.com/Wauter/subtitleedit-converter-api), which wraps `libse`, the
@@ -19,7 +19,7 @@ warnings the agent can act on. It does no conversion itself.
 - **Atomic writes:** single files are staged and committed with a rename; existing files are never overwritten
   unless you allow it.
 - **All-or-nothing batches:** `convert_batch` writes into a new folder that appears only when every file succeeded.
-- **Results you can trust:** binary outputs carry the API's `verification` verdict, and warnings carry a `hint`
+- **Results with a verdict:** binary outputs carry the API's `verification` verdict, and warnings carry a `hint`
   and a structured `remedy`. Errors have a stable `code`, a `hint` and, for path errors, the allowed folders.
 - **Content stays on your machine:** files go by `path`, so their contents don't pass through the model's context;
   content, keys and tokens are never logged.
