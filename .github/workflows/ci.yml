@@ -89,8 +89,10 @@ jobs:
           curl -sf localhost:13000/healthz
           docker exec mcp-smoke /nodejs/bin/node dist/healthcheck.js
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:13000/mcp -H 'content-type: application/json' -d '{}')" = 401
-          docker logs mcp-smoke 2>&1 | grep -q '"msg":"listening"'
-          ! docker logs mcp-smoke 2>&1 | grep -q "$TOKEN"
+          # Capture first: `docker logs | grep -q` under pipefail can die with SIGPIPE (exit 141).
+          LOGS=$(docker logs mcp-smoke 2>&1)
+          grep -q '"msg":"listening"' <<<"$LOGS"
+          if grep -qF "$TOKEN" <<<"$LOGS"; then echo "::error::token found in logs"; exit 1; fi
           docker rm -f mcp-smoke
 
   contract:
