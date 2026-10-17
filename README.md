@@ -114,13 +114,14 @@ Content, base64, profile values, API keys and tokens are never logged.
              "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/Subtitles" } } } }
 ```
 
-Claude Code (stdio):
+Claude Code (stdio). Claude Code shares its workspace folders as MCP roots, so no folder setting is needed; add
+`--env SUBTITLE_MCP_ALLOWED_DIRS=...` / `SUBTITLE_MCP_READONLY_DIRS=...` only for extra folders outside the workspace:
 
 ```bash
 claude mcp add --transport stdio \
   --env SUBTITLE_API_URL=http://localhost:4041 \
-  --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/Subtitles \
   subtitleedit -- node /path/to/subtitleedit-converter-mcp/dist/index.js
+# optional extra folders: --env SUBTITLE_MCP_READONLY_DIRS=/Volumes/Masters (before the server name)
 ```
 
 `http://localhost:4041` is the host port the API's `docker-compose.yml` publishes (bound to `127.0.0.1`; the
@@ -136,14 +137,29 @@ The MCP only reads and writes files inside its allowed folders. Every tool that 
 description, each marked read-write or read-only, e.g. `Allowed folders: /Users/me/Subtitles (read-write),
 /Volumes/Masters (read-only).` With none available, the descriptions say so and name the settings below.
 
+Allowed folders come from two sources, combined:
+
+- **Configuration:** `SUBTITLE_MCP_ALLOWED_DIRS` (read-write) and `SUBTITLE_MCP_READONLY_DIRS` (read-only).
+- **Client roots:** when the client supports MCP roots and `SUBTITLE_MCP_USE_CLIENT_ROOTS` isn't `false`, its
+  workspace folders are added as read-write folders, even when folders are configured. The effective set is the
+  union. A configured read-only folder stays read-only even inside a client root (the most restrictive setting
+  wins), and an empty or failing `roots/list` never removes configured folders (a failing one also keeps the
+  client folders received before). When the set changes, the tool descriptions are rebuilt and
+  `notifications/tools/list_changed` is sent.
+
+Per client:
+
 - **Claude Desktop doesn't pass its own approved folders to MCP servers.** It advertises the MCP roots capability
   but answers `roots/list` with an empty list, so folders you approve in a Claude chat never reach this server.
   Set `SUBTITLE_MCP_ALLOWED_DIRS` (read-write) and/or `SUBTITLE_MCP_READONLY_DIRS` (read-only) in its config.
-- **Claude Code and other roots-capable clients** can supply folders automatically: when no folders are
-  configured (and `SUBTITLE_MCP_USE_CLIENT_ROOTS` isn't `false`), the client's workspace roots are used as
-  read-write folders. When they change, the tool descriptions are rebuilt and `notifications/tools/list_changed` is sent.
-- **Configured folders always win** (D-13): when `SUBTITLE_MCP_ALLOWED_DIRS` or `SUBTITLE_MCP_READONLY_DIRS` is set,
-  client roots are never requested, so an empty or failing `roots/list` can't remove or replace them.
+- **Claude Code** (and other roots-capable clients) supplies its workspace folders automatically; add the env
+  settings only for extra folders (e.g. a read-only masters share).
+
+The `list_allowed_folders` tool returns the folders in effect right now, each with `mode` (read-write/read-only)
+and `source` (`config`/`client-roots`), plus a `state` (`ready`, `waiting-for-roots`, `roots-unsupported`,
+`roots-empty`, `roots-failed`, `none`) and, when there are none, a hint naming the settings. Path errors
+(`path-not-allowed`) include the current list in their hint.
+
 - Roots are deprecated as of MCP protocol `2026-07-28` (SEP-2577), so configuration stays the primary mechanism;
   client roots are a convenience while clients still send them.
 - Every `roots/list` answer is logged at `info` level (count, folders hashed unless `SUBTITLE_MCP_LOG_PATHS=true`,
@@ -207,7 +223,7 @@ when the image can't be pulled, unless the repo variable `CONTRACT_REQUIRED=true
 
 ### Smoke checklist (Claude Desktop / Cursor, MCP Inspector)
 
-1. `tools/list` shows the seven tools; `convert_batch` only when a writable root is configured.
+1. `tools/list` shows the eight tools; `convert_batch` only when a writable root is configured, `list_allowed_folders` whenever paths are available.
 2. `list_formats` returns `subrip`, `webvtt`, `ebustl`.
 3. `convert_subtitle` with inline SRT → WebVTT returns the text inline.
 4. `convert_subtitle` with `path` + `outputDir`: the file appears atomically; a second run fails with `output-exists`.

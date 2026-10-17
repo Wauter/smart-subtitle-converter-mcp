@@ -2,27 +2,29 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { RootsListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Config } from "./config.js";
 import type { Logger } from "./log.js";
-import { ClientRoots, StaticRoots, type Root, type RootsProvider } from "./fs/guard.js";
+import { ClientRoots, CombinedRoots, StaticRoots, type Root, type RootsProvider } from "./fs/guard.js";
 import { refreshToolDescriptions } from "./tools/common.js";
 import type { Deps } from "./context.js";
 
 export interface RootsSetup {
   provider: RootsProvider;
-  /** Set only when client roots are in use (local mode, nothing configured, SUBTITLE_MCP_USE_CLIENT_ROOTS). */
+  /** Set when client roots are in use (local mode, SUBTITLE_MCP_USE_CLIENT_ROOTS not false). */
   client?: ClientRoots;
 }
 
 /**
- * §11.1 / D-13: configured roots (SUBTITLE_MCP_ALLOWED_DIRS / SUBTITLE_MCP_READONLY_DIRS) are authoritative and
- * replace client roots: when any are configured, roots/list is never requested, so an empty or failing client
- * answer can't touch them. Client roots are used only when nothing is configured.
+ * Roots in local mode (Wauter, 2026-10-17; supersedes D-13 "configured replace client roots"): configured roots
+ * (SUBTITLE_MCP_ALLOWED_DIRS / SUBTITLE_MCP_READONLY_DIRS) are COMBINED with the client's workspace roots when the
+ * client supports roots and SUBTITLE_MCP_USE_CLIENT_ROOTS isn't false. The effective set is the union; client roots
+ * are read-write, a configured read-only folder stays read-only inside a client root, and an empty or failing
+ * roots/list never removes configured folders. Sidecar/hosted: configured roots only.
  */
 export function selectRoots(cfg: Config, configured: Root[], fetcher: () => Promise<{ uri: string }[]>, log?: Logger): RootsSetup {
-  if (configured.length) return { provider: new StaticRoots(configured) };
   if (cfg.mode === "local" && cfg.useClientRoots) {
     const client = new ClientRoots(fetcher, { log });
-    return { provider: client, client };
+    return { provider: new CombinedRoots(configured, client), client };
   }
+  if (configured.length) return { provider: new StaticRoots(configured) };
   return { provider: new StaticRoots([], cfg.mode === "local" ? "no allowed folders are configured (SUBTITLE_MCP_USE_CLIENT_ROOTS=false)" : "no folders are mounted and allowlisted") };
 }
 
@@ -54,4 +56,7 @@ export function attachClientRoots(server: McpServer, deps: Deps, client: ClientR
   return { settled: () => chain };
 }
 
-export const rootsSource = (s: RootsSetup): "configured" | "client" | "none" => (s.client ? "client" : s.provider.snapshot().source);
+export const rootsSource = (s: RootsSetup): string => {
+  const src = s.provider.snapshot().source;
+  return s.client ? (src === "configured" ? "configured+client" : "client") : src;
+};

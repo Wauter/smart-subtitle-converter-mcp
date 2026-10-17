@@ -357,11 +357,11 @@ describe("convert_subtitle", () => {
 
 describe("modes, annotations, resources", () => {
   afterEach(() => mswServer.resetHandlers());
-  it("local: all seven tools with path params", async () => {
+  it("local: all eight tools with path params", async () => {
     mswServer.use(...baseHandlers());
     const h = await harness();
     const { tools } = await h.client.listTools();
-    expect(tools.map((t) => t.name)).toEqual(["list_formats", "list_presets", "get_profile", "validate_profile", "detect_format", "convert_subtitle", "convert_batch"]);
+    expect(tools.map((t) => t.name)).toEqual(["list_formats", "list_presets", "get_profile", "validate_profile", "detect_format", "convert_subtitle", "convert_batch", "list_allowed_folders"]);
     const conv = tools.find((t) => t.name === "convert_subtitle")!;
     expect(Object.keys(conv.inputSchema.properties!)).toContain("outputDir");
     expect(conv.inputSchema.additionalProperties).toBe(false);
