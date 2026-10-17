@@ -16,6 +16,10 @@ export interface FakeOpts {
   /** Drop this entry from the manifest silently. */
   drop?: string;
   chunks?: string[][];
+  /** API 1.2.0: verification block on the main output, by entry name. */
+  verification?: Record<string, unknown>;
+  /** Entry names containing this fail (failFast) with ambiguous-format + candidates. */
+  ambiguousFormatMarker?: string;
 }
 
 export const fakeBatchApi = (o: FakeOpts = {}) =>
@@ -38,9 +42,11 @@ export const fakeBatchApi = (o: FakeOpts = {}) =>
         i++;
         continue;
       }
+      if (o.ambiguousFormatMarker && n.includes(o.ambiguousFormatMarker))
+        return problem(422, "ambiguous-format", { detail: `Zip entry ${i} ('${n}') failed: the bytes match both PAC and FPC.`, entry: n, candidates: ["pacscreenelectronics", "pacunicodeunipac"], errors: [{ pointer: "/source/format", message: "x" }] });
       const stem = n.replace(/\.[^./]+$/, "");
       const mk = (fileName: string, fmt: string) => ({ fileName, format: fmt, formatId: fmt, mediaType: "text/vtt", content: Buffer.from(`WEBVTT\n${n}\n`).toString("base64"), contentEncoding: "base64", encoding: "utf-8", cues: 1, source: n, kind: "text" });
-      const outs = [mk(o.fixedName ?? `${stem}.vtt`, "webvtt"), ...(o.extraOutputs ?? []).map((f) => mk(`${stem}.${f}.vtt`, f))];
+      const outs = [{ ...mk(o.fixedName ?? `${stem}.vtt`, "webvtt"), ...(o.verification?.[n] ? { verification: o.verification[n] } : {}) }, ...(o.extraOutputs ?? []).map((f) => mk(`${stem}.${f}.vtt`, f))];
       outputs.push(...outs);
       entries.push({ source: n, status: "ok", outputs: outs.map((x) => x.fileName), detected: { format: "SubRip", id: "subrip", encoding: "utf-8", encodingConfidence: "utf8-valid", language: null, paragraphs: 1, kind: "text" }, warnings: [{ code: "op-noop", message: "nothing" }], kind: "text" });
       i++;

@@ -17,7 +17,7 @@ concurrency:
 
 env:
   # The API build this MCP release targets (D-37/D-43); bumped deliberately together with package.json.
-  API_IMAGE: ghcr.io/wauter/subtitleedit-converter-api:sha-b14ae11   # API 1.1.1 (D-43 pair: 1.1.x)
+  API_IMAGE: ghcr.io/wauter/subtitleedit-converter-api:sha-d6366f4   # API 1.2.0 (D-43 pair: 1.2.x)
 
 jobs:
   check:

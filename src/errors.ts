@@ -1,7 +1,14 @@
 import { z } from "zod";
 
 export const FieldError = z.object({ pointer: z.string(), message: z.string(), hint: z.string().nullish() });
-export const Warning = z.object({ code: z.string(), message: z.string() });
+/** API 1.2.0: cue numbers (1-based, first 20) and code points; never cue text. */
+export const WarningDetails = z.object({
+  cueCount: z.number().int().optional(),
+  cues: z.array(z.number().int()).optional(),
+  distinctCodePoints: z.number().int().optional(),
+  codePoints: z.array(z.object({ codePoint: z.string(), count: z.number().int() })).optional(),
+});
+export const Warning = z.object({ code: z.string(), message: z.string(), hint: z.string().optional(), details: WarningDetails.optional() });
 export const ToolErrorSchema = z.object({
   source: z.enum(["api", "mcp"]),
   status: z.number().int().optional(),
@@ -16,6 +23,8 @@ export const ToolErrorSchema = z.object({
   limit: z.object({ name: z.string(), value: z.number(), actual: z.number() }).optional(),
   groups: z.array(z.array(z.string())).optional(),
   outputs: z.array(z.string()).optional(),
+  /** ambiguous-format: the format ids the bytes match. */
+  candidates: z.array(z.string()).optional(),
   entry: z.string().optional(),
   phase: z.string().optional(),
   /** D-35: the caller-visible path a local failure is about. */
@@ -50,7 +59,7 @@ export interface MapContext {
   headerRequestId?: string;
 }
 
-const MCP_HINTS: Record<string, string> = {
+export const MCP_HINTS: Record<string, string> = {
   "invalid-profile": "Check the profile with validate_profile; format ids come from list_formats.",
   "format-option-invalid": "See `options` in list_formats for the formatOptions block.",
   "preset-not-found": "Use list_presets.",
@@ -59,6 +68,8 @@ const MCP_HINTS: Record<string, string> = {
   "format-not-writable": "Pick a target with list_formats {writableOnly:true}.",
   "invalid-binary-input": "Send binary files via path or base64; set profile.source.format if the wrong format was detected.",
   "encoding-error": "Set profile.encoding.input.",
+  "ambiguous-format":
+    "The file matches both PAC and Unicode PAC (FPC). Pass profile.source.format ('pac' or 'fpc'), or give the file its .pac or .fpc name.",
   "input-limits-exceeded": "Split the file.",
   "ambiguous-batch-names":
     "Rename the clashing files or split them into separate batches; for output-path clashes, check `target.additional` and `profile.target.fileName` (include `{stem}`).",
@@ -118,6 +129,7 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
   }
   if (Array.isArray(b.groups)) te.groups = b.groups.filter(Array.isArray).map((g) => (g as unknown[]).map(String));
   if (Array.isArray(b.outputs)) te.outputs = b.outputs.map(String);
+  if (Array.isArray(b.candidates)) te.candidates = b.candidates.map(String);
   if (typeof b.entry === "string") te.entry = b.entry;
   if (typeof b.phase === "string") te.phase = b.phase;
   if (ctx.includeDebug && ctx.mode !== "hosted" && b.debug !== undefined) te.debug = b.debug;
@@ -168,6 +180,7 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
 export function errorText(e: ToolError): string {
   let s = `${e.code}: ${e.detail ?? e.title ?? "error"}`;
   if (e.errors?.length) s += "\n" + e.errors.slice(0, 10).map((x) => `  ${x.pointer}: ${x.message}${x.hint ? ` (${x.hint})` : ""}`).join("\n");
+  if (e.candidates?.length) s += `\nCandidates: ${e.candidates.join(", ")}`;
   if (e.groups?.length) s += "\nClashing: " + e.groups.map((g) => g.join(" <-> ")).join("; ");
   if (e.osError) s += `\nOS error: ${e.osError.code}${e.osError.syscall ? ` (${e.osError.syscall})` : ""}`;
   if (e.limit) s += `\nLimit ${e.limit.name}=${e.limit.value}, actual ${e.limit.actual}`;

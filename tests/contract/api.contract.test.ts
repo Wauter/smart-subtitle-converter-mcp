@@ -241,6 +241,63 @@ describe.skipIf(!URL_)("contract: real API", () => {
     });
   });
 
+  describe("1.2.0: verification, actionable warnings, source diagnostics, ambiguous-format", () => {
+    const GREEK = "1\n00:00:01,000 --> 00:00:02,500\nΚαλημέρα κόσμε\n\n2\n00:00:03,000 --> 00:00:04,000\nΕίναι μια δοκιμή\n\n3\n00:00:05,000 --> 00:00:06,000\nΤέλος της δοκιμής\n";
+    const ZERO = "1\n00:00:00,000 --> 00:00:00,000\nmeta\n\n2\n00:00:01,000 --> 00:00:02,000\nHello\n\n3\n00:00:03,000 --> 00:00:04,000\nWorld\n";
+    it("SRT→PAC Greek: lossy verification with replaced chars by cue/code point, actionable hint; codePage greek → quantised", async () => {
+      const src = put("v12/greek.srt", GREEK);
+      const r = await callTool(h, "convert_subtitle", { path: src, target: "pac", outputDir: path.join(dir, "v12", "pac-latin") });
+      expect(r.isError).toBeFalsy();
+      const v = r.structuredContent.outputs[0].verification;
+      expect(v.verdict).toBe("lossy");
+      expect(v.cuesWritten).toBe(3);
+      expect(v.cuesReadBack).toBe(3);
+      expect(v.replacedChars.cues).toEqual([1, 2, 3]);
+      expect(v.replacedChars.codePoints[0].codePoint).toMatch(/^U\+03[9A-F][0-9A-F]$/);
+      expect(JSON.stringify(v)).not.toMatch(/[Α-ω]/); // positions and code points only, never cue text
+      const w = r.structuredContent.warnings.find((x: any) => x.code === "characters-replaced");
+      expect(w.hint).toMatch(/pac\.codePage.*greek/);
+      expect(w.details.cues).toEqual([1, 2, 3]);
+      expect(r.content[0].text).toMatch(/Verification of greek\.pac: lossy: 3\/3 cues read back; \d+ char\(s\) replaced in cue\(s\) 1, 2, 3/);
+      const g = await callTool(h, "convert_subtitle", { path: src, profile: { target: { format: "pac" }, formatOptions: { pac: { codePage: "greek" } } }, outputDir: path.join(dir, "v12", "pac-greek") });
+      expect(g.structuredContent.outputs[0].verification.verdict).toMatch(/^(quantised|lossless)$/);
+    });
+    it("zero-length cue → EBU STL: zero-length-cue warning and verification.zeroLengthCues", async () => {
+      const src = put("v12/zero.srt", ZERO);
+      const r = await callTool(h, "convert_subtitle", { path: src, target: "ebustl", outputDir: path.join(dir, "v12", "ebu") });
+      expect(r.isError).toBeFalsy();
+      const v = r.structuredContent.outputs[0].verification;
+      expect(v.verdict).toBe("lossy");
+      expect(v.zeroLengthCues).toEqual({ total: 1, cues: [1] });
+      const codes = r.structuredContent.warnings.map((x: any) => x.code);
+      expect(codes).toEqual(expect.arrayContaining(["zero-length-cue", "lossy-format"]));
+      expect(r.structuredContent.warnings.find((x: any) => x.code === "lossy-format" && /99:59:59,999/.test(x.message)).hint).toMatch(/ApplyDurationLimits/);
+    });
+    it("detect_format: bom, lineEndings and source warnings", async () => {
+      const d = await callTool(h, "detect_format", { content: "\uFEFF" + ZERO.replace(/\n/g, "\r\n"), fileName: "z.srt" });
+      expect(d.structuredContent.bom).toBe(true);
+      expect(d.structuredContent.lineEndings).toBe("crlf");
+      expect(d.structuredContent.warnings.map((x: any) => x.code)).toContain("zero-length-cue");
+    });
+    it("PAC/FPC ambiguity: no deciding name → ambiguous-format with candidates; .fpc name or source.format decides", async () => {
+      const bytes = fs.readFileSync(new URL("./fixtures/sample.fpc.bin", import.meta.url));
+      const bin = put("v12/amb.bin", bytes);
+      const r = await callTool(h, "convert_subtitle", { path: bin, target: "subrip" });
+      expect(r.isError).toBe(true);
+      expect(r.structuredContent.error.code).toBe("ambiguous-format");
+      expect(r.structuredContent.error.candidates).toEqual(expect.arrayContaining(["pacscreenelectronics", "pacunicodeunipac"]));
+      expect(r.content[0].text).toMatch(/profile\.source\.format \('pac' or 'fpc'\)/);
+      const ok = await callTool(h, "convert_subtitle", { path: bin, target: "subrip", profile: { source: { format: "fpc" } } });
+      expect(ok.isError).toBeFalsy();
+      const named = await callTool(h, "detect_format", { path: put("v12/amb.fpc", bytes) });
+      expect(named.structuredContent.id).toBe("pacunicodeunipac");
+      const b = await callTool(h, "convert_batch", { paths: [bin], outputDir: path.join(dir, "v12", "batch-amb"), target: "subrip" });
+      expect(b.isError).toBe(true);
+      expect(b.structuredContent.failures[0].code).toBe("ambiguous-format");
+      expect(b.structuredContent.failures[0].candidates).toEqual(expect.arrayContaining(["pacunicodeunipac"]));
+    });
+  });
+
   describe("binary milestone (feature-detected)", () => {
     it("SRT→EBU STL→SRT round trip by path", async () => {
       const src = put("bin/a.srt", srt(3, "Round trip"));

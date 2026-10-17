@@ -80,6 +80,13 @@ describe("problem mapping (§8.1)", () => {
     expect(te.outputs).toEqual(["out.vtt"]);
     expect(te.entry).toBe("x");
   });
+  it("ambiguous-format: candidates pass through, hint names profile.source.format", () => {
+    const te = mapProblem(422, p(422, "ambiguous-format", { candidates: ["pacscreenelectronics", "pacunicodeunipac"], errors: [{ pointer: "/source/format", message: "m" }] }), ctx);
+    expect(te.code).toBe("ambiguous-format");
+    expect(te.candidates).toEqual(["pacscreenelectronics", "pacunicodeunipac"]);
+    expect(te.hint).toMatch(/^API hint\. .*profile\.source\.format \('pac' or 'fpc'\)/);
+    expect(errorText(te)).toMatch(/\nCandidates: pacscreenelectronics, pacunicodeunipac\n/);
+  });
   it("error text format", () => {
     expect(errorText({ source: "mcp", code: "x", detail: "d", hint: "h", requestId: "r" })).toBe("x: d\nHint: h\nrequestId: r");
   });

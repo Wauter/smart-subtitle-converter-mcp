@@ -37,7 +37,7 @@ const put = (rel: string, content = SRT) => {
 };
 beforeEach(async () => {
   recorded.length = 0;
-  apiInfo.version = "1.1.0";
+  apiInfo.version = "1.2.0";
   apiInfo.probedAt = Date.now();
   dir = fs.realpathSync(tmpDir("batch-"));
   inDir = path.join(dir, "in");
@@ -89,6 +89,32 @@ describe("convert_batch (D-44: new outputDir, all or nothing)", () => {
     expect(fs.readFileSync(path.join(outDir, "s1", "b.vtt"), "utf8")).toBe("WEBVTT\ns1/b.srt\n");
     expect(stagingLeft()).toEqual([]);
     expect(r.content[0].text).toMatch(/^Converted 2 files \(2 outputs\) in 1 request → .*out \(new folder\)\. 3 files excluded \(\._x\.srt: macos-metadata/);
+  });
+
+  it("1.2.0: verification per binary output in entries[] and a verdict line in the summary", async () => {
+    put("a.srt");
+    put("b.srt");
+    const lossy = { verdict: "lossy", cuesWritten: 2, cuesReadBack: 2, timing: { maxShiftMs: 0, meanShiftMs: 0, frameMs: 40, cuesOverOneFrame: 0 }, zeroLengthCues: { total: 1, cues: [1] } };
+    const quant = { verdict: "quantised", cuesWritten: 2, cuesReadBack: 2, timing: { maxShiftMs: 12, meanShiftMs: 6, frameMs: 40, cuesOverOneFrame: 0 } };
+    mswServer.use(fakeBatchApi({ verification: { "a.srt": lossy, "b.srt": quant } }));
+    const r = await callTool(h, "convert_batch", { inputDir: inDir, outputDir: outDir, target: "webvtt" });
+    expect(r.isError).toBeFalsy();
+    const a = r.structuredContent.entries.find((e: any) => e.source.endsWith("a.srt"));
+    expect(a.verification).toEqual([{ output: path.join(outDir, "a.vtt"), ...lossy }]);
+    expect(r.content[0].text).toContain("Verification of 2 binary outputs: 1 quantised, 1 lossy. a.vtt: lossy: 2/2 cues read back; zero-length cue(s) 1 not stored at their own time;");
+  });
+
+  it("1.2.0: ambiguous-format on an entry → failure with candidates and the profile.source.format hint", async () => {
+    put("a.srt");
+    put("b.bin");
+    mswServer.use(fakeBatchApi({ ambiguousFormatMarker: "b.bin" }));
+    const r = await callTool(h, "convert_batch", { inputDir: inDir, outputDir: outDir, target: "srt" });
+    expect(r.isError).toBe(true);
+    const f = r.structuredContent.failures[0];
+    expect(f.code).toBe("ambiguous-format");
+    expect(f.candidates).toEqual(["pacscreenelectronics", "pacunicodeunipac"]);
+    expect(f.hint).toMatch(/profile\.source\.format \('pac' or 'fpc'\)/);
+    expect(f.hint.match(/profile\.source\.format/g)).toHaveLength(1);
   });
 
   it("one bad file: batch-failed, nothing written, outputDir not created, failures[] with hint", async () => {

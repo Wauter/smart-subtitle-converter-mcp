@@ -10,7 +10,7 @@ beforeAll(() => mswServer.listen({ onUnhandledFrame: "error" }));
 afterAll(() => mswServer.close());
 beforeEach(() => {
   recorded.length = 0;
-  apiInfo.version = "1.1.0";
+  apiInfo.version = "1.2.0";
   apiInfo.probedAt = Date.now();
   apiInfo.versionMismatch = false;
   apiInfo.featureMismatch = undefined;
@@ -54,7 +54,7 @@ describe("metadata tools", () => {
     apiInfo.version = "1.0.0";
     apiInfo.versionMismatch = true;
     const r = await callTool(h, "list_formats", {});
-    expect(r.content[0].text).toMatch(/mcp-api-version-mismatch: API version 1\.0\.0 is not compatible with this MCP \(1\.1\.x\)/);
+    expect(r.content[0].text).toMatch(/mcp-api-version-mismatch: API version 1\.0\.0 is not compatible with this MCP \(1\.2\.x\)/);
 
     // Tools whose `warnings` are FieldErrors keep a valid output schema (found by the contract run).
     mswServer.use(http.post(`${API}/v1/profiles/validate`, () => HttpResponse.json({ valid: true, errors: [], warnings: [{ pointer: "/target/format", message: "No target format" }], resolved: {} })));
@@ -92,6 +92,16 @@ describe("metadata tools", () => {
     const r = await callTool(h, "validate_profile", { profile: { target: { format: "x" } } });
     expect(r.isError).toBeFalsy();
     expect(r.content[0].text).toBe("The profile is INVALID (1 error):\n  /target/format: Unknown format 'x'. (Did you mean 'webvtt'?)");
+  });
+
+  it("detect_format 1.2.0: bom, lineEndings and source warnings", async () => {
+    mswServer.use(http.post(`${API}/v1/detect`, () => HttpResponse.json({ format: "SubRip", id: "subrip", encoding: "utf-8", encodingConfidence: "bom", paragraphs: 3, kind: "text", bom: true, lineEndings: "crlf", warnings: [{ code: "zero-length-cue", message: "1 cue(s) …: cue(s) 1.", count: 1, hint: "Remove them.", details: { cueCount: 1, cues: [1] } }] })));
+    const r = await callTool(h, "detect_format", { content: SRT, fileName: "m.srt" });
+    expect(r.structuredContent.bom).toBe(true);
+    expect(r.structuredContent.lineEndings).toBe("crlf");
+    expect(r.structuredContent.warnings[0]).toMatchObject({ code: "zero-length-cue", hint: "Remove them.", details: { cueCount: 1, cues: [1] } });
+    expect(r.content[0].text).toContain("BOM, line endings crlf.");
+    expect(r.content[0].text).toContain("\nWarning zero-length-cue: 1 cue(s) …: cue(s) 1. (count 1) (hint: Remove them.)");
   });
 
   it("detect_format: summary, heuristic note, format-not-detected hint", async () => {
@@ -332,6 +342,48 @@ describe("convert_subtitle", () => {
     const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "ebustl", outputDir: path.join(dir, "out") });
     expect(r.structuredContent.warnings[0].code).toBe("frame-rate-changed");
     expect(r.content[0].text.split("\n")[1]).toMatch(/^Frame rate changed: 29\.97 → 30 fps/);
+  });
+
+  it("1.2.0: verification is passed through and summarised; warnings keep hint and details", async () => {
+    await setup();
+    const verification = {
+      verdict: "lossy", cuesWritten: 3, cuesReadBack: 3,
+      timing: { maxShiftMs: 13, meanShiftMs: 4.3, frameMs: 41.7, cuesOverOneFrame: 0 },
+      replacedChars: { total: 50, cueCount: 3, cues: [1, 2, 3], distinctCodePoints: 27, codePoints: [{ codePoint: "U+03B1", count: 5 }, { codePoint: "U+03B9", count: 4 }, { codePoint: "U+03B5", count: 3 }, { codePoint: "U+03BF", count: 2 }] },
+    };
+    const warning = {
+      code: "characters-replaced", message: "50 character(s) in 3 cue(s) couldn't be encoded in pac-latin", count: 50,
+      hint: "Set formatOptions.pac.codePage to \"greek\".", details: { cueCount: 3, cues: [1, 2, 3], distinctCodePoints: 27, codePoints: [{ codePoint: "U+03B1", count: 5 }] },
+    };
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "movie.pac", content: "AAAA", contentEncoding: "base64", kind: "binary", verification }], { warnings: [warning] }))));
+    const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "pac", outputDir: path.join(dir, "out") });
+    expect(r.isError).toBeFalsy();
+    expect(r.structuredContent.outputs[0].verification).toEqual(verification);
+    expect(r.structuredContent.warnings[0]).toEqual({ code: "characters-replaced", message: `${warning.message} (count 50)`, hint: warning.hint, details: warning.details });
+    const text = r.content[0].text;
+    expect(text).toContain("Verification of movie.pac: lossy: 3/3 cues read back; 50 char(s) replaced in cue(s) 1, 2, 3 (U+03B1×5, U+03B9×4, U+03B5×3, …); timing max 13 ms, mean 4.3 ms (frame 41.7 ms).");
+    expect(text).toContain('(hint: Set formatOptions.pac.codePage to "greek".)');
+  });
+
+  it("1.2.0: unverified verdict shows its reason; zero-length cues are named", async () => {
+    await setup();
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([
+      { fileName: "a.stl", content: "AAAA", contentEncoding: "base64", verification: { verdict: "lossy", cuesWritten: 3, cuesReadBack: 3, timing: { maxShiftMs: 0, meanShiftMs: 0, frameMs: 40, cuesOverOneFrame: 0 }, zeroLengthCues: { total: 1, cues: [1] } } },
+      { fileName: "a.pac", content: "AAAA", contentEncoding: "base64", verification: { verdict: "unverified", cuesWritten: 3, reason: "read-back failed: IndexOutOfRangeException" } },
+    ]))));
+    const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "ebustl", outputDir: path.join(dir, "out") });
+    expect(r.content[0].text).toContain("Verification of a.stl: lossy: 3/3 cues read back; zero-length cue(s) 1 not stored at their own time;");
+    expect(r.content[0].text).toContain("Verification of a.pac: unverified (read-back failed: IndexOutOfRangeException).");
+  });
+
+  it("1.2.0: ambiguous-format becomes a ToolError with candidates and a profile.source.format hint", async () => {
+    await setup();
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => problem(422, "ambiguous-format", { candidates: ["pacscreenelectronics", "pacunicodeunipac"] })));
+    const r = await callTool(h, "convert_subtitle", { content: "AAAA", contentEncoding: "base64", target: "srt" });
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent.error.code).toBe("ambiguous-format");
+    expect(r.structuredContent.error.candidates).toEqual(["pacscreenelectronics", "pacunicodeunipac"]);
+    expect(r.content[0].text).toMatch(/profile\.source\.format \('pac' or 'fpc'\)/);
   });
 
   it("D-38: staging happens in <root>/.subtitle-mcp-staging/, never in the output folder", async () => {
