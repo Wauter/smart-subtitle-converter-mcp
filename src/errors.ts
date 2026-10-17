@@ -7,6 +7,22 @@ export const WarningDetails = z.object({
   cues: z.array(z.number().int()).optional(),
   distinctCodePoints: z.number().int().optional(),
   codePoints: z.array(z.object({ codePoint: z.string(), count: z.number().int() })).optional(),
+  /** API 1.2.1, characters-replaced: the facts to choose a fix (option, allowed values, tested candidates). */
+  remedy: z
+    .object({
+      scripts: z.array(z.string()),
+      detectedLanguage: z.string().optional(),
+      currentEncoding: z.string(),
+      option: z.string().optional(),
+      currentValue: z.string().optional(),
+      allowedValues: z.array(z.string()).optional(),
+      candidates: z.array(z.string()).optional(),
+      candidatesTested: z.boolean(),
+      suggested: z.string().optional(),
+      unicodeAlternative: z.string(),
+      note: z.string().optional(),
+    })
+    .optional(),
 });
 export const Warning = z.object({ code: z.string(), message: z.string(), hint: z.string().optional(), details: WarningDetails.optional() });
 export const ToolErrorSchema = z.object({

@@ -48,6 +48,10 @@ Since 1.2.0 (API 1.2.x):
   A clean round trip proves the file is self-consistent through the converter's own reader, not that a given playout
   system accepts it.
 - `detect_format` also returns `bom`, `lineEndings` and source `warnings`.
+- Since 1.2.1, `characters-replaced` carries `details.remedy`: `option` (e.g. `formatOptions.pac.codePage`),
+  `allowedValues`, `currentValue`, `candidates` (for PAC tested by the API: code pages that keep every character of
+  the text), `suggested` (only when exactly one fits), `unicodeAlternative` (`fpc`) and `note` (libse limits). The
+  API never guesses a language-based code page; with several candidates, choose by the text's language.
 - PAC and Unicode PAC (FPC) files that can't be told apart by name fail with `ambiguous-format` (`error.candidates`);
   pass `profile.source.format` (`pac` or `fpc`).
 
