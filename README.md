@@ -6,6 +6,9 @@
 > [Subtitle Edit Converter API](https://github.com/Wauter/subtitleedit-converter-api), which wraps `libse`, the
 > library behind [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit) by **Nikolaj Olsson** (MIT).
 > This is a community project, **not an official Subtitle Edit project**.
+>
+> **Status: alpha.** It works and is tested, but hasn't been through real-world use yet. Expect changes, and
+> please [report issues](https://github.com/Wauter/subtitleedit-converter-mcp/issues).
 
 This [Model Context Protocol](https://modelcontextprotocol.io) server gives AI agents the Subtitle Edit Converter
 API and adds what an agent working on your files needs: access only to folders you or your client name, atomic

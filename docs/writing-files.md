@@ -1,6 +1,7 @@
 # Writing files
 
-Nothing is ever half-written: every output is staged next to its destination and committed atomically.
+Every output is staged next to its destination and committed with an atomic rename, so a failed or interrupted
+write doesn't leave a half-written file or folder behind.
 
 ## `convert_subtitle`
 
