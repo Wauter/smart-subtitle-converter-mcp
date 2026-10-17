@@ -404,6 +404,19 @@ export interface components {
             profilesDir: null | string;
             mountError: null | string;
         };
+        RemedyInfo: {
+            scripts: string[];
+            detectedLanguage: null | string;
+            currentEncoding: string;
+            option: null | string;
+            currentValue: null | string;
+            allowedValues: null | string[];
+            suggested: null | string;
+            candidates: null | string[];
+            candidatesTested: boolean;
+            unicodeAlternative: string;
+            note?: null | string;
+        };
         ReplacedChars: {
             /** Format: int32 */
             total: number | string;
@@ -468,6 +481,7 @@ export interface components {
             /** Format: int32 */
             distinctCodePoints?: null | number | string;
             codePoints?: null | components["schemas"]["CodePointCount"][];
+            remedy?: null | components["schemas"]["RemedyInfo"];
         };
     };
     responses: never;

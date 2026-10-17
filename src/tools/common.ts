@@ -385,15 +385,38 @@ export function mapWarnings(ws: unknown): WarningT[] {
       if (Array.isArray(d.cues)) det.cues = ints(d.cues);
       if (d.distinctCodePoints != null) det.distinctCodePoints = toInt(d.distinctCodePoints);
       if (Array.isArray(d.codePoints)) det.codePoints = codePoints(d.codePoints);
+      const rm = mapRemedy(d.remedy);
+      if (rm) det.remedy = rm;
       if (Object.keys(det).length) out.details = det;
     }
     return out;
   });
 }
 
+const strs = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x).slice(0, 100)).slice(0, 50) : undefined);
+const str = (v: unknown) => (typeof v === "string" && v ? v.slice(0, 500) : undefined);
+
+function mapRemedy(r: any): NonNullable<WarningT["details"]>["remedy"] | undefined {
+  if (!r || typeof r !== "object") return undefined;
+  const out: NonNullable<NonNullable<WarningT["details"]>["remedy"]> = {
+    scripts: strs(r.scripts) ?? [], currentEncoding: String(r.currentEncoding ?? ""), candidatesTested: r.candidatesTested === true, unicodeAlternative: String(r.unicodeAlternative ?? "fpc"),
+  };
+  for (const k of ["detectedLanguage", "option", "currentValue", "suggested", "note"] as const) {
+    const v = str(r[k]);
+    if (v) out[k] = v;
+  }
+  for (const k of ["allowedValues", "candidates"] as const) {
+    const v = strs(r[k]);
+    if (v) out[k] = v;
+  }
+  return out;
+}
+
 /** "code: message (hint: …)" for summaries. */
 export function warningText(w: WarningT): string {
-  return `${w.code}: ${w.message}${w.hint ? ` (hint: ${w.hint})` : ""}`;
+  const r = w.details?.remedy;
+  const opts = !w.hint && r?.option && r.candidates?.length ? ` (options for ${r.option}: ${r.candidates.join(", ")}; or target ${r.unicodeAlternative})` : "";
+  return `${w.code}: ${w.message}${w.hint ? ` (hint: ${w.hint})` : opts}`;
 }
 
 export function fieldErrors(v: unknown): z.infer<typeof FieldError>[] {

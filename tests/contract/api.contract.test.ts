@@ -258,9 +258,23 @@ describe.skipIf(!URL_)("contract: real API", () => {
       const w = r.structuredContent.warnings.find((x: any) => x.code === "characters-replaced");
       expect(w.hint).toMatch(/pac\.codePage.*greek/);
       expect(w.details.cues).toEqual([1, 2, 3]);
+      // 1.2.1: remedy facts
+      expect(w.details.remedy).toMatchObject({ option: "formatOptions.pac.codePage", currentValue: "latin", suggested: "greek", candidates: ["greek"], candidatesTested: true, unicodeAlternative: "fpc" });
+      expect(w.details.remedy.allowedValues).toEqual(expect.arrayContaining(["latin", "greek", "czech", "turkish"]));
       expect(r.content[0].text).toMatch(/Verification of greek\.pac: lossy: 3\/3 cues read back; \d+ char\(s\) replaced in cue\(s\) 1, 2, 3/);
       const g = await callTool(h, "convert_subtitle", { path: src, profile: { target: { format: "pac" }, formatOptions: { pac: { codePage: "greek" } } }, outputDir: path.join(dir, "v12", "pac-greek") });
       expect(g.structuredContent.outputs[0].verification.verdict).toMatch(/^(quantised|lossless)$/);
+    });
+    it("1.2.1: several tested candidates (traditional Chinese → PAC) are listed, none suggested; Polish → PAC is lossless", async () => {
+      const r = await callTool(h, "convert_subtitle", { content: "1\n00:00:01,000 --> 00:00:02,000\n這是測試\n", fileName: "tw.srt", target: "pac" });
+      expect(r.isError).toBeFalsy();
+      const rm = r.structuredContent.warnings.find((x: any) => x.code === "characters-replaced").details.remedy;
+      expect(rm.suggested).toBeUndefined();
+      expect(rm.candidatesTested).toBe(true);
+      expect(rm.candidates).toEqual(expect.arrayContaining(["chinese-traditional", "chinese-simplified"]));
+      expect(rm.candidates.length).toBeGreaterThan(1);
+      const pl = await callTool(h, "convert_subtitle", { content: "1\n00:00:01,000 --> 00:00:02,000\nZażółć gęślą jaźń\n", fileName: "pl.srt", target: "pac" });
+      expect(pl.structuredContent.outputs[0].verification.verdict).toBe("lossless");
     });
     it("zero-length cue → EBU STL: zero-length-cue warning and verification.zeroLengthCues", async () => {
       const src = put("v12/zero.srt", ZERO);

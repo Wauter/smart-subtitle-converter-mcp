@@ -353,7 +353,14 @@ describe("convert_subtitle", () => {
     };
     const warning = {
       code: "characters-replaced", message: "50 character(s) in 3 cue(s) couldn't be encoded in pac-latin", count: 50,
-      hint: "Set formatOptions.pac.codePage to \"greek\".", details: { cueCount: 3, cues: [1, 2, 3], distinctCodePoints: 27, codePoints: [{ codePoint: "U+03B1", count: 5 }] },
+      hint: "Set formatOptions.pac.codePage to \"greek\".",
+      details: {
+        cueCount: 3, cues: [1, 2, 3], distinctCodePoints: 27, codePoints: [{ codePoint: "U+03B1", count: 5 }],
+        remedy: {
+          scripts: ["Greek"], detectedLanguage: "el", currentEncoding: "pac-latin", option: "formatOptions.pac.codePage", currentValue: "latin",
+          allowedValues: ["latin", "greek"], suggested: "greek", candidates: ["greek"], candidatesTested: true, unicodeAlternative: "fpc",
+        },
+      },
     };
     mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "movie.pac", content: "AAAA", contentEncoding: "base64", kind: "binary", verification }], { warnings: [warning] }))));
     const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "pac", outputDir: path.join(dir, "out") });
@@ -363,6 +370,21 @@ describe("convert_subtitle", () => {
     const text = r.content[0].text;
     expect(text).toContain("Verification of movie.pac: lossy: 3/3 cues read back; 50 char(s) replaced in cue(s) 1, 2, 3 (U+03B1×5, U+03B9×4, U+03B5×3, …); timing max 13 ms, mean 4.3 ms (frame 41.7 ms).");
     expect(text).toContain('(hint: Set formatOptions.pac.codePage to "greek".)');
+  });
+
+  it("1.2.1: remedy without a hint renders the candidates; null members are dropped", async () => {
+    await setup();
+    const warning = {
+      code: "characters-replaced", message: "4 character(s) lost", count: 4,
+      details: { cues: [1], remedy: { scripts: ["CJK"], detectedLanguage: "zh", currentEncoding: "pac-latin", option: "formatOptions.pac.codePage", currentValue: "latin", suggested: null, candidates: ["chinese-traditional", "chinese-simplified"], candidatesTested: true, unicodeAlternative: "fpc" } },
+    };
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.pac", content: "AAAA", contentEncoding: "base64" }], { warnings: [warning] }))));
+    const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "pac", outputDir: path.join(dir, "out") });
+    expect(r.isError).toBeFalsy();
+    const rm = r.structuredContent.warnings[0].details.remedy;
+    expect(rm.suggested).toBeUndefined();
+    expect(rm.candidates).toEqual(["chinese-traditional", "chinese-simplified"]);
+    expect(r.content[0].text).toContain("(options for formatOptions.pac.codePage: chinese-traditional, chinese-simplified; or target fpc)");
   });
 
   it("1.2.0: unverified verdict shows its reason; zero-length cues are named", async () => {
