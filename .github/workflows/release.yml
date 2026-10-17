@@ -12,7 +12,7 @@ permissions:
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/subtitleedit-converter-mcp
-  API_IMAGE: ghcr.io/wauter/subtitleedit-converter-api:sha-89ce197
+  API_IMAGE: ghcr.io/wauter/subtitleedit-converter-api:sha-3108c2d   # API 1.1.0 (D-43 pair)
 
 jobs:
   test:
