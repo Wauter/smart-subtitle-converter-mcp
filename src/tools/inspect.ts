@@ -13,9 +13,9 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
   defineTool(server, deps, {
     name: "validate_profile",
     title: "Validate a conversion profile",
-    description:
+    description: () =>
       "Check a custom conversion profile without converting anything. Returns `valid`, errors with JSON pointers and hints, warnings, and the resolved profile. Always validate a profile you wrote yourself before using it in convert_subtitle or convert_batch. The JSON Schema is available as the resource `subtitleedit://schemas/profile.json`. A profile without `target.format` can be valid (with a warning) because it may be a base for other presets." +
-      (paths ? " Give exactly one of `profile` or `path`." : ""),
+      (paths ? ` Give exactly one of \`profile\` or \`path\`. ${deps.rootsText}` : ""),
     shape: {
       profile: z.record(z.unknown()).optional().describe("Profile JSON object"),
       ...(paths ? { path: z.string().optional().describe("Absolute path to a profile .json file in an allowed folder") } : {}),
@@ -51,10 +51,11 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
     name: "detect_format",
     warningArray: true,
     title: "Detect subtitle format",
-    description:
+    description: () =>
       "Identify a subtitle file's format, character encoding, language and cue count without converting it. Use it when you don't know what a file is, or before converting when the file extension is missing or misleading." +
       (paths ? " Prefer `path` (the file stays out of your context and binary files stay intact); give exactly one of `content` or `path`." : " Binary files must be sent as base64 content.") +
-      " If detection is ambiguous, `candidates` lists alternatives, and you can force one in a conversion with `profile.source.format`. Zip files aren't accepted here; use convert_batch for folders.",
+      " If detection is ambiguous, `candidates` lists alternatives, and you can force one in a conversion with `profile.source.format`. Zip files aren't accepted here; use convert_batch for folders." +
+      (paths ? ` ${deps.rootsText}` : ""),
     shape: {
       content: z.string().optional().describe("Subtitle content: text, or base64 if contentEncoding is 'base64'"),
       contentEncoding: z.enum(["text", "base64"]).default("text"),

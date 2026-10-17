@@ -78,7 +78,7 @@ export function describeBatch(deps: Deps): string {
     " All or nothing: `outputDir` appears only when every file has converted and been written. If any file fails (conversion or write), the batch stops at that file, nothing is written, and the result lists what failed with a hint; fix it and rerun the whole batch." +
     " Always tell the user about warnings (e.g. `lossy-format`, `characters-replaced`, `frame-quantised`, `frame-rate-changed`, which flags an EBU STL frame-rate code mismatch, e.g. a 29.97 fps source written with the STL30.01 code; timings move by less than one frame, with no cumulative drift)." +
     ` Set \`writeManifest: true\` to also write the report as ${MANIFEST_NAME} inside outputDir. Use convert_subtitle for a single file or to write into an existing folder.` +
-    ` Allowed folders: ${deps.rootsText}.`
+    ` ${deps.rootsText}`
   );
 }
 
@@ -87,7 +87,7 @@ export function registerBatchTool(server: McpServer, deps: Deps): void {
     name: "convert_batch",
     warningArray: true,
     title: "Convert a batch of subtitles",
-    description: describeBatch(deps),
+    description: () => describeBatch(deps),
     shape: {
       inputDir: z.string().optional().describe("Absolute folder in an allowed root"),
       pattern: z.string().max(200).default("*").describe("Glob relative to inputDir, e.g. '*.srt' or '**/*.{srt,vtt}'"),

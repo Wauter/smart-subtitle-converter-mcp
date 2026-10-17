@@ -24,8 +24,10 @@ export interface Deps {
   batchEnabled: boolean;
   /** A write is possible at all (affects annotations). */
   writable: boolean;
-  /** Human description of the allowed folders for descriptions and instructions. */
-  rootsText: string;
+  /** "Allowed folders: …" sentence for descriptions and instructions, built from the roots in effect now (fs/folders.ts). */
+  readonly rootsText: string;
+  /** The roots can change while running (client roots): tool descriptions are rebuilt and tools/list_changed sent. */
+  dynamicRoots: boolean;
   version: string;
 }
 

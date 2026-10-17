@@ -60,13 +60,18 @@ describe("stdio", () => {
     send({ jsonrpc: "2.0", method: "notifications/initialized" });
     send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
     send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "list_formats", arguments: {} } });
-    await waitFor(() => p.stdout().split("\n").filter(Boolean).length >= 3);
+    const responses = () => p.stdout().split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((m) => m.id !== undefined);
+    await waitFor(() => responses().length >= 3);
     p.child.stdin!.end();
     await p.exited;
     const lines = p.stdout().split("\n").filter(Boolean);
     for (const l of lines) expect(JSON.parse(l).jsonrpc).toBe("2.0");
-    expect(lines.map((l) => JSON.parse(l).id)).toEqual([1, 2, 3]);
-    expect(JSON.parse(lines[2]).result.structuredContent.formats[0].id).toBe("webvtt");
+    expect(responses().map((m) => m.id)).toEqual([1, 2, 3]);
+    // No folders configured and a client without roots: the path tools' descriptions switch from "none yet" to
+    // "none", announced with tools/list_changed (the only notification allowed here).
+    const notes = lines.map((l) => JSON.parse(l)).filter((m) => m.id === undefined);
+    for (const n of notes) expect(n.method).toBe("notifications/tools/list_changed");
+    expect(responses()[2].result.structuredContent.formats[0].id).toBe("webvtt");
     expect(p.stderr()).toMatch(/"msg":"tool"/);
   });
 });
