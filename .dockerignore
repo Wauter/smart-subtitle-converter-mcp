@@ -1,0 +1,10 @@
+node_modules
+dist
+coverage
+tests
+openapi
+.github
+.git
+*.log
+.env
+.env.*

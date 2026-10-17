@@ -1,0 +1,56 @@
+{
+  "name": "subtitleedit-converter-mcp",
+  "version": "1.1.0",
+  "description": "MCP server for the Subtitle Edit Converter API (community wrapper around Subtitle Edit libse; not an official Subtitle Edit project).",
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "gen:types": "openapi-typescript openapi/openapi.v1.json -o src/api/types.gen.ts",
+    "test": "vitest run --project unit --project mcp",
+    "test:e2e": "vitest run --project e2e",
+    "test:contract": "vitest run --project contract",
+    "test:all": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Wauter/subtitleedit-converter-mcp.git"
+  },
+  "author": "Wauter De Bruyne",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Wauter/subtitleedit-converter-mcp/issues"
+  },
+  "homepage": "https://github.com/Wauter/subtitleedit-converter-mcp#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "fflate": "0.8.3",
+    "picomatch": "4.0.7",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "22.20.5",
+    "@types/picomatch": "4.0.3",
+    "eslint": "9.39.5",
+    "msw": "3.0.3",
+    "openapi-typescript": "7.13.0",
+    "tsup": "9.0.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.2",
+    "vitest": "5.0.5"
+  },
+  "private": true,
+  "type": "module",
+  "bin": {
+    "subtitleedit-converter-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}

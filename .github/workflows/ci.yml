@@ -1,0 +1,135 @@
+name: ci
+
+# PRs and main: lint, types, tests, build, image build (never pushed), contract against the pinned API.
+# Nothing here publishes anything: no npm publish, no image push, no tags, no releases (see release.yml).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The API build this MCP release targets (D-37/D-43); bumped deliberately together with package.json.
+  API_IMAGE: ghcr.io/wauter/subtitleedit-converter-api:sha-3108c2d   # API 1.1.0 (D-43 pair)
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Generated API types are in sync with openapi/openapi.v1.json
+        run: |
+          npm run gen:types
+          git diff --exit-code -- src/api/types.gen.ts
+      - name: Unit + MCP-level tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Transport e2e (built dist)
+        run: npm run test:e2e
+      - name: Publishing guard (package stays private)
+        run: |
+          node -e 'if (require("./package.json").private !== true) { console.error("package.json must keep private=true"); process.exit(1) }'
+      - name: npm audit (production deps)
+        run: npm audit --omit=dev --audit-level=high
+
+  docker:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build linux/amd64 + linux/arm64 (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
+          build-args: |
+            VERSION=${{ github.sha }}
+            REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Load amd64 for the smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: subtitleedit-converter-mcp:smoke
+          cache-from: type=gha
+      - name: Smoke (read-only rootfs, token required, healthcheck, 401 without token)
+        run: |
+          set -euo pipefail
+          if docker run --rm -e SUBTITLE_API_URL=http://api:8080 subtitleedit-converter-mcp:smoke; then
+            echo "::error::sidecar started without an inbound token"; exit 1
+          fi
+          TOKEN=$(openssl rand -hex 32)
+          docker run -d --name mcp-smoke --read-only --cap-drop ALL -p 127.0.0.1:13000:3000 \
+            -e SUBTITLE_API_URL=http://127.0.0.1:9 -e SUBTITLE_MCP_HTTP_TOKEN="$TOKEN" subtitleedit-converter-mcp:smoke
+          for _ in $(seq 1 30); do curl -sf localhost:13000/healthz >/dev/null && break; sleep 1; done
+          curl -sf localhost:13000/healthz
+          docker exec mcp-smoke /nodejs/bin/node dist/healthcheck.js
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:13000/mcp -H 'content-type: application/json' -d '{}')" = 401
+          docker logs mcp-smoke 2>&1 | grep -q '"msg":"listening"'
+          ! docker logs mcp-smoke 2>&1 | grep -q "$TOKEN"
+          docker rm -f mcp-smoke
+
+  contract:
+    needs: check
+    # Never for fork PRs (no registry access, no secrets).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Pull the pinned API image (private GHCR package)
+        id: pull
+        env:
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Preferred: the API package grants this repo Actions read access (GITHUB_TOKEN, packages: read).
+          # Alternative: a read:packages PAT in the GHCR_READ_TOKEN secret.
+          ok=false
+          if [ -n "${GHCR_READ_TOKEN}" ]; then
+            echo "${GHCR_READ_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin && docker pull "$API_IMAGE" && ok=true
+          fi
+          if [ "$ok" != true ]; then
+            echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin && docker pull "$API_IMAGE" && ok=true || true
+          fi
+          echo "available=$ok" >> "$GITHUB_OUTPUT"
+          if [ "$ok" != true ]; then
+            msg="Contract tests skipped: cannot pull $API_IMAGE. Grant this repository Actions read access in the API package settings (preferred), or add a read:packages PAT as the GHCR_READ_TOKEN secret."
+            echo "::warning::$msg"
+            echo "### ⚠️ $msg" >> "$GITHUB_STEP_SUMMARY"
+            if [ "${{ vars.CONTRACT_REQUIRED }}" = "true" ]; then echo "::error::CONTRACT_REQUIRED=true"; exit 1; fi
+          fi
+      - name: Contract suite (defaults; small limits + API keys)
+        if: steps.pull.outputs.available == 'true'
+        run: scripts/contract.sh "$API_IMAGE"

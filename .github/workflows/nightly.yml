@@ -1,0 +1,53 @@
+name: nightly-contract
+
+# Nightly drift check against the API's private :edge image. Failures open (or update) an issue instead of
+# blocking merges (spec §14). Publishes nothing.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  issues: write
+
+jobs:
+  edge:
+    runs-on: ubuntu-latest
+    env:
+      API_IMAGE: ghcr.io/wauter/subtitleedit-converter-api:edge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Pull :edge
+        id: pull
+        env:
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ok=false
+          if [ -n "${GHCR_READ_TOKEN}" ]; then
+            echo "${GHCR_READ_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin && docker pull "$API_IMAGE" && ok=true
+          fi
+          if [ "$ok" != true ]; then
+            echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin && docker pull "$API_IMAGE" && ok=true || true
+          fi
+          echo "available=$ok" >> "$GITHUB_OUTPUT"
+          [ "$ok" = true ] || echo "::warning::Cannot pull $API_IMAGE (registry access not granted yet); skipping."
+      - name: Contract suite against :edge
+        if: steps.pull.outputs.available == 'true'
+        run: scripts/contract.sh "$API_IMAGE"
+      - name: Open or update the drift issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly contract failure against API :edge"
+          body="The nightly contract suite failed against \`$API_IMAGE\`: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          n=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number')
+          if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "$title" --body "$body"; fi
