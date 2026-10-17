@@ -1,0 +1,43 @@
+# Writing files
+
+Nothing is ever half-written: every output is staged next to its destination and committed atomically.
+
+## `convert_subtitle`
+
+Writes through a staging file in `<output-root>/.subtitle-mcp-staging/` and commits it with an atomic link/rename.
+
+`ifExists`:
+
+| Value | Behaviour |
+|---|---|
+| `error` (default) | Fail with `output-exists` |
+| `archive` | Rename the old file to `<name>.<UTC timestamp>.bak`, then write |
+| `replace`, `delete` | Only with `SUBTITLE_MCP_ALLOW_DESTRUCTIVE=true` |
+
+Nothing is ever suffixed (`_2`).
+
+## `convert_batch`
+
+- Requires an `outputDir` that does **not exist yet** (`output-dir-exists` otherwise). There is no overwrite
+  option; pick a new folder name for a rerun.
+- Outputs are staged in `<output-root>/.subtitle-mcp-staging/<dirname>.<6hex>.partial/`. Only when every file has
+  converted and been written is that folder renamed to `outputDir` (missing parent folders are created just before).
+- On any failure the staging folder is deleted and nothing is written; the result lists the failing file(s) with a
+  hint.
+
+## Staging rules
+
+- The staging folder must be on the same filesystem as the destination. A mount inside an output root fails with
+  `cross-device` (configure that mount as its own output root); there is never a non-atomic copy.
+- Stale staging files and folders (older than `SUBTITLE_MCP_PARTIAL_MAX_AGE_MS`) are swept at startup and
+  periodically, only inside `.subtitle-mcp-staging/`. No state is stored.
+- In the sidecar image the output roots must be writable by uid 65532 ([http-sidecar.md](http-sidecar.md)).
+
+## Race windows
+
+Documented and small:
+
+- On filesystems without hard links (many SMB shares, FAT/exFAT) a single-file commit is a plain `rename` right
+  after an `lstat`, so a file created at the same instant by another program could be overwritten.
+- A batch commit is `lstat` + `rename(staging, outputDir)`. POSIX `rename` replaces an **empty** directory created
+  in between; that loses no data.
