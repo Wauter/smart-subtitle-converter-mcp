@@ -1,6 +1,6 @@
 {
   "name": "subtitleedit-converter-mcp",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "MCP server for the Subtitle Edit Converter API (community wrapper around Subtitle Edit libse; not an official Subtitle Edit project).",
   "scripts": {
     "build": "tsup",

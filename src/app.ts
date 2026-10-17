@@ -4,7 +4,8 @@ import { createLogger, type Logger } from "./log.js";
 import { ApiClient } from "./api/client.js";
 import { LimitsCache } from "./api/limits.js";
 import { StaticKeyAuth, type UpstreamAuth } from "./auth.js";
-import { PathGuard, StaticRoots, type Root, type RootsProvider } from "./fs/guard.js";
+import { ClientRoots, PathGuard, StaticRoots, type Root, type RootsProvider } from "./fs/guard.js";
+import { allowedFoldersText } from "./fs/folders.js";
 import { realFsOps, SafeWriter, type FsOps } from "./fs/write.js";
 import { VERSION } from "./version.js";
 
@@ -34,11 +35,6 @@ export function buildDeps(cfg: Config, o: DepsOptions = {}): Deps {
   const anyWritable = roots.some((r) => r.writable);
   const writable = cfg.mode === "local" ? (configured ? anyWritable : true) : cfg.mode === "sidecar" && anyWritable;
   const batchEnabled = cfg.mode === "local" || (cfg.mode === "sidecar" && anyWritable);
-  const rootsText = configured
-    ? roots.map((r) => `${r.path} (${r.writable ? "read-write" : "read-only"})`).join(", ")
-    : cfg.mode === "local"
-      ? "your client's workspace roots"
-      : "none";
   const guard = new PathGuard(provider);
   const writer = new SafeWriter(log, o.fsOps, o.clock);
   writer.rootOf = (dir) => guard.outputRoot(dir);
@@ -54,7 +50,10 @@ export function buildDeps(cfg: Config, o: DepsOptions = {}): Deps {
     pathsInSchema,
     batchEnabled,
     writable,
-    rootsText,
+    get rootsText() {
+      return allowedFoldersText(provider.snapshot());
+    },
+    dynamicRoots: provider instanceof ClientRoots,
     version: VERSION,
   };
 }

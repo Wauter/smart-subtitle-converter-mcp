@@ -82,7 +82,7 @@ Unknown `SUBTITLE_MCP_*` variables fail startup (typo protection).
 | `SUBTITLE_MCP_HOSTED` | `--hosted` | `false` | Hosted hardening (not available in v1) |
 | `SUBTITLE_MCP_ALLOWED_DIRS` | `--allow-dir` | unset | Read-write roots (`:`-separated, `;` on Windows, or a JSON array) |
 | `SUBTITLE_MCP_READONLY_DIRS` | `--allow-dir-ro` | unset | Read-only roots |
-| `SUBTITLE_MCP_USE_CLIENT_ROOTS` | – | `true` | Local mode: also use the client's `roots/list` |
+| `SUBTITLE_MCP_USE_CLIENT_ROOTS` | – | `true` | Local mode: use the client's `roots/list` when no folders are configured |
 | `SUBTITLE_MCP_ALLOW_DESTRUCTIVE` | – | `false` | Allow `ifExists: replace/delete` in convert_subtitle |
 | `SUBTITLE_MCP_PARTIAL_MAX_AGE_MS` | – | `3600000` | Age after which staging files/folders are swept |
 | `SUBTITLE_MCP_MAX_BYTES` | – | unset | Local cap per input file (effective cap = min with the API limit) |
@@ -117,6 +117,25 @@ Content, base64, profile values, API keys and tokens are never logged.
 On Windows some clients need `"command": "cmd", "args": ["/c", "npx", "-y", "subtitleedit-converter-mcp"]`, and
 `SUBTITLE_MCP_ALLOWED_DIRS` uses `;` as the separator. Until the package is published, point `command` at
 `node /path/to/subtitleedit-converter-mcp/dist/index.js` after `npm ci && npm run build`.
+
+### Allowed folders
+
+The MCP only reads and writes files inside its allowed folders. Every tool that takes a path lists them in its
+description, each marked read-write or read-only, e.g. `Allowed folders: /Users/me/Subtitles (read-write),
+/Volumes/Masters (read-only).` With none available, the descriptions say so and name the settings below.
+
+- **Claude Desktop doesn't pass its own approved folders to MCP servers.** It advertises the MCP roots capability
+  but answers `roots/list` with an empty list, so folders you approve in a Claude chat never reach this server.
+  Set `SUBTITLE_MCP_ALLOWED_DIRS` (read-write) and/or `SUBTITLE_MCP_READONLY_DIRS` (read-only) in its config.
+- **Claude Code and other roots-capable clients** can supply folders automatically: when no folders are
+  configured (and `SUBTITLE_MCP_USE_CLIENT_ROOTS` isn't `false`), the client's workspace roots are used as
+  read-write folders. When they change, the tool descriptions are rebuilt and `notifications/tools/list_changed` is sent.
+- **Configured folders always win** (D-13): when `SUBTITLE_MCP_ALLOWED_DIRS` or `SUBTITLE_MCP_READONLY_DIRS` is set,
+  client roots are never requested, so an empty or failing `roots/list` can't remove or replace them.
+- Roots are deprecated as of MCP protocol `2026-07-28` (SEP-2577), so configuration stays the primary mechanism;
+  client roots are a convenience while clients still send them.
+- Every `roots/list` answer is logged at `info` level (count, folders hashed unless `SUBTITLE_MCP_LOG_PATHS=true`,
+  and skipped entries with the reason), so the client's MCP log shows what it actually sent.
 
 ## Sidecar (reference Compose)
 

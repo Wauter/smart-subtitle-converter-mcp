@@ -63,11 +63,11 @@ export function describeConvert(deps: Deps): string {
   if (deps.pathsInSchema) {
     d +=
       " With `outputPath` (exact file) or `outputDir` (the converter picks the name), the result is written to disk and only a summary comes back. Without them the converted subtitle is returned inline. Binary targets (EBU STL, PAC, …) are always returned as base64, so write them to disk. Output file names come from the converter; pass `fileName` for inline content so the output is named after it. If a file with that name already exists, the default `ifExists: \"error\"` fails and names the existing file (with an explicit `outputPath` this happens before converting), so ask the user whether to `replace`, `archive` (keep the old file as a `.bak`) or `delete` it, or pick another folder. Nothing half-written is ever left under the final name." +
-      (deps.cfg.allowDestructive ? " `delete` removes the old file permanently; it can't be restored." : " `replace` and `delete` are disabled on this server unless the operator allows them; `archive` always works.") +
-      " Nothing half-written is ever left under the final name.";
+      (deps.cfg.allowDestructive ? " `delete` removes the old file permanently; it can't be restored." : " `replace` and `delete` are disabled on this server unless the operator allows them; `archive` always works.");
   } else d += " The converted subtitle is returned inline (binary targets as base64).";
   d +=
     " Note: EBU Tech 3264 has no 29.97 fps code, so a 29.97 fps EBU STL source is written with the STL30.01 code; the API flags such frame-rate code mismatches with the warning `frame-rate-changed`. Timings change by less than one frame (no cumulative drift); tell the user, and see the warning for the workaround. Always report `warnings` to the user: they flag lossy formats, replaced characters, frame quantisation and frame-rate changes. On `conversion-timeout`, split the file and convert the parts.";
+  if (deps.pathsInSchema) d += ` ${deps.rootsText}`;
   return d;
 }
 
@@ -97,7 +97,7 @@ export function registerConvertTool(server: McpServer, deps: Deps): void {
     name: "convert_subtitle",
     warningArray: true,
     title: "Convert subtitle",
-    description: describeConvert(deps),
+    description: () => describeConvert(deps),
     shape,
     output: ConvertOutput,
     annotations: paths && deps.writable

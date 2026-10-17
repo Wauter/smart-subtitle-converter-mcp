@@ -141,9 +141,9 @@ describe("version check (D-37/D-43)", () => {
     }
     apiInfo.versionMismatch = false;
   });
-  it("package.json carries the shared version 1.1.0 and stays private", async () => {
+  it("package.json carries the shared 1.1 version line (pairs with API 1.1.x) and stays private", async () => {
     const pkg = JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
-    expect(pkg.version).toBe("1.1.0");
+    expect(pkg.version).toMatch(/^1\.1\.\d+$/);
     expect(pkg.private).toBe(true);
   });
 });

@@ -1,15 +1,28 @@
 import fs from "node:fs/promises";
 import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 import { mcpError, ToolFailure } from "../errors.js";
+import type { Logger } from "../log.js";
 
 export interface Root {
   path: string; // realpath
   writable: boolean;
 }
 
+export interface RootsSnapshot {
+  roots: Root[];
+  source: "configured" | "client" | "none";
+  /** Why there are no roots (when `roots` is empty). */
+  reason?: string;
+  /** Client roots are expected but haven't been received yet. */
+  pending?: boolean;
+}
+
 /** Provides the current roots; `reason` explains why there are none. */
 export interface RootsProvider {
-  get(): Promise<{ roots: Root[]; source: "configured" | "client" | "none"; reason?: string }>;
+  get(): Promise<RootsSnapshot>;
+  /** The current state without waiting for an in-flight roots/list (for tool descriptions). */
+  snapshot(): RootsSnapshot;
 }
 
 export interface GuardOptions {
@@ -227,47 +240,112 @@ export async function realpathRoots(rw: string[], ro: string[]): Promise<Root[]>
 
 export class StaticRoots implements RootsProvider {
   constructor(private readonly list: Root[], private readonly reason?: string) {}
+  snapshot(): RootsSnapshot {
+    return { roots: this.list, source: this.list.length ? "configured" : "none", reason: this.reason };
+  }
   async get() {
-    return { roots: this.list, source: this.list.length ? ("configured" as const) : ("none" as const), reason: this.reason };
+    return this.snapshot();
   }
 }
 
-/** Client roots (local mode): fetched via roots/list after `initialized`, refreshed on list_changed. */
+/**
+ * file:// root URI → local path, via url.fileURLToPath (percent-decoding, Windows drive letters, UNC hosts); the
+ * scheme is never just stripped. Throws for other schemes and for URIs that aren't valid file URLs.
+ */
+export function rootUriToPath(uri: string, platform: NodeJS.Platform = process.platform): string {
+  let url: URL;
+  try {
+    url = new URL(uri);
+  } catch {
+    throw new Error("not a valid URI");
+  }
+  if (url.protocol !== "file:") throw new Error(`not a file:// URI (${url.protocol.replace(/:$/, "")})`);
+  try {
+    return fileURLToPath(url, { windows: platform === "win32" });
+  } catch (e) {
+    throw new Error(`not a usable file URI: ${(e as Error).message}`);
+  }
+}
+
+export interface ClientRootsOptions {
+  log?: Logger;
+  platform?: NodeJS.Platform;
+  /** Defaults to fs.realpath + stat (injectable for tests). */
+  resolveDir?: (p: string) => Promise<string>;
+}
+
+async function realDir(p: string): Promise<string> {
+  const real = await fs.realpath(p);
+  if (!(await fs.stat(real)).isDirectory()) throw Object.assign(new Error("not a directory"), { code: "ENOTDIR" });
+  return real;
+}
+
+/**
+ * Client roots (local mode, only when no folders are configured, D-13): fetched via roots/list after `initialized`,
+ * refreshed on notifications/roots/list_changed. An empty list disables paths (§11.1). A failing roots/list keeps
+ * the last list that was received (it never wipes working roots because of a transient error).
+ */
 export class ClientRoots implements RootsProvider {
   private roots: Root[] = [];
-  private pending?: Promise<void>;
+  private pending?: Promise<boolean>;
   private fetched = false;
   private reason = "the client has not provided workspace roots";
-  constructor(private readonly fetcher: () => Promise<{ uri: string }[]>, private readonly onError?: (e: unknown) => void) {}
+  constructor(private readonly fetcher: () => Promise<{ uri: string; name?: string }[]>, private readonly opts: ClientRootsOptions = {}) {}
 
-  refresh(): Promise<void> {
+  /** Fetches roots/list again; resolves to true when the effective set of roots changed. */
+  refresh(): Promise<boolean> {
+    const log = this.opts.log;
     const run = (async () => {
+      const before = this.key();
       try {
         const list = await this.fetcher();
         const out: Root[] = [];
+        const skipped: { uri: string; reason: string }[] = [];
         for (const r of list) {
-          if (!r.uri.startsWith("file://")) continue;
+          const uri = typeof r?.uri === "string" ? r.uri : String(r?.uri);
+          let local: string;
           try {
-            const p = new URL(r.uri);
-            const { fileURLToPath } = await import("node:url");
-            const real = await fs.realpath(fileURLToPath(p));
-            if ((await fs.stat(real)).isDirectory()) out.push({ path: real, writable: true });
-          } catch {
-            /* ignore missing roots */
+            local = rootUriToPath(uri, this.opts.platform);
+          } catch (e) {
+            skipped.push({ uri: log ? log.p(uri) : uri, reason: (e as Error).message });
+            continue;
+          }
+          try {
+            const real = await (this.opts.resolveDir ?? realDir)(local);
+            if (!out.some((o) => o.path === real)) out.push({ path: real, writable: true });
+          } catch (e) {
+            const code = (e as NodeJS.ErrnoException).code;
+            skipped.push({ uri: log ? log.p(uri) : uri, reason: code === "ENOENT" ? "folder does not exist" : code === "ENOTDIR" ? "not a directory" : `can't access the folder (${code ?? (e as Error).message})` });
           }
         }
         this.roots = out;
-        this.reason = out.length ? "" : "the client's roots/list is empty";
+        this.reason = out.length ? "" : list.length ? "none of the client's workspace roots is a usable local folder" : "the client's roots/list is empty";
+        log?.info("client roots received", {
+          received: list.length,
+          count: out.length,
+          roots: out.map((r) => log.p(r.path)),
+          skipped,
+          ...(out.length ? {} : { effect: "file paths disabled" }),
+        });
       } catch (e) {
-        this.onError?.(e);
-        this.roots = [];
-        this.reason = "the client did not answer roots/list";
+        const msg = (e as Error)?.message ?? String(e);
+        if (this.roots.length) {
+          log?.warn("roots/list failed; keeping the previous client roots", { error: msg, count: this.roots.length, roots: this.roots.map((r) => log.p(r.path)) });
+        } else {
+          this.reason = "the client did not answer roots/list";
+          log?.warn("roots/list failed; file paths disabled", { error: msg, count: 0 });
+        }
       } finally {
         this.fetched = true;
       }
+      return this.key() !== before;
     })();
     this.pending = run;
     return run;
+  }
+
+  private key(): string {
+    return JSON.stringify([this.roots.map((r) => r.path), this.fetched ? this.reason : "pending"]);
   }
 
   disable(reason: string) {
@@ -275,9 +353,13 @@ export class ClientRoots implements RootsProvider {
     this.fetched = true;
   }
 
+  snapshot(): RootsSnapshot {
+    return { roots: this.roots, source: this.roots.length ? "client" : "none", reason: this.reason, pending: !this.fetched };
+  }
+
   async get() {
     if (this.pending) await this.pending;
-    return { roots: this.roots, source: this.roots.length ? ("client" as const) : ("none" as const), reason: this.reason };
+    return this.snapshot();
   }
 
   get ready() {

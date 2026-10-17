@@ -1,5 +1,5 @@
 import { z, type ZodRawShape, type ZodTypeAny } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer, RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult, ContentBlock, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { errorText, FieldError, mcpError, ToolFailure, Warning, type ToolError, type WarningT } from "../errors.js";
 import { newCallId, withSuffix } from "../ids.js";
@@ -25,7 +25,8 @@ export interface ToolOutcome {
 export interface ToolDef<S extends ZodRawShape> {
   name: string;
   title: string;
-  description: string;
+  /** A function when the text depends on the allowed folders: it's rebuilt after a client-roots change. */
+  description: string | (() => string);
   shape: S;
   output: ZodRawShape;
   annotations: ToolAnnotations;
@@ -34,14 +35,35 @@ export interface ToolDef<S extends ZodRawShape> {
   handler: (args: z.infer<z.ZodObject<S>>, call: Call) => Promise<ToolOutcome>;
 }
 
+/** Per server: tools whose description is rebuilt when the allowed folders change. */
+const dynamicDescriptions = new WeakMap<McpServer, { tool: RegisteredTool; describe: () => string }[]>();
+
+/**
+ * Rebuilds the folder-dependent tool descriptions from the current roots. When any changed (and the server is
+ * connected), sends one notifications/tools/list_changed so clients fetch tools/list again. Returns whether any changed.
+ */
+export function refreshToolDescriptions(server: McpServer, _deps?: Deps): boolean {
+  let changed = false;
+  for (const d of dynamicDescriptions.get(server) ?? []) {
+    const text = d.describe();
+    if (d.tool.description !== text) {
+      d.tool.description = text;
+      changed = true;
+    }
+  }
+  if (changed) server.sendToolListChanged();
+  return changed;
+}
+
 /** Registers a tool with strict input parsing (→ invalid-arguments), error mapping and one log record per call. */
 export function defineTool<S extends ZodRawShape>(server: McpServer, deps: Deps, def: ToolDef<S>): void {
   const strict = z.object(def.shape).strict();
-  server.registerTool(
+  const describe = typeof def.description === "function" ? def.description : undefined;
+  const registered = server.registerTool(
     def.name,
     {
       title: def.title,
-      description: def.description,
+      description: describe ? describe() : (def.description as string),
       inputSchema: strict as unknown as S,
       outputSchema: def.output,
       annotations: { title: def.title, openWorldHint: false, ...def.annotations },
@@ -119,6 +141,11 @@ export function defineTool<S extends ZodRawShape>(server: McpServer, deps: Deps,
       }
     }) as any,
   );
+  if (describe) {
+    const list = dynamicDescriptions.get(server) ?? [];
+    list.push({ tool: registered, describe });
+    dynamicDescriptions.set(server, list);
+  }
 }
 
 function internalFailure(err: unknown, deps: Deps): ToolFailure {
