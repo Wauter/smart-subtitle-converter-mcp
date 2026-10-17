@@ -1,0 +1,86 @@
+import { describe, it, expect } from "vitest";
+import { errorText, mapProblem, type MapContext } from "../../src/errors.js";
+
+const ctx: MapContext = { mode: "local", includeDebug: false };
+const p = (status: number, code: string, extra: Record<string, unknown> = {}) => ({ type: "t", title: "T", status, code, detail: "d", hint: "API hint.", requestId: "rid", ...extra });
+
+describe("problem mapping (§8.1)", () => {
+  const cases: [number, string, string, RegExp | null][] = [
+    [400, "invalid-request", "invalid-request", null],
+    [400, "invalid-profile", "invalid-profile", /validate_profile/],
+    [400, "empty-input", "empty-input", null],
+    [400, "format-option-invalid", "format-option-invalid", /formatOptions/],
+    [401, "unauthorized", "unauthorized", /Set SUBTITLE_API_KEY/],
+    [404, "preset-not-found", "preset-not-found", /list_presets/],
+    [404, "not-found", "api-protocol-error", /SUBTITLE_API_URL/],
+    [413, "payload-too-large", "payload-too-large", /Split the file/],
+    [413, "zip-limits-exceeded", "zip-limits-exceeded", null],
+    [415, "unsupported-media-type", "api-protocol-error", /Report this/],
+    [422, "format-not-detected", "format-not-detected", /profile.source.format/],
+    [422, "format-not-supported", "format-not-supported", null],
+    [422, "format-not-writable", "format-not-writable", /writableOnly/],
+    [422, "invalid-binary-input", "invalid-binary-input", /via path or base64/],
+    [422, "encoding-error", "encoding-error", /encoding.input/],
+    [422, "unsafe-xml", "unsafe-xml", null],
+    [422, "unsafe-zip", "unsafe-zip", null],
+    [422, "input-limits-exceeded", "input-limits-exceeded", /Split/],
+    [422, "ambiguous-batch-names", "ambiguous-batch-names", /\{stem\}/],
+    [422, "conversion-failed", "conversion-failed", /operation/],
+    [429, "rate-limited", "rate-limited", /rate limited/],
+    [503, "queue-full", "queue-full", /busy/],
+    [500, "internal-error", "internal-error", /server bug/],
+    [418, "brand-new-code", "brand-new-code", null],
+  ];
+  it.each(cases)("%i %s → %s", (status, code, expected, hint) => {
+    const te = mapProblem(status, p(status, code), ctx);
+    expect(te.code).toBe(expected);
+    expect(te.status).toBe(status);
+    expect(te.source).toBe("api");
+    expect(te.requestId).toBe("rid");
+    expect(te.hint?.startsWith("API hint.")).toBe(true);
+    if (hint) expect(te.hint).toMatch(hint);
+  });
+  it("sidecar 401 hint names the operator", () => {
+    expect(mapProblem(401, p(401, "unauthorized"), { ...ctx, mode: "sidecar" }).hint).toMatch(/ask the operator/);
+  });
+  it("504 phase: queue vs running vs missing", () => {
+    expect(mapProblem(504, p(504, "conversion-timeout", { phase: "queue" }), ctx).hint).toMatch(/retry later/);
+    expect(mapProblem(504, p(504, "conversion-timeout", { phase: "running" }), ctx).hint).toMatch(/Split the file/);
+    expect(mapProblem(504, p(504, "conversion-timeout"), ctx).hint).toMatch(/Split the file/);
+  });
+  it("404 on /v1/limits is not remapped", () => {
+    expect(mapProblem(404, p(404, "not-found"), { ...ctx, endpoint: "/v1/limits" }).code).toBe("not-found");
+  });
+  it("unsafe-zip in a batch is an MCP bug", () => {
+    expect(mapProblem(422, p(422, "unsafe-zip"), { ...ctx, batch: true }).code).toBe("api-protocol-error");
+  });
+  it("format-not-supported → list_formats hint (no text-only mode, D-36)", () => {
+    expect(mapProblem(422, p(422, "format-not-supported"), ctx).hint).toMatch(/list_formats/);
+  });
+  it("missing code → http-<status>; missing requestId → header", () => {
+    const te = mapProblem(409, { title: "Conflict", status: 409 }, { ...ctx, headerRequestId: "hdr" });
+    expect(te.code).toBe("http-409");
+    expect(te.requestId).toBe("hdr");
+  });
+  it("empty-body 400 (legacy binding failure) → api-protocol-error", () => {
+    const te = mapProblem(400, undefined, ctx);
+    expect(te.code).toBe("api-protocol-error");
+    expect(te.title).toBe("http-400");
+  });
+  it("debug is stripped unless INCLUDE_DEBUG, and always in hosted mode", () => {
+    const body = p(422, "conversion-failed", { debug: { operation: "X" } });
+    expect(mapProblem(422, body, ctx).debug).toBeUndefined();
+    expect(mapProblem(422, body, { ...ctx, includeDebug: true }).debug).toEqual({ operation: "X" });
+    expect(mapProblem(422, body, { ...ctx, includeDebug: true, mode: "hosted" }).debug).toBeUndefined();
+  });
+  it("errors[], groups, outputs and entry pass through", () => {
+    const te = mapProblem(422, p(422, "ambiguous-batch-names", { errors: [{ pointer: "s1/EP1.vtt", message: "m" }], groups: [["ep1.srt", "EP1.vtt"]], outputs: ["out.vtt"], entry: "x" }), ctx);
+    expect(te.errors).toEqual([{ pointer: "s1/EP1.vtt", message: "m" }]);
+    expect(te.groups).toEqual([["ep1.srt", "EP1.vtt"]]);
+    expect(te.outputs).toEqual(["out.vtt"]);
+    expect(te.entry).toBe("x");
+  });
+  it("error text format", () => {
+    expect(errorText({ source: "mcp", code: "x", detail: "d", hint: "h", requestId: "r" })).toBe("x: d\nHint: h\nrequestId: r");
+  });
+});

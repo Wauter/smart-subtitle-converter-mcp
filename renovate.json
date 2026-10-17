@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "rangeStrategy": "pin",
+  "packageRules": [
+    {
+      "description": "The SDK is pinned exactly; review protocol changes before bumping (spec §15.5)",
+      "matchPackageNames": ["@modelcontextprotocol/sdk"],
+      "automerge": false
+    },
+    {
+      "description": "The contract image is bumped deliberately together with the MCP version (D-37/D-43)",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/wauter/subtitleedit-converter-api"],
+      "enabled": false
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions"
+    }
+  ]
+}

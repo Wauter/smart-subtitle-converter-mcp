@@ -1,51 +1,187 @@
 # Subtitle Edit Converter MCP
 
-`subtitleedit-converter-mcp` is part of a community wrapper around Subtitle Edit's `libse`, not an
-official Subtitle Edit project. It is a planned [Model Context Protocol](https://modelcontextprotocol.io) server that lets AI agents
-convert subtitles: a thin TypeScript client over
+`subtitleedit-converter-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server that lets AI agents
+convert subtitles. It is a thin TypeScript client over
 [subtitleedit-converter-api](https://github.com/Wauter/subtitleedit-converter-api) and does no conversion itself.
 
-**Status: design phase. There is no code yet.** Design: [subtitleedit-converter-api/docs/design.md §10](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/design.md#10-mcp-server-subtitleedit-converter-mcp).
+It is part of a community wrapper around Subtitle Edit's `libse`, **not an official Subtitle Edit project**.
 
-## Stack
+> **Private, unreleased.** No npm package or public image exists yet; every publish step is gated behind the repo
+> variable `PUBLISH_ENABLED` (default `false`).
 
-- TypeScript on Node 22 LTS
-- Official SDK [`@modelcontextprotocol/sdk`](https://www.npmjs.com/package/@modelcontextprotocol/sdk), with `zod` input schemas
-- Tool descriptions generated from the API's OpenAPI (`/openapi/v1.json`) at build time
+## Versions
+
+- **The MCP shares the API's version number.** MCP `1.1.0` pairs with API `1.1.0` and they are released together.
+- **`package.json` `version` is bumped on every change that ships** (any merged change to `src/`, the Dockerfile or the
+  bundled output). A patch may differ within a pair; major.minor must match.
+- **Minimum API:** 1.1.0. At startup the MCP reads `/healthz` and logs the API version. If major.minor differs from its
+  own it logs a warning (and adds an `mcp-api-version-mismatch` warning to conversion results). It also
+  feature-detects `GET /v1/limits` (200/401 = present) and warns if it is missing. There are no fallbacks for older APIs;
+  run matching pairs.
 
 ## Tools
 
-| Tool | subtitleedit-converter-api endpoint | Purpose |
+| Tool | API endpoint | Purpose |
 |---|---|---|
-| `list_formats` | `GET /v1/formats` | Supported formats (id, name, extension, read/write) |
+| `list_formats` | `GET /v1/formats` | Formats (id, name, extensions, read/write, text/binary); `includeBinary`, `writableOnly`, `limit` |
 | `list_presets` | `GET /v1/profiles` | Built-in and mounted presets, with validity and load errors |
-| `get_profile` | `GET /v1/profiles/{name}` | Resolved preset JSON |
-| `detect_format` | `POST /v1/detect` | Detect format, encoding and language of content |
-| `convert_subtitle` | `POST /v1/convert/json` | Convert content using a preset and/or profile overrides |
-| `validate_profile` | `POST /v1/profiles/validate` | Validate a profile and return errors with fix hints |
+| `get_profile` | `GET /v1/profiles/{name}` | Raw and resolved preset JSON |
+| `validate_profile` | `POST /v1/profiles/validate` | Validate a profile (inline or `profilePath`); pointer-level errors with hints |
+| `detect_format` | `POST /v1/detect` | Format, encoding and language of inline content or a `path` |
+| `convert_subtitle` | `POST /v1/convert/json` | Convert one file: inline content or `path`, result inline or to `outputPath`/`outputDir` |
+| `convert_batch` | `POST /v1/convert/json` (base64 zip, chunked) | Convert a folder or list of files into a **new** folder, all or nothing |
 
-Errors come back as `isError: true` with the API's error `code`, `hint` and `requestId`.
+Resources: `subtitleedit://schemas/profile.json`, `subtitleedit://formats`, `subtitleedit://limits`.
+
+Errors come back as `isError: true` with a structured `error` (`source`, `code`, `detail`, `hint`, `requestId`, and
+for local write failures `path` + `osError`). Report every warning the tools return (e.g. `frame-rate-changed`: an EBU
+STL frame-rate code mismatch, timings move by less than one frame with no cumulative drift).
+
+### Writing files
+
+- **`convert_subtitle`** writes through a staging file in `<output-root>/.subtitle-mcp-staging/` and commits it with an
+  atomic link/rename. `ifExists`: `error` (default), `archive` (renames the old file to `<name>.<UTC timestamp>.bak`),
+  and, only with `SUBTITLE_MCP_ALLOW_DESTRUCTIVE=true`, `replace` and `delete`. Nothing is ever suffixed (`_2`).
+- **`convert_batch`** requires an `outputDir` that does **not exist yet**. Outputs are staged in
+  `<output-root>/.subtitle-mcp-staging/<dirname>.<6hex>.partial/`; only when every file has converted and been written
+  is that folder renamed to `outputDir` (missing parent folders are created just before). On any failure the staging
+  folder is deleted and nothing is written; the result lists the failing file(s) with a hint.
+- The staging folder must be on the same filesystem as the destination. A mount inside an output root fails with
+  `cross-device` (configure that mount as its own output root); there is never a non-atomic copy.
+- Stale staging files and folders (older than `SUBTITLE_MCP_PARTIAL_MAX_AGE_MS`) are swept at startup and periodically,
+  only inside `.subtitle-mcp-staging/`. No state is stored.
+- **Race windows** (documented, small):
+  - On filesystems without hard links (many SMB shares, FAT/exFAT) a single-file commit is a plain `rename` right after
+    an `lstat`, so a file created at the same instant by another program could be overwritten.
+  - A batch commit is `lstat` + `rename(staging, outputDir)`. POSIX `rename` replaces an **empty** directory created in
+    between; that loses no data.
 
 ## Transports
 
-- **stdio**: `npx subtitleedit-converter-mcp`, for desktop agents such as Claude Desktop and Cursor
-- **Streamable HTTP**: `subtitleedit-converter-mcp --http :3000`, endpoint `/mcp`, stateless
+- **stdio** (local mode): `npx subtitleedit-converter-mcp`, started by the MCP client.
+- **Streamable HTTP** (sidecar mode): `subtitleedit-converter-mcp --http 0.0.0.0:3000`, endpoint `/mcp`, stateless.
+  Requires an inbound token: clients send `Authorization: Bearer <token>`. `GET /healthz` is the only unauthenticated
+  path. Generate a token with:
+
+  ```sh
+  openssl rand -hex 32 > secrets/mcp_token.txt
+  ```
+
+  The inbound token is separate from the API key and is never sent upstream. `--hosted` refuses to start in v1.
 
 ## Configuration
 
-| Variable | Required | Description |
-|---|---|---|
-| `SUBTITLE_API_URL` | yes | Base URL of subtitleedit-converter-api, e.g. `http://localhost:8080` (or `--api-url`) |
-| `SUBTITLE_API_KEY` | no | Bearer key sent to the API when its auth is enabled |
-| `SUBTITLE_MCP_MAX_BYTES` | no | Max content size accepted by tools |
-| `SUBTITLE_MCP_TIMEOUT_MS` | no | Timeout for API calls |
+Unknown `SUBTITLE_MCP_*` variables fail startup (typo protection).
 
-In HTTP mode, an incoming `Authorization: Bearer` header is passed through to subtitleedit-converter-api unchanged
-and takes precedence over `SUBTITLE_API_KEY`. The server stores no keys and logs none.
+| Variable | Flag | Default | Description |
+|---|---|---|---|
+| `SUBTITLE_API_URL` | `--api-url` | **required** | API base URL, e.g. `http://api:8080` |
+| `SUBTITLE_API_KEY` / `SUBTITLE_API_KEY_FILE` | – | unset | Bearer key sent to the API (the only upstream key; never taken from requests) |
+| `SUBTITLE_MCP_HTTP_TOKEN` / `SUBTITLE_MCP_HTTP_TOKEN_FILE` | – | unset | HTTP mode: inbound token(s), ≥ 32 chars, comma list / one per line, file re-read on change. Required with `--http` |
+| `SUBTITLE_MCP_HTTP` | `--http [host:]port` | stdio | Serve Streamable HTTP on `/mcp` |
+| `SUBTITLE_MCP_HOSTED` | `--hosted` | `false` | Hosted hardening (not available in v1) |
+| `SUBTITLE_MCP_ALLOWED_DIRS` | `--allow-dir` | unset | Read-write roots (`:`-separated, `;` on Windows, or a JSON array) |
+| `SUBTITLE_MCP_READONLY_DIRS` | `--allow-dir-ro` | unset | Read-only roots |
+| `SUBTITLE_MCP_USE_CLIENT_ROOTS` | – | `true` | Local mode: also use the client's `roots/list` |
+| `SUBTITLE_MCP_ALLOW_DESTRUCTIVE` | – | `false` | Allow `ifExists: replace/delete` in convert_subtitle |
+| `SUBTITLE_MCP_PARTIAL_MAX_AGE_MS` | – | `3600000` | Age after which staging files/folders are swept |
+| `SUBTITLE_MCP_MAX_BYTES` | – | unset | Local cap per input file (effective cap = min with the API limit) |
+| `SUBTITLE_MCP_TIMEOUT_MS` | – | `120000` | Per-attempt timeout for conversions (metadata: min(this, 15000)) |
+| `SUBTITLE_MCP_RETRY_MAX_ATTEMPTS` | – | `3` | Retries for 429/503/connection errors |
+| `SUBTITLE_MCP_RETRY_MAX_WAIT_MS` | – | `60000` | Longest single `Retry-After` wait accepted |
+| `SUBTITLE_MCP_RETRY_BUDGET_MS` | – | `90000` | Total retry wait per call (per chunk for batches) |
+| `SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES` | – | `65536` | Larger inline text outputs come back as an embedded resource |
+| `SUBTITLE_MCP_BATCH_MAX_FILES` | – | `1000` | Max files per convert_batch call |
+| `SUBTITLE_MCP_BATCH_MAX_ENTRIES` / `_BATCH_MAX_BYTES` | – | unset | Chunking fallback when `/v1/limits` is unreadable |
+| `SUBTITLE_MCP_BATCH_MAX_RESPONSE_BYTES` | – | `67108864` | Cap on the estimated JSON response per batch chunk |
+| `SUBTITLE_MCP_JSON_MAX_DECODED_BYTES` | – | unset (10485760) | JSON decoded-content cap while `/v1/limits` is unreadable |
+| `SUBTITLE_MCP_LIMITS_TTL_MS` | – | `300000` | `/v1/limits` cache TTL |
+| `SUBTITLE_MCP_INCLUDE_DEBUG` | – | `false` | Pass the API's `debug` member into errors |
+| `SUBTITLE_MCP_ALLOWED_ORIGINS` | – | unset | HTTP: allowed `Origin` values; with none set, only loopback origins are accepted |
+| `SUBTITLE_MCP_ALLOWED_HOSTS` | – | `localhost,127.0.0.1,[::1]` + bind host | HTTP: `Host` allowlist (DNS rebinding) |
+| `SUBTITLE_MCP_LOG_LEVEL` | `--log-level` | `info` | `error`, `warn`, `info`, `debug` (JSON lines on stderr) |
+| `SUBTITLE_MCP_LOG_PATHS` | – | `false` | Log full paths instead of `sha256[:12]` + extension |
 
-## Depends on
+Content, base64, profile values, API keys and tokens are never logged.
 
-A running [subtitleedit-converter-api](https://github.com/Wauter/subtitleedit-converter-api) v1 instance.
+## Client configuration
+
+```jsonc
+// Claude Desktop / Cursor (stdio)
+{ "mcpServers": { "subtitleedit": {
+    "command": "npx", "args": ["-y", "subtitleedit-converter-mcp"],
+    "env": { "SUBTITLE_API_URL": "http://localhost:8080",
+             "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/Subtitles" } } } }
+```
+
+On Windows some clients need `"command": "cmd", "args": ["/c", "npx", "-y", "subtitleedit-converter-mcp"]`, and
+`SUBTITLE_MCP_ALLOWED_DIRS` uses `;` as the separator. Until the package is published, point `command` at
+`node /path/to/subtitleedit-converter-mcp/dist/index.js` after `npm ci && npm run build`.
+
+## Sidecar (reference Compose)
+
+A copy of the reference Compose from the API repo:
+
+```yaml
+services:
+  api:
+    image: ghcr.io/wauter/subtitleedit-converter-api:1.1.0      # pinned, never latest
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [internal]
+    # API_KEYS / API_KEYS_FILE optional
+  mcp:
+    image: ghcr.io/wauter/subtitleedit-converter-mcp:1.1.0      # pinned, never latest
+    read_only: true
+    environment:
+      SUBTITLE_API_URL: http://api:8080
+      SUBTITLE_MCP_READONLY_DIRS: /data/in
+      SUBTITLE_MCP_ALLOWED_DIRS: /data/out
+      SUBTITLE_MCP_ALLOWED_HOSTS: mcp,localhost,127.0.0.1
+      SUBTITLE_MCP_HTTP_TOKEN_FILE: /run/secrets/mcp_token   # required
+      # SUBTITLE_API_KEY_FILE: /run/secrets/api_key          # the only upstream key
+    volumes:
+      - /mnt/share/subtitles-in:/data/in:ro
+      - /mnt/share/subtitles-out:/data/out:rw   # .subtitle-mcp-staging/ is created here; must be writable by uid 65532
+    ports: ["127.0.0.1:3000:3000"]
+    healthcheck:
+      test: ["CMD", "/nodejs/bin/node", "dist/healthcheck.js"]
+    networks: [internal]
+    secrets: [mcp_token]
+    depends_on: [api]
+networks:
+  internal: {}
+secrets:
+  mcp_token:
+    file: ./secrets/mcp_token.txt               # openssl rand -hex 32 > secrets/mcp_token.txt
+```
+
+The image is distroless (`nodejs22-debian12:nonroot`), works on a read-only rootfs and writes nothing outside the
+mounted output roots.
+
+## Development
+
+```sh
+npm ci
+npm run lint && npm run typecheck
+npm test                     # unit + MCP-level
+npm run build && npm run test:e2e
+scripts/contract.sh ghcr.io/wauter/subtitleedit-converter-api:1.1.0   # contract suite against a real API image
+```
+
+The contract suite can also target a running API: `CONTRACT_API_URL=http://127.0.0.1:8080 npm run test:contract`
+(add `CONTRACT_API_KEY` and `CONTRACT_SMALL_LIMITS=1` for an API started with `API_KEYS`, `MAX_UPLOAD_BYTES=1048576`
+and `ZIP_MAX_ENTRIES=3`). In CI the contract job pulls the pinned private API image; it is skipped (with a notice)
+when the image can't be pulled, unless the repo variable `CONTRACT_REQUIRED=true`.
+
+### Smoke checklist (Claude Desktop / Cursor, MCP Inspector)
+
+1. `tools/list` shows the seven tools; `convert_batch` only when a writable root is configured.
+2. `list_formats` returns `subrip`, `webvtt`, `ebustl`.
+3. `convert_subtitle` with inline SRT → WebVTT returns the text inline.
+4. `convert_subtitle` with `path` + `outputDir`: the file appears atomically; a second run fails with `output-exists`.
+5. `convert_batch` into a new folder: the folder appears complete; a run with one broken file writes nothing and names it.
+6. HTTP mode: a request without the token gets 401; `/healthz` answers without one.
 
 ## License
 
