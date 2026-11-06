@@ -6,11 +6,12 @@ All notable changes to `subtitleedit-converter-mcp` are documented here. The for
 
 The MCP shares its major.minor version with the
 [Subtitle Edit Converter API](https://github.com/Wauter/subtitleedit-converter-api): use the MCP release whose
-major.minor matches your API. Patch versions move independently. Versions are recorded here when merged to `main`;
-tags and releases follow on the owner's go-ahead.
+major.minor matches your API. Patch versions move independently. Versions are recorded here when merged to `main`.
+Tagged releases publish the GHCR image, GitHub Release, and npm package.
 
 ## Unreleased
 
+- Public release: drop `package.json` `"private": true` and the CI publishing guard; document how tags publish.
 - Examples and `CONTRACT_API_URL` use the API's default host port `http://localhost:8080` (Compose publishes `127.0.0.1:8080:8080`); Docker-network URLs stay `http://api:8080`.
 
 ## 1.3.0 — Unreleased

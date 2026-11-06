@@ -43,9 +43,6 @@ jobs:
         run: npm run build
       - name: Transport e2e (built dist)
         run: npm run test:e2e
-      - name: Publishing guard (package stays private)
-        run: |
-          node -e 'if (require("./package.json").private !== true) { console.error("package.json must keep private=true"); process.exit(1) }'
       - name: npm audit (production deps)
         run: npm audit --omit=dev --audit-level=high
 
@@ -110,7 +107,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Pull the pinned API image (private GHCR package)
+      - name: Pull the pinned API image
         id: pull
         env:
           GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
