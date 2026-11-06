@@ -22,7 +22,7 @@ that `GET /v1/limits` exists and warns if it doesn't.
 
 If you did update and still see an older MCP version in the warning, the client is running a different copy:
 
-- Check which command the client starts (`claude mcp get subtitleedit` in Claude Code, the JSON config elsewhere).
+- Check which command the client starts (`claude mcp get smart-subtitle` in Claude Code, the JSON config elsewhere).
 - Built from source: rerun `npm ci && npm run build` after `git pull`.
 - Client in a VM or container: it runs the copy **inside** that environment. If you copied `dist/` there, copy it
   again after every update ([clients.md](clients.md#clients-in-a-vm-or-container)).

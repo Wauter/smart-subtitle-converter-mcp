@@ -20,15 +20,15 @@ claude mcp add --transport stdio \
 - Add more folders the same way (`SUBTITLE_MCP_ALLOWED_DIRS` for read-write,
   `SUBTITLE_MCP_READONLY_DIRS=/Volumes/Masters` for read-only). Separate several paths with `:` (`;` on Windows),
   or use a JSON array.
-- To change settings: `claude mcp remove subtitleedit`, add it again, and restart Claude Code.
-- Check what is registered with `claude mcp get subtitleedit`.
+- To change settings: `claude mcp remove smart-subtitle`, add it again, and restart Claude Code.
+- Check what is registered with `claude mcp get smart-subtitle`.
 
 ## Claude Desktop and Cursor
 
 Claude Desktop does not pass folders you approve in a chat to this server. Name them in the config:
 
 ```jsonc
-{ "mcpServers": { "subtitleedit": {
+{ "mcpServers": { "smart-subtitle": {
     "command": "npx", "args": ["-y", "smart-subtitle-converter-mcp"],
     "env": { "SUBTITLE_API_URL": "http://localhost:8080",
              "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/Subtitles" } } } }
