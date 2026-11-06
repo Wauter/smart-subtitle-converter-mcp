@@ -1,21 +1,19 @@
 name: package-visibility
 
-# One-shot / durable helper: mark the GHCR package public. Packages created while the repo was
-# private stay private until this (or the release publish job) changes visibility.
+# GitHub's Packages REST API has no working visibility-change endpoint for user container
+# packages (PATCH returns 404). Set public once in the UI if needed:
+#   https://github.com/users/Wauter/packages/container/subtitleedit-converter-mcp/settings
 on:
   workflow_dispatch:
 
 permissions:
-  packages: write
+  contents: read
 
 jobs:
-  public:
+  remind:
     runs-on: ubuntu-latest
     steps:
-      - name: Make package public
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Manual UI step required
         run: |
-          name="subtitleedit-converter-mcp"
-          gh api --method PATCH "/user/packages/container/${name}" -f visibility=public \
-            || gh api --method PATCH "/users/${{ github.repository_owner }}/packages/container/${name}" -f visibility=public
+          echo "::notice::Open https://github.com/users/Wauter/packages/container/subtitleedit-converter-mcp/settings"
+          echo "::notice::Danger Zone → Change visibility → Public (only if anonymous docker pull fails)."
