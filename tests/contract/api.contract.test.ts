@@ -2,7 +2,7 @@
  * Contract suite against a real converter API (§14), the version this MCP targets (D-36/D-37). Gated on CONTRACT_API_URL.
  *   CONTRACT_API_URL      e.g. http://127.0.0.1:4041 (the API's Compose host port)
  *   CONTRACT_API_KEY      key configured on the API (second run)
- *   CONTRACT_SMALL_LIMITS "1" when the API runs with MAX_UPLOAD_BYTES=1048576 ZIP_MAX_ENTRIES=3
+ *   CONTRACT_SMALL_LIMITS "1" when the API runs with MAX_UPLOAD_BYTES=1048576
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
@@ -127,6 +127,40 @@ describe.skipIf(!URL_)("contract: real API", () => {
       const r = await callTool(h, "convert_subtitle", { path: src, target: "webvtt" });
       expect(r.structuredContent.error).toMatchObject({ code: "precheck-too-large", limit: { name: "json.maxDecodedContentBytes", value: 1048576 } });
       expect(r.structuredContent.attempts ?? 0).toBe(0);
+    });
+  });
+
+  describe("jobs and API locations", () => {
+    it("exposes a job id for synchronous conversion and retains only metadata", async () => {
+      const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
+      expect(r.structuredContent.jobId).toMatch(/^[a-f0-9]{32}$/);
+      const response = await fetch(`${URL_}/v1/jobs/${r.structuredContent.jobId}`, { headers: KEY ? { authorization: `Bearer ${KEY}` } : {} });
+      const job: any = await response.json();
+      expect(job.status).toBe("succeeded"); expect(job.result.outputs[0].content).toBeUndefined();
+      expect((await h.client.listTools()).tools.some((t) => t.name === "convert_batch")).toBe(false);
+    });
+    it("Prefer wait=0 returns 202 and a retrievable terminal job", async () => {
+      const response = await fetch(`${URL_}/v1/convert/json`, { method: "POST", headers: { "content-type": "application/json", Prefer: "wait=0", ...(KEY ? { authorization: `Bearer ${KEY}` } : {}) }, body: JSON.stringify({ content: SRT, target: "vtt" }) });
+      expect(response.status).toBe(202);
+      const accepted: any = await response.json(); expect(response.headers.get("location")).toBe(`/v1/jobs/${accepted.id}`);
+      let job: any;
+      for (let i = 0; i < 100; i++) {
+        const r = await fetch(`${URL_}/v1/jobs/${accepted.id}`, { headers: KEY ? { authorization: `Bearer ${KEY}` } : {} }); job = await r.json();
+        if (job.status !== "running") break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(job.status).toBe("succeeded");
+    });
+    it.skipIf(!process.env.CONTRACT_STORAGE_ROOT)("passes API filesystem input/output and sidecar", async () => {
+      const root = process.env.CONTRACT_STORAGE_ROOT!;
+      const source = path.join(root, `contract-${Date.now()}.srt`), output = source + ".vtt";
+      fs.writeFileSync(source, SRT);
+      try {
+        const d = await callTool(h, "detect_format", { input: source }); expect(d.structuredContent.id).toBe("subrip");
+        const r = await callTool(h, "convert_subtitle", { input: source, output, sidecar: true, target: "vtt" });
+        expect(r.isError).toBeFalsy(); expect(r.structuredContent.outputs[0].output).toBe(output);
+        expect(fs.readFileSync(output, "utf8")).toContain("WEBVTT"); expect(fs.existsSync(output + ".json")).toBe(true);
+      } finally { for (const f of [source, output, output + ".json"]) fs.rmSync(f, { force: true }); }
     });
   });
 

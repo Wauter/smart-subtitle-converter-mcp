@@ -18,7 +18,6 @@ export const LIMITS = {
   maxRequestBodyBytes: { multipart: 10747904, json: 14112088 },
   json: { maxDecodedContentBytes: 10485760, base64: "x" },
   maxProfileBytes: 65536, maxCues: 200000, maxLineChars: 10000,
-  zip: { maxEntries: 100, maxUnpackedBytes: 52428800, maxRatio: 100, maxEntryBytes: 10485760 },
   conversionTimeoutSeconds: 30, queue: { capacity: 32, depth: 0 }, rateLimitPerMinute: 0, auth: { required: false }, binary: { ebuStlMaxBytes: 2047999 },
 };
 
@@ -74,7 +73,7 @@ mswServer.events.on("request:start", async ({ request }) => {
 });
 
 export const baseHandlers = (opts: { limits?: "ok" | "404"; formats?: unknown[] } = {}): HttpHandler[] => [
-  http.get(`${API}/healthz`, () => HttpResponse.json({ status: "ok", version: "1.2.0", libse: "5.1.0" })),
+  http.get(`${API}/healthz`, () => HttpResponse.json({ status: "ok", version: "1.3.0", libse: "5.1.0" })),
   http.get(`${API}/v1/limits`, () => (opts.limits === "404" ? problem(404, "not-found") : HttpResponse.json(LIMITS))),
   http.get(`${API}/v1/formats`, () => HttpResponse.json(opts.formats ?? FORMATS)),
 ];

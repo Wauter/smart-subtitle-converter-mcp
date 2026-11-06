@@ -14,7 +14,6 @@ describe("problem mapping (§8.1)", () => {
     [404, "preset-not-found", "preset-not-found", /list_presets/],
     [404, "not-found", "api-protocol-error", /SUBTITLE_API_URL/],
     [413, "payload-too-large", "payload-too-large", /Split the file/],
-    [413, "zip-limits-exceeded", "zip-limits-exceeded", null],
     [415, "unsupported-media-type", "api-protocol-error", /Report this/],
     [422, "format-not-detected", "format-not-detected", /profile.source.format/],
     [422, "format-not-supported", "format-not-supported", null],
@@ -22,7 +21,6 @@ describe("problem mapping (§8.1)", () => {
     [422, "invalid-binary-input", "invalid-binary-input", /via path or base64/],
     [422, "encoding-error", "encoding-error", /encoding.input/],
     [422, "unsafe-xml", "unsafe-xml", null],
-    [422, "unsafe-zip", "unsafe-zip", null],
     [422, "input-limits-exceeded", "input-limits-exceeded", /Split/],
     [422, "format-not-supported", "format-not-supported", /list_formats/],
     [422, "conversion-failed", "conversion-failed", /operation/],
@@ -71,13 +69,11 @@ describe("problem mapping (§8.1)", () => {
     expect(mapProblem(422, body, { ...ctx, includeDebug: true }).debug).toEqual({ operation: "X" });
     expect(mapProblem(422, body, { ...ctx, includeDebug: true, mode: "hosted" }).debug).toBeUndefined();
   });
-  it("errors[], groups, outputs and entry pass through", () => {
-    const te = mapProblem(422, p(422, "ambiguous-batch-names", { errors: [{ pointer: "s1/EP1.vtt", message: "m" }], groups: [["ep1.srt", "EP1.vtt"]], outputs: ["out.vtt"], entry: "x" }), ctx);
-    expect(te.errors).toEqual([{ pointer: "s1/EP1.vtt", message: "m" }]);
-    expect(te.groups).toEqual([["ep1.srt", "EP1.vtt"]]);
-    expect(te.outputs).toEqual(["out.vtt"]);
-    expect(te.entry).toBe("x");
+  it("field errors pass through", () => {
+    const te = mapProblem(422, p(422, "storage-location-rejected", { errors: [{ pointer: "/input", message: "not allowed" }] }), ctx);
+    expect(te.errors).toEqual([{ pointer: "/input", message: "not allowed" }]);
   });
+
   it("ambiguous-format: candidates pass through, hint names profile.source.format", () => {
     const te = mapProblem(422, p(422, "ambiguous-format", { candidates: ["pacscreenelectronics", "pacunicodeunipac"], errors: [{ pointer: "/source/format", message: "m" }] }), ctx);
     expect(te.code).toBe("ambiguous-format");

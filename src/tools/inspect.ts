@@ -53,10 +53,11 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
     title: "Detect subtitle format",
     description: () =>
       "Identify a subtitle file's format, character encoding, language and cue count without converting it. Use it when you don't know what a file is, or before converting when the file extension is missing or misleading." +
-      (paths ? " Prefer `path` (the file stays out of your context and binary files stay intact); give exactly one of `content` or `path`." : " Binary files must be sent as base64 content.") +
+      (paths ? " Prefer `path` (the file stays out of your context and binary files stay intact); give exactly one of `content`, `path` or server-side `input`." : " Give content (base64 for binary) or a server-side input URI.") +
       " If detection is ambiguous, `candidates` lists alternatives, and you can force one in a conversion with `profile.source.format`. For text files it also reports `bom` and `lineEndings`, and `warnings` flag source problems by cue number (`zero-length-cue`, `source-replacement-chars` for U+FFFD already in the file). PAC and Unicode PAC (FPC) bytes look alike: without a .pac/.fpc name the API answers `ambiguous-format`; then set `profile.source.format`. ZIP files are not accepted; submit one subtitle per request." +
       (paths ? ` ${deps.rootsText}` : ""),
     shape: {
+      input: z.string().max(16384).optional().describe("Server-side input URI (file, s3 or https); mutually exclusive with content/path"),
       content: z.string().optional().describe("Subtitle content: text, or base64 if contentEncoding is 'base64'"),
       contentEncoding: z.enum(["text", "base64"]).default("text"),
       ...(paths ? { path: z.string().optional().describe("Absolute path to the file in an allowed folder") } : {}),
@@ -67,13 +68,13 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
     annotations: RO,
     handler: async (a: any, call) => {
       requirePathsAllowed(deps, a, ["path"]);
-      exactlyOne(a, paths ? ["content", "path"] : ["content"], "the subtitle source");
+      exactlyOne(a, paths ? ["content", "path", "input"] : ["content", "input"], "the subtitle source");
       const caps = await getCaps(deps, call);
       const src = await loadSource(deps, a, caps);
       call.log.source = src.callerPath ? "path" : "inline";
       if (src.ext) call.log.inputExt = src.ext;
       if (src.callerPath) call.log.inputHash = deps.log.p(src.callerPath);
-      const body: Record<string, unknown> = { content: src.content, contentEncoding: src.contentEncoding };
+      const body: Record<string, unknown> = src.input !== undefined ? { input: src.input } : { content: src.content, contentEncoding: src.contentEncoding };
       if (src.fileName) body.fileName = src.fileName;
       if (a.encoding) body.encoding = a.encoding;
       const res = await deps.api.request({ method: "POST", path: "/v1/detect", kind: "conversion", json: body }, call);

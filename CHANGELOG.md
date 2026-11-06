@@ -4,6 +4,11 @@
 
 Pairs with API 1.3.0.
 
+- Include structured tool errors in advertised output schemas, retaining required-success validation, so clients that list tools can read failed job/conversion results.
+
+- Pass input/output/sidecar to the API, expose jobId and poll 202 job URLs with a bounded wait. Preserve local single-file writes; report metadata-only asynchronous results without inventing empty files.
+- Mark possible API storage writes in tool annotations; do not replay uncertain conversion POSTs after a connection loss.
+
 - Breaking: remove convert_batch, ZIP helpers and batch configuration. Submit one subtitle per call.
 
 

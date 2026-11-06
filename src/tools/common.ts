@@ -1,7 +1,7 @@
 import { z, type ZodRawShape, type ZodTypeAny } from "zod";
 import type { McpServer, RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult, ContentBlock, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
-import { errorText, FieldError, mcpError, ToolFailure, Warning, type ToolError, type WarningT } from "../errors.js";
+import { errorText, FieldError, mcpError, ToolFailure, ToolErrorSchema, Warning, type ToolError, type WarningT } from "../errors.js";
 import { newCallId, withSuffix } from "../ids.js";
 import { newStats } from "../api/client.js";
 import { capsFrom, type Caps } from "../api/limits.js";
@@ -65,7 +65,13 @@ export function defineTool<S extends ZodRawShape>(server: McpServer, deps: Deps,
       title: def.title,
       description: describe ? describe() : (def.description as string),
       inputSchema: strict as unknown as S,
-      outputSchema: def.output,
+      // The client SDK validates structured errors too, even when isError=true. Advertise
+      // both shapes; success is still validated against the original required shape below.
+      outputSchema: {
+        ...Object.fromEntries(Object.entries(def.output).map(([key, value]) => [key, value.optional()])),
+        error: ToolErrorSchema.optional(),
+        ...(def.output.warnings ? { warnings: z.union([def.output.warnings, z.array(Warning)]).optional() } : { warnings: z.array(Warning).optional() }),
+      },
       annotations: { title: def.title, openWorldHint: false, ...def.annotations },
     },
     (async (rawArgs: unknown, extra: any): Promise<CallToolResult> => {
@@ -104,6 +110,7 @@ export function defineTool<S extends ZodRawShape>(server: McpServer, deps: Deps,
           }
           out.summary += `\nWarning ${mm.code}: ${mm.message}`;
         }
+        z.object(def.output).passthrough().parse(out.structured);
         return {
           content: [{ type: "text", text: out.summary }, ...(out.blocks ?? [])],
           structuredContent: out.structured,
@@ -207,6 +214,7 @@ export function tooLarge(what: string, limit: { name: string; value: number }, a
 }
 
 export interface SourceInput {
+  input?: string;
   /** Value for the JSON body. */
   content: string;
   contentEncoding: "text" | "base64";
@@ -220,7 +228,10 @@ export interface SourceInput {
 }
 
 /** §4.2: path → base64 of raw bytes with fileName=basename; inline content validated. */
-export async function loadSource(deps: Deps, args: { content?: string; contentEncoding?: "text" | "base64"; path?: string; fileName?: string }, caps: Caps): Promise<SourceInput> {
+export async function loadSource(deps: Deps, args: { content?: string; contentEncoding?: "text" | "base64"; path?: string; fileName?: string; input?: string }, caps: Caps): Promise<SourceInput> {
+  if (args.input !== undefined) {
+    return { input: args.input, content: "", contentEncoding: "text", fileName: args.fileName, size: 0 };
+  }
   const cap = inputCap(caps);
   if (args.path !== undefined) {
     const r = await deps.guard.resolveInputFile(args.path);

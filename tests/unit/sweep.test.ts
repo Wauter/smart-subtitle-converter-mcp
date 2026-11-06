@@ -80,35 +80,7 @@ describe("orphan sweep (D-38)", () => {
     expect(await sweepOnce(roots, 1000, silentLogger())).toBe(0);
     expect(fs.existsSync(path.join(other, "o.vtt.abc123.partial"))).toBe(true);
   });
-  it("D-44: stale batch folders <dirname>.<6hex>.partial/ are removed whole; fresh, open and symlinked ones stay", async () => {
-    const rw = path.join(tmp, "rw");
-    const st = path.join(rw, STAGING_DIR);
-    const outside = path.join(tmp, "outside");
-    fs.mkdirSync(outside);
-    fs.writeFileSync(path.join(outside, "precious.vtt"), "x");
-    const mk = (name: string, age: number) => {
-      const d = path.join(st, name);
-      fs.mkdirSync(path.join(d, "s1"), { recursive: true });
-      fs.writeFileSync(path.join(d, "s1", "a.vtt"), "x");
-      fs.symlinkSync(outside, path.join(d, "link")); // rm must not follow it
-      const t = new Date(Date.now() - age);
-      fs.utimesSync(d, t, t);
-      return d;
-    };
-    const stale = mk("out.abc123.partial", 2 * 3600_000);
-    const fresh = mk("live.abc123.partial", 1000); // mtime refreshed after each chunk
-    const open = mk("open.abc123.partial", 2 * 3600_000);
-    fs.symlinkSync(outside, path.join(st, "evil.abc123.partial"));
-    openStaging.add(open);
-    const n = await sweepOnce(new StaticRoots([{ path: rw, writable: true }]), 3600_000, silentLogger());
-    openStaging.delete(open);
-    expect(n).toBe(1);
-    expect(fs.existsSync(stale)).toBe(false);
-    expect(fs.existsSync(fresh)).toBe(true);
-    expect(fs.existsSync(open)).toBe(true);
-    expect(fs.existsSync(path.join(outside, "precious.vtt"))).toBe(true);
-    expect(fs.lstatSync(path.join(st, "evil.abc123.partial")).isSymbolicLink()).toBe(true);
-  });
+
   it("uses the injected clock for age", async () => {
     const rw = path.join(tmp, "rw");
     fs.mkdirSync(path.join(rw, STAGING_DIR), { recursive: true });

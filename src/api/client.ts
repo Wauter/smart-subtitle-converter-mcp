@@ -32,6 +32,7 @@ export interface ApiRequest {
   /** Statuses returned to the caller instead of being mapped to an error (e.g. 404 for /v1/limits). */
   passStatuses?: number[];
   accept?: string;
+  headers?: Record<string, string>;
 }
 
 export interface ApiResponse {
@@ -85,7 +86,7 @@ export class ApiClient {
       const rid = retries === 0 ? ctx.requestId : withSuffix(ctx.requestId, `.r${retries}`);
       ctx.stats.requestIds.push(rid);
       ctx.stats.attempts++;
-      const headers: Record<string, string> = { Accept: req.accept ?? "application/json", "X-Request-Id": rid };
+      const headers: Record<string, string> = { ...req.headers, Accept: req.accept ?? "application/json", "X-Request-Id": rid };
       if (req.json !== undefined) headers["Content-Type"] = "application/json";
       else if (req.raw) headers["Content-Type"] = req.raw.contentType;
       const auth = this.authHeader();
@@ -106,11 +107,11 @@ export class ApiClient {
           source: "mcp",
           code: "api-unreachable",
           detail: `Cannot reach the API (${code ?? (err as Error)?.message ?? "network error"}).`,
-          hint: "Check SUBTITLE_API_URL and that the API is running.",
+          hint: req.method === "POST" && req.path === "/v1/convert/json" ? "The conversion may already have been accepted. Inspect the destination or known job before resubmitting; this POST was not replayed." : "Check SUBTITLE_API_URL and that the API is running.",
           requestId: rid,
           attempts: ctx.stats.attempts,
         };
-        if (code && RETRY_NET_CODES.has(code)) {
+        if (code && RETRY_NET_CODES.has(code) && !(req.method === "POST" && req.path === "/v1/convert/json")) {
           const w = await this.planWait(retries, waited, undefined);
           if (w !== undefined) {
             await this.doWait(w, ctx, `API unreachable (${code}); retrying in ${Math.ceil(w / 1000)}s (attempt ${retries + 2}/${this.cfg.retryMaxAttempts + 1})`);

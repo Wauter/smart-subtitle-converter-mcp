@@ -153,7 +153,7 @@ describe("convert_subtitle", () => {
     const c = convertCalls()[0];
     expect(c.body).toEqual({ content: Buffer.from(SRT).toString("base64"), contentEncoding: "base64", fileName: "movie.srt", target: "webvtt" });
     const TRANSPORT = ["accept-encoding", "accept-language", "connection", "content-length", "host", "sec-fetch-mode", "user-agent"];
-    expect(Object.keys(c.headers).filter((k) => !TRANSPORT.includes(k)).sort()).toEqual(["accept", "authorization", "content-type", "x-request-id"]);
+    expect(Object.keys(c.headers).filter((k) => !TRANSPORT.includes(k)).sort()).toEqual(["accept", "authorization", "content-type", "prefer", "x-request-id"]);
     expect(c.headers.authorization).toBe("Bearer upstream-key");
     expect(c.headers["x-request-id"]).toMatch(/^mcp-[0-9A-Z]{26}$/);
     expect(recorded.some((x) => x.path === "/v1/profiles/validate")).toBe(false); // no name prediction
@@ -431,7 +431,7 @@ describe("convert_subtitle", () => {
 
 describe("modes, annotations, resources", () => {
   afterEach(() => mswServer.resetHandlers());
-  it("local: all eight tools with path params", async () => {
+  it("local: single-file tools with path params", async () => {
     mswServer.use(...baseHandlers());
     const h = await harness();
     const { tools } = await h.client.listTools();
@@ -439,31 +439,30 @@ describe("modes, annotations, resources", () => {
     const conv = tools.find((t) => t.name === "convert_subtitle")!;
     expect(Object.keys(conv.inputSchema.properties!)).toContain("outputDir");
     expect(conv.inputSchema.additionalProperties).toBe(false);
-    expect(conv.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, title: "Convert subtitle" });
+    expect(conv.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, title: "Convert subtitle" });
     expect(conv.outputSchema).toBeDefined();
     expect(tools.find((t) => t.name === "list_formats")!.annotations).toMatchObject({ readOnlyHint: true, idempotentHint: true });
     await h.close();
   });
-  it("destructiveHint follows SUBTITLE_MCP_ALLOW_DESTRUCTIVE", async () => {
+  it("conversion advertises possible remote object replacement", async () => {
     const h = await harness({ allowDestructive: true });
     const { tools } = await h.client.listTools();
     expect(tools.find((t) => t.name === "convert_subtitle")!.annotations!.destructiveHint).toBe(true);
-    // D-44: convert_batch only ever creates a new folder.
     await h.close();
   });
-  it("sidecar without roots and hosted: no path params, no convert_batch, read-only convert", async () => {
+  it("sidecar without roots and hosted: no path params, no convert_batch, remote output remains available", async () => {
     for (const mode of ["sidecar", "hosted"] as const) {
       const h = await harness({ mode });
       const { tools } = await h.client.listTools();
       expect(tools.map((t) => t.name)).not.toContain("convert_batch");
       const conv = tools.find((t) => t.name === "convert_subtitle")!;
       for (const k of ["path", "profilePath", "outputPath", "outputDir", "ifExists"]) expect(Object.keys(conv.inputSchema.properties!)).not.toContain(k);
-      expect(conv.annotations).toMatchObject({ readOnlyHint: true });
+      expect(conv.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
       expect(Object.keys(tools.find((t) => t.name === "detect_format")!.inputSchema.properties!)).not.toContain("path");
       await h.close();
     }
   });
-  it("sidecar with only a read-only root: path inputs, no batch, read-only convert", async () => {
+  it("sidecar with only a read-only root: path inputs, no batch, remote output remains available", async () => {
     const dir = tmpDir();
     const h = await harness({ mode: "sidecar" }, { roots: await realpathRoots([], [dir]) });
     const { tools } = await h.client.listTools();

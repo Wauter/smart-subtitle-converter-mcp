@@ -31,3 +31,7 @@ Documented and small:
 
 - On filesystems without hard links (many SMB shares, FAT/exFAT) a single-file commit is a plain `rename` right
   after an `lstat`, so a file created at the same instant by another program could be overwritten.
+
+## API destinations are separate
+
+Local `path`/`outputPath`/`outputDir` still use the rules above. API `input`/`output` locations are evaluated on the API server, with its own allowlists and permissions. API filesystem output refuses an existing file and defaults to direct writes (optional sibling staging); S3 uses single PUT and replaces an existing object; HTTPS uses PUT with the receiving system's semantics. The MCP's local destructive-write switch does not change these API behaviours. API `sidecar:true` writes `{output}.json` except for HTTPS, which warns and skips it.

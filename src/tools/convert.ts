@@ -7,6 +7,7 @@ import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import type { Call, Deps } from "../context.js";
 import { mcpError, ToolFailure, type WarningT } from "../errors.js";
 import { sanitizeOutputName, type WriteResult } from "../fs/write.js";
+import { finishConversion } from "../api/jobs.js";
 import { toInt } from "../api/coerce.js";
 import {
   checkDestructive, DetectedOutput, defineTool, ebuSizeWarning, exactlyOne, getCaps, loadProfile, loadSource, mapDetected, mapWarnings,
@@ -17,6 +18,7 @@ import {
 const IF_EXISTS = z.enum(["error", "replace", "archive", "delete"]);
 
 export const ConvertOutput = {
+  jobId: z.string().optional(),
   outputs: z.array(
     z.object({
       fileName: z.string(), format: z.string(), formatId: z.string(),
@@ -25,6 +27,7 @@ export const ConvertOutput = {
       contentEncoding: z.enum(["text", "base64"]),
       cues: z.number().int(), bytes: z.number().int(),
       writtenTo: z.string().optional(),
+      output: z.string().optional(),
       action: z.enum(["written", "replaced", "archived", "deleted"]).optional(),
       archivedTo: z.string().optional(),
       inline: z.enum(["text", "resource"]).optional(),
@@ -50,6 +53,9 @@ interface ApiOutput {
   contentEncoding: "text" | "base64";
   cues: number;
   data: Buffer;
+  retained: boolean;
+  byteCount: number;
+  output?: string;
   text?: string;
   verification?: VerificationT;
 }
@@ -59,8 +65,8 @@ export function describeConvert(deps: Deps): string {
     "Convert one subtitle file to another format, optionally applying a preset's or profile's clean-up operations (timing offset, frame-rate change, line splitting, …).";
   if (deps.pathsInSchema) {
     d +=
-      " Give the source as `path` (preferred: nothing passes through your context, and binary formats stay byte-exact) or as inline `content`; exactly one of them.";
-  } else d += " Give the source as inline `content` (base64 for binary formats).";
+      " Give the source as server-side `input` (file/S3/HTTPS, resolved by the API allowlists), `path` (preferred: nothing passes through your context, and binary formats stay byte-exact) or as inline `content`; exactly one source.";
+  } else d += " Give the source as inline `content` (base64 for binary formats) or server-side `input` (file/S3/HTTPS URI).";
   d +=
     " Choose the result with `target` (a format id or alias from list_formats), a `preset` (from list_presets), and/or a `profile` (custom JSON, checked first with validate_profile); at least one is required. `profile` values are merged over the preset.";
   if (deps.pathsInSchema) {
@@ -68,6 +74,7 @@ export function describeConvert(deps: Deps): string {
       " With `outputPath` (exact file) or `outputDir` (the converter picks the name), the result is written to disk and only a summary comes back. Without them the converted subtitle is returned inline. Binary targets (EBU STL, PAC, …) are always returned as base64, so write them to disk. Output file names come from the converter; pass `fileName` for inline content so the output is named after it. If a file with that name already exists, the default `ifExists: \"error\"` fails and names the existing file (with an explicit `outputPath` this happens before converting), so ask the user whether to `replace`, `archive` (keep the old file as a `.bak`) or `delete` it, or pick another folder. Nothing half-written is ever left under the final name." +
       (deps.cfg.allowDestructive ? " `delete` removes the old file permanently; it can't be restored." : " `replace` and `delete` are disabled on this server unless the operator allows them; `archive` always works.");
   } else d += " The converted subtitle is returned inline (binary targets as base64).";
+  d += " Server-side `output` stores the result via the API instead of returning bytes; `sidecar:true` requests output.json. It cannot be combined with local outputPath/outputDir. Jobs expose jobId and the MCP polls 202 responses. S3 PUT replaces an existing key; MCP ifExists and local roots do not apply to API storage.";
   d +=
     " Note: EBU Tech 3264 has no 29.97 fps code, so a 29.97 fps EBU STL source is written with the STL30.01 code; the API flags such frame-rate code mismatches with the warning `frame-rate-changed`. Timings change by less than one frame (no cumulative drift); tell the user, and see the warning for the workaround. Always report `warnings` to the user: they flag lossy formats, replaced characters, truncated text, zero-length cues, frame quantisation and frame-rate changes; many carry a `hint` with the setting that fixes them (the API never switches code pages or character tables by itself) and `details` with cue numbers and code points. For `characters-replaced`, `details.remedy` lists the setting (`option`), its `allowedValues`, the value in effect and the `candidates` that keep the characters (for PAC tested by the converter); `suggested` is set only when exactly one fits. With several candidates, choose by the text's language (ask the user if unsure), or use `unicodeAlternative` (fpc)." +
     " Binary outputs carry `verification`: the file is read back and compared with what was written (verdict lossless | quantised (times rounded to frames only) | lossy | unverified, with cue counts, timing shift and replaced characters by cue number). A clean round trip proves the file is self-consistent through the converter's own reader, not that a given playout system accepts it." +
@@ -79,6 +86,9 @@ export function describeConvert(deps: Deps): string {
 export function registerConvertTool(server: McpServer, deps: Deps): void {
   const paths = deps.pathsInSchema;
   const shape = {
+    input: z.string().max(16384).optional().describe("Server-side input URI (file, s3 or https); mutually exclusive with content/path"),
+    output: z.string().max(16384).optional().describe("Exact server-side destination URI; mutually exclusive with local outputPath/outputDir"),
+    sidecar: z.boolean().default(false).describe("Write output.json beside a server-side output; HTTPS output skips it with a warning"),
     content: z.string().optional().describe("Subtitle content: text, or base64 if contentEncoding is 'base64'"),
     contentEncoding: z.enum(["text", "base64"]).default("text"),
     ...(paths ? { path: z.string().optional().describe("Absolute path to the source file in an allowed folder") } : {}),
@@ -105,20 +115,21 @@ export function registerConvertTool(server: McpServer, deps: Deps): void {
     description: () => describeConvert(deps),
     shape,
     output: ConvertOutput,
-    annotations: paths && deps.writable
-      ? { readOnlyHint: false, destructiveHint: deps.cfg.allowDestructive, idempotentHint: false }
-      : { readOnlyHint: true, idempotentHint: true },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     handler: (a: any, call) => convertSubtitle(deps, a, call),
   });
 }
 
 export async function convertSubtitle(deps: Deps, a: any, call: Call) {
   requirePathsAllowed(deps, a, ["path", "profilePath", "outputPath", "outputDir"]);
-  exactlyOne(a, deps.pathsInSchema ? ["content", "path"] : ["content"], "the subtitle source");
+  exactlyOne(a, deps.pathsInSchema ? ["content", "path", "input"] : ["content", "input"], "the subtitle source");
   if (a.preset === undefined && a.target === undefined && a.profile === undefined && a.profilePath === undefined)
     throw mcpError("invalid-arguments", "Say what to produce: give at least one of `preset`, `target`, `profile` or `profilePath`.", "Use list_formats for target ids or list_presets for presets.");
   mutuallyExclusive(a, "profile", "profilePath");
   mutuallyExclusive(a, "outputPath", "outputDir");
+  mutuallyExclusive(a, "output", "outputPath"); mutuallyExclusive(a, "output", "outputDir");
+  if (a.output !== undefined && a.ifExists !== undefined && a.ifExists !== "error")
+    throw mcpError("invalid-arguments", "ifExists controls MCP-local writes only, not API storage destinations.", "Choose a distinct output URI if replacement is unwanted.");
   const ifExists = a.ifExists ?? "error";
   checkDestructive(deps, ifExists);
   const toDisk = a.outputPath !== undefined || a.outputDir !== undefined;
@@ -148,9 +159,11 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
   const profile = await loadProfile(deps, a, caps);
   const warnings: WarningT[] = ebuSizeWarning(src, caps);
 
-  let result: { outputs: ApiOutput[]; detected: any; stats: any; warnings: WarningT[]; profile?: any; requestId?: string };
+  let result: { outputs: ApiOutput[]; detected: any; stats: any; warnings: WarningT[]; profile?: any; requestId?: string; jobId?: string };
   {
-    const body: Record<string, unknown> = { content: src.content, contentEncoding: src.contentEncoding };
+    const body: Record<string, unknown> = src.input !== undefined ? { input: src.input } : { content: src.content, contentEncoding: src.contentEncoding };
+    if (a.output !== undefined) body.output = a.output;
+    if (a.sidecar) body.sidecar = true;
     if (src.fileName) body.fileName = src.fileName;
     if (a.preset !== undefined) body.preset = a.preset;
     if (a.target !== undefined) body.target = a.target;
@@ -161,8 +174,10 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
     const n = Buffer.byteLength(json);
     if (n > caps.jsonBody) throw tooLarge("The request body", { name: "maxRequestBodyBytes.json", value: caps.jsonBody }, n);
     let res;
+    const started = Date.now();
     try {
-      res = await deps.api.request({ method: "POST", path: "/v1/convert/json", kind: "conversion", raw: { body: json, contentType: "application/json" } }, call);
+      res = await deps.api.request({ method: "POST", path: "/v1/convert/json", kind: "conversion", headers: { Prefer: `wait=${Math.max(0, Math.min(30, Math.floor(deps.cfg.timeoutMs / 1000) - 2))}` }, raw: { body: json, contentType: "application/json" } }, call);
+      res = await finishConversion(deps.api, res, call, deps.cfg, started);
     } catch (e) {
       if (e instanceof ToolFailure && e.toolError.status === 413) deps.limits.invalidate();
       throw e;
@@ -176,6 +191,7 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
       warnings: mapWarnings(r.warnings),
       profile: r.profile,
       requestId: res.requestId,
+      jobId: typeof r.id === "string" ? r.id : res.headers.get("x-job-id") ?? undefined,
     };
   }
   warnings.unshift(...result.warnings);
@@ -187,6 +203,8 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
   const outputs: any[] = [];
   const blocks: ContentBlock[] = [];
   const written: WriteResult[] = [];
+  if (toDisk && result.outputs.some((o) => !o.retained))
+    throw mcpError("output-not-retained", "The conversion completed asynchronously, but its bytes are not retained by the API. Nothing was written locally.", "Use a server-side output URI for work that can exceed the wait; inspect the job before resubmitting writes.", { jobId: result.jobId });
   if (toDisk) {
     const dir = outFile ? await deps.guard.resolveOutputDir(nodePath.dirname(a.outputPath), true, a.outputPath) : await deps.guard.resolveOutputDir(a.outputDir, true);
     const sources = new Set(srcReal ? [srcReal] : []);
@@ -212,6 +230,11 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
   } else {
     for (const o of result.outputs) {
       const m: any = meta(o);
+      if (!o.retained) {
+        outputs.push(m);
+        if (!o.output && !warnings.some((w) => w.code === "output-not-retained")) warnings.push({ code: "output-not-retained", message: "The completed job retains metadata only, not subtitle bytes. Use an output URI for asynchronous work." });
+        continue;
+      }
       if (o.contentEncoding === "text" && o.text !== undefined && o.data.length <= deps.cfg.inlineTextMaxBytes) {
         m.inline = "text";
         blocks.push({ type: "text", text: o.text });
@@ -230,6 +253,7 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
 
   const structured: any = {
     outputs,
+    ...(result.jobId ? { jobId: result.jobId } : {}),
     detected: result.detected,
     stats: Object.fromEntries(Object.entries(result.stats).filter(([, v]) => v !== undefined)),
     warnings,
@@ -244,7 +268,7 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
 function meta(o: ApiOutput) {
   return {
     fileName: o.fileName, format: o.format, formatId: o.formatId, ...(o.kind ? { kind: o.kind } : {}), mediaType: o.mediaType, encoding: o.encoding,
-    contentEncoding: o.contentEncoding, cues: o.cues, bytes: o.data.length, ...(o.verification ? { verification: o.verification } : {}),
+    contentEncoding: o.contentEncoding, cues: o.cues, bytes: o.byteCount, ...(o.output ? { output: o.output } : {}), ...(o.verification ? { verification: o.verification } : {}),
   };
 }
 
@@ -256,7 +280,7 @@ export function parseApiOutput(o: any): ApiOutput {
     fileName: String(o?.fileName ?? ""), format: String(o?.format ?? ""), formatId: String(o?.formatId ?? ""),
     ...(o?.kind === "text" || o?.kind === "binary" ? { kind: o.kind } : {}),
     mediaType: String(o?.mediaType ?? "application/octet-stream"), encoding: String(o?.encoding ?? ""),
-    contentEncoding: enc, cues: toInt(o?.cues), data, ...(enc === "text" ? { text: content } : {}),
+    contentEncoding: enc, cues: toInt(o?.cues), data, retained: typeof o?.content === "string", byteCount: toInt(o?.bytes, data.length), ...(typeof o?.output === "string" ? { output: o.output } : {}), ...(enc === "text" ? { text: content } : {}),
     ...(mapVerification(o?.verification) ? { verification: mapVerification(o?.verification) } : {}),
   };
 }
@@ -273,6 +297,7 @@ function convertSummary(src: SourceInput, r: any, outputs: any[], warnings: Warn
   const to = outputs.map((o) => `${o.fileName} (${o.format}, ${o.encoding})`).join(", ");
   let s = `Converted ${from} → ${to}: ${r.stats.paragraphsIn} → ${r.stats.paragraphsOut} cues${r.stats.elapsedMs !== undefined ? ` in ${r.stats.elapsedMs} ms` : ""}.`;
   for (const o of outputs) {
+    if (o.output) s += ` Stored at ${o.output}.`;
     if (!o.writtenTo) continue;
     if (o.action === "archived") s += ` Wrote ${o.writtenTo} (archived the old file to ${nodePath.basename(o.archivedTo)}).`;
     else if (o.action === "replaced") s += ` Replaced ${o.writtenTo}.`;

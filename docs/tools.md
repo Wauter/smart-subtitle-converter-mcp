@@ -71,3 +71,11 @@ output.
 
 A clean round trip proves the file is self-consistent through the converter's own reader, not that a given playout
 system accepts it.
+
+## API storage and job ids
+
+`convert_subtitle` accepts `input`, `output` and `sidecar`; `detect_format` accepts `input`. Use exactly one source: inline `content`, MCP-local `path` or API-side `input`. API locations can be `file:///data/file.srt`, a bare absolute path, `s3://bucket/key` or `https://host/file`; they are resolved by the API, not the MCP's local folder roots. `output` is an exact API destination and cannot be mixed with local `outputPath`/`outputDir`. `sidecar:true` applies only to API output. S3 and HTTPS PUT can replace an object; MCP-local `ifExists` does not control those destinations.
+
+The result surfaces `jobId`. The MCP polls `GET /v1/jobs/{id}` after a 202, respecting Retry-After and the tool timeout/cancellation budget. It accepts only the exact relative job URL; no arbitrary Location is followed with bearer credentials. Poll timeout/cancellation does not cancel the accepted API job. A gone record is reported as `job-gone`, not a conversion failure.
+
+Jobs retain metadata only, never subtitle bytes. For asynchronous work use an API `output` URI: the MCP can report that stored result. If upload/download work overruns the wait without an API output, the MCP warns `output-not-retained`; with a local `outputPath` it reports that error and writes nothing. Do not retry uncertain writes blindly. POST connection loss is not automatically replayed; transient I/O retries happen inside the accepted API job.

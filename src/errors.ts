@@ -33,15 +33,14 @@ export const ToolErrorSchema = z.object({
   detail: z.string().optional(),
   hint: z.string().optional(),
   requestId: z.string().optional(),
+  jobId: z.string().optional(),
+  jobUrl: z.string().optional(),
   errors: z.array(FieldError).optional(),
   retryAfterSeconds: z.number().optional(),
   attempts: z.number().int().optional(),
   limit: z.object({ name: z.string(), value: z.number(), actual: z.number() }).optional(),
-  groups: z.array(z.array(z.string())).optional(),
-  outputs: z.array(z.string()).optional(),
   /** ambiguous-format: the format ids the bytes match. */
   candidates: z.array(z.string()).optional(),
-  entry: z.string().optional(),
   phase: z.string().optional(),
   /** D-35: the caller-visible path a local failure is about. */
   path: z.string().optional(),
@@ -140,10 +139,7 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
         ...(typeof e.hint === "string" ? { hint: e.hint } : {}),
       }));
   }
-  if (Array.isArray(b.groups)) te.groups = b.groups.filter(Array.isArray).map((g) => (g as unknown[]).map(String));
-  if (Array.isArray(b.outputs)) te.outputs = b.outputs.map(String);
   if (Array.isArray(b.candidates)) te.candidates = b.candidates.map(String);
-  if (typeof b.entry === "string") te.entry = b.entry;
   if (typeof b.phase === "string") te.phase = b.phase;
   if (ctx.includeDebug && ctx.mode !== "hosted" && b.debug !== undefined) te.debug = b.debug;
 
@@ -188,7 +184,6 @@ export function errorText(e: ToolError): string {
   let s = `${e.code}: ${e.detail ?? e.title ?? "error"}`;
   if (e.errors?.length) s += "\n" + e.errors.slice(0, 10).map((x) => `  ${x.pointer}: ${x.message}${x.hint ? ` (${x.hint})` : ""}`).join("\n");
   if (e.candidates?.length) s += `\nCandidates: ${e.candidates.join(", ")}`;
-  if (e.groups?.length) s += "\nClashing: " + e.groups.map((g) => g.join(" <-> ")).join("; ");
   if (e.osError) s += `\nOS error: ${e.osError.code}${e.osError.syscall ? ` (${e.osError.syscall})` : ""}`;
   if (e.limit) s += `\nLimit ${e.limit.name}=${e.limit.value}, actual ${e.limit.actual}`;
   if (e.retryAfterSeconds !== undefined) s += `\nRetry after: ${e.retryAfterSeconds}s`;
