@@ -29,7 +29,7 @@ export function instructions(deps: Deps): string {
 
 export function createServer(deps: Deps): McpServer {
   const server = new SubtitleMcpServer(
-    { name: "subtitleedit-converter-mcp", title: "Subtitle Edit Converter MCP", version: deps.version },
+    { name: "smart-subtitle-converter-mcp", title: "Smart Subtitle Converter MCP", version: deps.version },
     { capabilities: { tools: { listChanged: true }, resources: { listChanged: false } }, instructions: instructions(deps) },
   );
   registerMetadataTools(server, deps);

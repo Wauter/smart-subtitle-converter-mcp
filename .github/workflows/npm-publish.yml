@@ -1,6 +1,6 @@
 name: npm-publish
 
-# Publish the npm package from the selected ref (default: the v1.3.0 tag / main).
+# Publish the npm package from the selected ref (default: main).
 # Needs secrets.NPM_TOKEN (classic automation token with publish rights) or npm trusted
 # publishing configured for this repo. Does not move tags or rebuild the image.
 on:
@@ -9,7 +9,7 @@ on:
       ref:
         description: Git ref to publish (tag or SHA)
         required: true
-        default: v1.3.0
+        default: main
 
 permissions:
   contents: read
@@ -26,6 +26,8 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      - name: Ref contains the renamed package
+        run: test "$(node -p 'require("./package.json").name')" = smart-subtitle-converter-mcp
       - run: npm ci && npm run build
       - name: npm publish
         run: npm publish --provenance --access public

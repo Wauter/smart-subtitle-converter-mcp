@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/subtitleedit-converter-mcp
-  API_IMAGE: ghcr.io/wauter/subtitleedit-converter-api:1.3   # Paired API major/minor (D-43); no publishing triggered by this change.
+  IMAGE: ghcr.io/${{ github.repository }}
+  API_IMAGE: ghcr.io/wauter/smart-subtitle-converter-api:1.3   # Paired API major/minor (D-43); no publishing triggered by this change.
 
 jobs:
   test:
@@ -89,7 +89,7 @@ jobs:
           provenance: mode=max
       # Packages REST API cannot change visibility (404). MCP image created after the repo
       # went public is already pullable anonymously; if that ever regresses, set public at:
-      # https://github.com/users/Wauter/packages/container/subtitleedit-converter-mcp/settings
+      # https://github.com/users/Wauter/packages/container/smart-subtitle-converter-mcp/settings
       - run: npm ci && npm run build
       - name: GitHub release
         env:

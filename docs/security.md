@@ -1,11 +1,11 @@
 # Security
 
 The safeguards that exist today, and how to change them. This server does no conversion itself: it talks to the
-[Subtitle Edit Converter API](https://github.com/Wauter/subtitleedit-converter-api) and only reads or writes files
+[Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api) and only reads or writes files
 inside folders you allow.
 
 How to report a vulnerability: [SECURITY.md](../SECURITY.md). API-side storage, keys and network checks:
-the API's [security notes](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/security.md).
+the API's [security notes](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/security.md).
 
 ## Defaults
 

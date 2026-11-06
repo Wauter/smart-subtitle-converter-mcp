@@ -14,7 +14,7 @@ nowhere to work.
 claude mcp add --transport stdio \
   --env SUBTITLE_API_URL=http://localhost:8080 \
   --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/Subtitles \
-  subtitleedit -- npx -y subtitleedit-converter-mcp
+  smart-subtitle -- npx -y smart-subtitle-converter-mcp
 ```
 
 - Add more folders the same way (`SUBTITLE_MCP_ALLOWED_DIRS` for read-write,
@@ -29,7 +29,7 @@ Claude Desktop does not pass folders you approve in a chat to this server. Name 
 
 ```jsonc
 { "mcpServers": { "subtitleedit": {
-    "command": "npx", "args": ["-y", "subtitleedit-converter-mcp"],
+    "command": "npx", "args": ["-y", "smart-subtitle-converter-mcp"],
     "env": { "SUBTITLE_API_URL": "http://localhost:8080",
              "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/Subtitles" } } } }
 ```
@@ -39,19 +39,19 @@ Quit the app completely (Cmd+Q on macOS) and reopen it after every change.
 ## Windows
 
 - `SUBTITLE_MCP_ALLOWED_DIRS` uses `;` as the separator (`:` elsewhere; a JSON array works everywhere).
-- Some clients need `"command": "cmd", "args": ["/c", "npx", "-y", "subtitleedit-converter-mcp"]`.
+- Some clients need `"command": "cmd", "args": ["/c", "npx", "-y", "smart-subtitle-converter-mcp"]`.
 
 ## Building from source instead of npx
 
 Requires the Node.js version in `package.json` (`engines`).
 
 ```bash
-git clone https://github.com/Wauter/subtitleedit-converter-mcp.git && cd subtitleedit-converter-mcp
+git clone https://github.com/Wauter/smart-subtitle-converter-mcp.git && cd smart-subtitle-converter-mcp
 npm ci && npm run build        # rerun after every git pull
 ```
 
-Then replace `npx -y subtitleedit-converter-mcp` with `node /path/to/subtitleedit-converter-mcp/dist/index.js`
-(in JSON configs: `"command": "node", "args": ["/path/to/subtitleedit-converter-mcp/dist/index.js"]`).
+Then replace `npx -y smart-subtitle-converter-mcp` with `node /path/to/smart-subtitle-converter-mcp/dist/index.js`
+(in JSON configs: `"command": "node", "args": ["/path/to/smart-subtitle-converter-mcp/dist/index.js"]`).
 
 ## Clients in a VM or container
 

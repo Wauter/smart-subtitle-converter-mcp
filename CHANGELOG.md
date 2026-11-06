@@ -1,15 +1,17 @@
 # Changelog
 
-All notable changes to `subtitleedit-converter-mcp` are documented here. The format is based on
+All notable changes to `smart-subtitle-converter-mcp` are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The MCP shares its major.minor version with the
-[Subtitle Edit Converter API](https://github.com/Wauter/subtitleedit-converter-api): use the MCP release whose
+[Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api): use the MCP release whose
 major.minor matches your API. Patch versions move independently. Versions are recorded here when merged to `main`.
 Tagged releases publish the GHCR image, GitHub Release, and npm package.
 
 ## Unreleased
+
+- Rename the product to **Smart Subtitle Converter** and update repository, container image, npm package and CLI identifiers (npm remains unpublished). Versions and existing release tags are unchanged.
 
 - Public release: drop `package.json` `"private": true` and the CI publishing guard; document how tags publish.
 - Examples and `CONTRACT_API_URL` use the API's default host port `http://localhost:8080` (Compose publishes `127.0.0.1:8080:8080`); Docker-network URLs stay `http://api:8080`.
@@ -126,10 +128,10 @@ First version. Pairs with API 1.1.x (contract-tested against API 1.1.0).
 - Project renamed from `subtitleedit-mcp` to `subtitleedit-converter-mcp` (the API from `subtitleedit-api` to
   `subtitleedit-converter-api`).
 
-[Unreleased]: https://github.com/Wauter/subtitleedit-converter-mcp/compare/074953f...HEAD
-[1.2.1]: https://github.com/Wauter/subtitleedit-converter-mcp/pull/7
-[1.2.0]: https://github.com/Wauter/subtitleedit-converter-mcp/pull/6
-[1.1.3]: https://github.com/Wauter/subtitleedit-converter-mcp/pull/5
-[1.1.2]: https://github.com/Wauter/subtitleedit-converter-mcp/pull/4
-[1.1.1]: https://github.com/Wauter/subtitleedit-converter-mcp/pull/3
-[1.1.0]: https://github.com/Wauter/subtitleedit-converter-mcp/pull/1
+[Unreleased]: https://github.com/Wauter/smart-subtitle-converter-mcp/compare/074953f...HEAD
+[1.2.1]: https://github.com/Wauter/smart-subtitle-converter-mcp/pull/7
+[1.2.0]: https://github.com/Wauter/smart-subtitle-converter-mcp/pull/6
+[1.1.3]: https://github.com/Wauter/smart-subtitle-converter-mcp/pull/5
+[1.1.2]: https://github.com/Wauter/smart-subtitle-converter-mcp/pull/4
+[1.1.1]: https://github.com/Wauter/smart-subtitle-converter-mcp/pull/3
+[1.1.0]: https://github.com/Wauter/smart-subtitle-converter-mcp/pull/1

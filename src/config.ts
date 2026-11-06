@@ -43,9 +43,9 @@ const KNOWN_ENV = new Set([
   "SUBTITLE_MCP_LOG_PATHS",
 ]);
 
-export const USAGE = `Usage: subtitleedit-converter-mcp [options]
+export const USAGE = `Usage: smart-subtitle-converter-mcp [options]
 
-  --api-url <url>        Subtitle Edit Converter API base URL (env SUBTITLE_API_URL, required)
+  --api-url <url>        Smart Subtitle Converter API base URL (env SUBTITLE_API_URL, required)
   --http [host:]port     Streamable HTTP on /mcp instead of stdio (env SUBTITLE_MCP_HTTP)
   --hosted               Hosted hardening (needs --http; not available in v1)
   --allow-dir <dir>      Read-write root (repeatable; env SUBTITLE_MCP_ALLOWED_DIRS)

@@ -5,7 +5,7 @@ npm ci
 npm run lint && npm run typecheck
 npm test                     # unit + MCP-level
 npm run build && npm run test:e2e
-scripts/contract.sh ghcr.io/wauter/subtitleedit-converter-api:edge   # contract suite against a real API image
+scripts/contract.sh ghcr.io/wauter/smart-subtitle-converter-api:edge   # contract suite against a real API image
 ```
 
 The contract suite can also target a running API: `CONTRACT_API_URL=http://127.0.0.1:8080 npm run test:contract`
@@ -29,8 +29,8 @@ variable `CONTRACT_REQUIRED=true`.
 ## Publishing
 
 Version tags (`v*.*.*`) cut a release when the repo variable `PUBLISH_ENABLED` is `true`: multi-arch image to
-GHCR (`ghcr.io/wauter/subtitleedit-converter-mcp`), a GitHub Release, and `npm publish` of
-`subtitleedit-converter-mcp` (needs the `NPM_TOKEN` secret or npm trusted publishing). The image is marked
+GHCR (`ghcr.io/wauter/smart-subtitle-converter-mcp`), a GitHub Release, and `npm publish` of
+`smart-subtitle-converter-mcp` (needs the `NPM_TOKEN` secret or npm trusted publishing). The image is marked
 public when created against a public repo (otherwise set public once in the package settings UI; the Packages API cannot change visibility). Docs-only commits do not need a version bump.
 
 ## Smoke checklist (Claude Desktop / Cursor, MCP Inspector)
@@ -50,3 +50,11 @@ contract suite also checks job ids and direct `Prefer: wait=0` polling.
 The API image in CI targets the matching major/minor series. Until that image is published, CI reports the
 contract image unavailable; unit/MCP/e2e suites still run. Run against the locally built API during development;
 do not publish an image just to make this check run.
+
+## Renaming an existing image
+
+`publish-image.yml` rebuilds an existing source ref into the current repository's GHCR name.
+It never moves a git tag, changes a GitHub Release, or publishes npm. Immutable tagged trees
+retain their original product identifiers; only image destination and OCI title/source labels
+are updated by this workflow. Main builds contain the renamed source and documentation.
+After green main CI, it also publishes `:edge` and `:sha-…`; stable image aliases remain tied to the existing release tag.

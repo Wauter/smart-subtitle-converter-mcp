@@ -1,7 +1,7 @@
 # Configuration
 
 Settings come from environment variables (most also have a flag). Unknown `SUBTITLE_MCP_*` variables fail startup
-(typo protection). `subtitleedit-converter-mcp --help` lists the flags.
+(typo protection). `smart-subtitle-converter-mcp --help` lists the flags.
 
 | Variable | Flag | Default | Description |
 |---|---|---|---|

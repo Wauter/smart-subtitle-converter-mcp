@@ -1,7 +1,7 @@
 name: ci
 
 # PRs and main: lint, types, tests, build, image build (never pushed), contract against the pinned API.
-# Nothing here publishes anything: no npm publish, no image push, no tags, no releases (see release.yml).
+# No publishing in this workflow; green main runs trigger image-only edge publishing (publish-image.yml).
 on:
   push:
     branches: [main]
@@ -17,7 +17,7 @@ concurrency:
 
 env:
   # The API build this MCP release targets (D-37/D-43); bumped deliberately together with package.json.
-  API_IMAGE: ghcr.io/wauter/subtitleedit-converter-api:1.3   # Paired API image; contract job skips until this is published.
+  API_IMAGE: ghcr.io/wauter/smart-subtitle-converter-api:1.3   # Paired API image; contract job skips until this is published.
 
 jobs:
   check:
@@ -71,17 +71,17 @@ jobs:
           platforms: linux/amd64
           load: true
           push: false
-          tags: subtitleedit-converter-mcp:smoke
+          tags: smart-subtitle-converter-mcp:smoke
           cache-from: type=gha
       - name: Smoke (read-only rootfs, token required, healthcheck, 401 without token)
         run: |
           set -euo pipefail
-          if docker run --rm -e SUBTITLE_API_URL=http://api:8080 subtitleedit-converter-mcp:smoke; then
+          if docker run --rm -e SUBTITLE_API_URL=http://api:8080 smart-subtitle-converter-mcp:smoke; then
             echo "::error::sidecar started without an inbound token"; exit 1
           fi
           TOKEN=$(openssl rand -hex 32)
           docker run -d --name mcp-smoke --read-only --cap-drop ALL -p 127.0.0.1:13000:3000 \
-            -e SUBTITLE_API_URL=http://127.0.0.1:9 -e SUBTITLE_MCP_HTTP_TOKEN="$TOKEN" subtitleedit-converter-mcp:smoke
+            -e SUBTITLE_API_URL=http://127.0.0.1:9 -e SUBTITLE_MCP_HTTP_TOKEN="$TOKEN" smart-subtitle-converter-mcp:smoke
           for _ in $(seq 1 30); do curl -sf localhost:13000/healthz >/dev/null && break; sleep 1; done
           curl -sf localhost:13000/healthz
           docker exec mcp-smoke /nodejs/bin/node dist/healthcheck.js

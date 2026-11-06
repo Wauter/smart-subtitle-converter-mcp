@@ -87,7 +87,7 @@ export async function startHttp(cfg: Config, roots: Root[], log: Logger, depsOve
     const auth = tokens.check(req.headers.authorization);
     if (!auth.ok) {
       log.warn("auth-failed", { remote: req.socket.remoteAddress, reason: auth.reason });
-      jsonRpcError(res, 401, -32001, "unauthorized", { "WWW-Authenticate": 'Bearer realm="subtitleedit-converter-mcp"' });
+      jsonRpcError(res, 401, -32001, "unauthorized", { "WWW-Authenticate": 'Bearer realm="smart-subtitle-converter-mcp"' });
       return;
     }
     if (req.method !== "POST") {
