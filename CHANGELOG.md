@@ -7,9 +7,11 @@ All notable changes to `smart-subtitle-converter-mcp` are documented here. The f
 The MCP shares its major.minor version with the
 [Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api): use the MCP release whose
 major.minor matches your API. Patch versions move independently. Versions are recorded here when merged to `main`.
-Tagged releases publish the GHCR image, GitHub Release, and npm package.
+Tagged releases publish the GHCR image and GitHub Release; npm publishing is a separate manual action.
 
 ## Unreleased
+
+- Keep npm publishing manual and make the existing GitHub Release step safe to rerun.
 
 - Rename the product to **Smart Subtitle Converter** and update repository, container image, npm package and CLI identifiers (npm remains unpublished). Versions and existing release tags are unchanged.
 

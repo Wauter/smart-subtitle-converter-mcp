@@ -1,8 +1,7 @@
 name: release
 
-# v*.*.* tags only. Tags build and test; publish (image, GitHub Release, npm) runs when the repo
-# variable PUBLISH_ENABLED is true. Image and GitHub Release are created before npm publish so a
-# missing NPM_TOKEN still leaves a usable release.
+# Version tags build/test, then publish the image and GitHub Release when enabled.
+# npm is deliberately separate: only the manual npm-publish.yml workflow publishes it.
 on:
   push:
     tags: ["v*.*.*"]
@@ -90,13 +89,12 @@ jobs:
       # Packages REST API cannot change visibility (404). MCP image created after the repo
       # went public is already pullable anonymously; if that ever regresses, set public at:
       # https://github.com/users/Wauter/packages/container/smart-subtitle-converter-mcp/settings
-      - run: npm ci && npm run build
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" --generate-notes --notes "Pairs with API ${GITHUB_REF_NAME#v} (D-43). Image: ${IMAGE}:${GITHUB_REF_NAME#v}"
-      - name: npm publish
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "Release already exists; preserving its notes."
+          else
+            gh release create "${GITHUB_REF_NAME}" --generate-notes --notes "Pairs with API ${GITHUB_REF_NAME#v} (D-43). Image: ${IMAGE}:${GITHUB_REF_NAME#v}"
+          fi
