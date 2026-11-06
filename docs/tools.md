@@ -24,10 +24,13 @@ How files are written: [writing-files.md](writing-files.md).
 
 ## Errors
 
-Errors come back as `isError: true` with a structured `error`: `source`, `code`, `detail`, `hint`, `requestId`,
-and for local write failures `path` + `osError`. API error codes are documented in the API's
-[docs/errors.md](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md); local codes
-(`path-not-allowed`, `output-exists`, `cross-device`, …) in [troubleshooting.md](troubleshooting.md).
+Errors come back as `isError: true` with a structured `error`: `source` (`api` or `mcp`), `code`, `detail`, `hint`,
+`requestId`, and where they apply `errors[]` (pointer, message, hint), `candidates` and `probe`
+(`ambiguous-format` / `ambiguous-encoding`), `jobId` / `jobUrl`, a redacted `location`, `limit`, `retryAfterSeconds`,
+and for local write failures `path` + `osError`. API codes are explained in the API's
+[errors and warnings reference](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md)
+(what happened, why, what to do); MCP codes (`path-not-allowed`, `output-exists`, `cross-device`, …) in
+[troubleshooting.md](troubleshooting.md).
 
 - `path-not-allowed` hints include the current allowed folders.
 - PAC and Unicode PAC (FPC) files that can't be told apart by name fail with `ambiguous-format`, with the
@@ -41,7 +44,13 @@ and for local write failures `path` + `osError`. API error codes are documented 
 Report every warning the tools return. Each has a `code` and `message`, and may carry:
 
 - `hint`: the setting that fixes it. The API never switches code pages or character tables by itself.
-- `details`: cue numbers and code points, never cue text.
+- `details`: positions and settings, never cue text: `cueCount` and `cues` (cue numbers), `distinctCodePoints` and
+  `codePoints`, `remedy` (`characters-replaced`), `durations` (`[{cue, durationMs}]`, `long-cue`), `fields` (header
+  field → value written, `format-defaults-applied`), `timecode` (`programme-start-not-applied`) and `frameRate`
+  (`frame-rate-assumed`).
+
+What each warning means and what to do about it: the API's
+[warnings reference](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md#warning-codes).
 
 Codes include `characters-replaced`, `text-truncated`, `zero-length-cue`, `source-replacement-chars`,
 `verification-failed`, `frame-quantised`, `lossy-format` and `frame-rate-changed` (an EBU STL frame-rate code
@@ -50,8 +59,9 @@ mismatch: timings move by less than one frame, with no cumulative drift). Source
 `details.timecode`; times are not shifted), `frame-rate-assumed` (`details.frameRate`), `encoding-guessed` and
 `format-defaults-applied` (header fields the writer filled in, such as an EBU title `No Title` or country `USA`, in
 `details.fields`; set the matching `formatOptions` for a real delivery). Storage writes may add
-`sidecar-delete-failed`. The MCP passes these through unchanged. `mcp-api-version-mismatch` is added by
-the MCP itself ([troubleshooting.md](troubleshooting.md#version-mismatch)).
+`sidecar-write-failed`, `sidecar-delete-failed` or `sidecar-skipped`. The MCP passes these through unchanged; it
+adds only `mcp-api-version-mismatch` ([troubleshooting.md](troubleshooting.md#version-mismatch)) and `mcp-ebu-size`
+(a local `.stl` larger than the API's EBU STL limit).
 
 ### `characters-replaced` remedy
 

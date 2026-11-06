@@ -11,6 +11,7 @@ tags and releases follow on the owner's go-ahead.
 
 ## 1.3.0 — Unreleased
 
+- Docs: troubleshooting explains MCP error codes with what happened, why and what to do, and points to the API's errors reference for API codes; README lists `get_job_file` and covers API locations and jobs in the main flow; tools lists the error and warning detail fields.
 - Pass through API `ambiguous-encoding` (with `candidates` and the new `error.probe`) with a hint naming `formatOptions.pac.inputCodePage` or `encoding.input`. Keep the new API warning details (`durations`, `fields`, `timecode`, `frameRate`) for `long-cue`, `format-defaults-applied`, `programme-start-not-applied` and `frame-rate-assumed`; refresh the OpenAPI snapshot and types.
 - Add get_job_file(jobId, input|output), current-location metadata and Unicode/binary body blocks; no generic URI fetch or local save parameter. Surface distinct job state/storage/replay errors with redacted locations.
 - Collapse ifExists to error | replace everywhere; remove archive/delete helpers, error codes and the local operator gate. Pass explicit policy to API outputs; HTTPS follows signer/receiver policy.

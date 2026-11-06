@@ -22,7 +22,8 @@ warnings the agent can act on. It does no conversion itself.
 - **Atomic writes:** single files are staged and committed with a rename; existing files are never overwritten
   unless you allow it.
 - **Results with a verdict:** binary outputs carry the API's `verification` verdict, and warnings carry a `hint`
-  and a structured `remedy`. Errors have a stable `code`, a `hint` and, for path errors, the allowed folders.
+  and structured `details` (such as a `remedy` for lost characters). Errors have a stable `code`, a `hint` and,
+  for path errors, the allowed folders.
 - **Content stays on your machine:** files go by `path`, so their contents don't pass through the model's context;
   content, keys and tokens are never logged.
 
@@ -52,9 +53,23 @@ Claude Desktop, Cursor, Windows, a VM, or building from source: see [docs/client
 | `list_formats` | Formats with read/write and text/binary flags |
 | `list_presets` / `get_profile` | Built-in and mounted presets, raw and resolved |
 | `validate_profile` | Check a profile, with pointer-level errors and hints |
+| `get_job_file` | Re-read the stored input or output of an API job (storage-to-storage conversions) |
 | `list_allowed_folders` | The folders in effect right now, with mode and source |
 
 Inputs, results and warning fields: [docs/tools.md](docs/tools.md).
+
+## API locations and job tracking
+
+Besides local files, `convert_subtitle` can hand the API its own `input` and `output` locations (an allowlisted
+folder on the API server, an S3-compatible bucket or an HTTPS URL), with an optional `sidecar` JSON next to the
+output; `detect_format` accepts `input` too. These are resolved by the API with its own allowlists, separately from
+the MCP's local folders. Outputs are never overwritten unless you send `ifExists: "replace"`. One file per call.
+
+Every conversion returns a `jobId`. When work outlasts the wait, the MCP polls the job; the API keeps metadata only,
+so use an API `output` location for work that may take a while. `get_job_file` re-reads a job's stored input or
+output while the API still has its record. See [tools](docs/tools.md#api-storage-and-job-ids),
+[configuration](docs/configuration.md#api-storage-and-asynchronous-jobs) and
+[writing files](docs/writing-files.md#api-destinations-are-separate).
 
 ## Documentation
 
@@ -63,10 +78,11 @@ Inputs, results and warning fields: [docs/tools.md](docs/tools.md).
 | [docs/clients.md](docs/clients.md) | Set it up in Claude Code, Claude Desktop, Cursor, Windows or a VM; build from source |
 | [docs/folders-and-roots.md](docs/folders-and-roots.md) | Understand which folders it may use and how roots combine with config |
 | [docs/tools.md](docs/tools.md) | See every tool's inputs, results, verification and warning fields |
+| [API errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) | Look up what an API error or warning means, why it happened and what to do |
 | [docs/writing-files.md](docs/writing-files.md) | Know how files are staged and committed, `ifExists`, race windows |
 | [docs/configuration.md](docs/configuration.md) | Look up every `SUBTITLE_MCP_*` variable and flag |
 | [docs/http-sidecar.md](docs/http-sidecar.md) | Run it over Streamable HTTP next to the API in Docker |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | Fix version-mismatch warnings, missing folders, stale builds |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Fix version-mismatch warnings, missing folders, write and job errors; find where each error code is explained |
 | [docs/development.md](docs/development.md) | Build, test, run the contract suite and the smoke checklist |
 | [CHANGELOG.md](CHANGELOG.md) | See what changed in each version |
 
@@ -80,13 +96,3 @@ All subtitle format support comes from [Subtitle Edit](https://github.com/Subtit
 [Subtitle Edit Converter API](https://github.com/Wauter/subtitleedit-converter-api). Thank you.
 
 This server is MIT licensed, see [LICENSE](LICENSE).
-
-## API locations and job tracking
-
-`convert_subtitle` can pass API-side `input`, `output` and `sidecar`; `detect_format` accepts `input` too.
-These are separate from MCP-local `path`/`outputPath`. The MCP surfaces `jobId` and polls accepted jobs,
-whose retained results are metadata only. Use an API output location for work that may outlive the wait.
-See [tools](docs/tools.md#api-storage-and-job-ids), [configuration](docs/configuration.md#api-storage-and-asynchronous-jobs)
-and [writing files](docs/writing-files.md#api-destinations-are-separate). Submit one file per call.
-
-Use `get_job_file` with jobId and input/output to re-read API-stored files, not local uploads or response-only bytes. `ifExists` is error (default) | replace for local and API outputs; explicit replacement needs no extra gate. [Job file reference](docs/tools.md#re-reading-a-job-file).

@@ -33,7 +33,7 @@ Documented and small:
 
 ## API destinations are separate
 
-Local `path`/`outputPath`/`outputDir` still use the rules above. API `input`/`output` locations are evaluated on the API server, with its own allowlists and permissions. API filesystem and S3 output default to `ifExists:error`; explicit `replace` permits replacement. API filesystem replacement uses sibling staging; S3 default PUT is conditional. HTTPS follows the signer/receiver policy and has no claimed disk/S3 collision guarantee. API `sidecar:true` writes `{output}.json` except for HTTPS, which warns and skips it.
+Local `path`/`outputPath`/`outputDir` still use the rules above. API `input`/`output` locations are evaluated on the API server, with its own allowlists and permissions. API filesystem and S3 output default to `ifExists:error`; explicit `replace` permits replacement. API filesystem replacement uses sibling staging; S3 default PUT is conditional. HTTPS follows the signer/receiver policy and has no claimed disk/S3 collision guarantee. API `sidecar:true` writes `{output}.json` except for HTTPS, which warns and skips it. An API output written without `sidecar` removes an older `{output}.json` next to it (filesystem and S3), since it would describe a file that is no longer there; if that fails the API adds `sidecar-delete-failed` and keeps the subtitle. API filesystem outputs are created with mode `0644`, narrowed by the API server's umask.
 
 A sidecar failure leaves the successfully written subtitle and is reported as a warning. For an asynchronous response without an API output, no file bytes are retained; the MCP never invents an empty local result.
 
