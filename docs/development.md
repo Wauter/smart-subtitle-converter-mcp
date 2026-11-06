@@ -8,7 +8,7 @@ npm run build && npm run test:e2e
 scripts/contract.sh ghcr.io/wauter/subtitleedit-converter-api:edge   # contract suite against a real API image
 ```
 
-The contract suite can also target a running API: `CONTRACT_API_URL=http://127.0.0.1:4041 npm run test:contract`
+The contract suite can also target a running API: `CONTRACT_API_URL=http://127.0.0.1:8080 npm run test:contract`
 (the API's Compose). Add `CONTRACT_API_KEY` and `CONTRACT_SMALL_LIMITS=1` for an API started with `API_KEYS`,
 `MAX_UPLOAD_BYTES=1048576`. In CI the contract job pulls the pinned API image (`API_IMAGE`
 in `.github/workflows/ci.yml`); it is skipped (with a notice) when the image can't be pulled, unless the repo

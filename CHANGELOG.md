@@ -9,6 +9,10 @@ The MCP shares its major.minor version with the
 major.minor matches your API. Patch versions move independently. Versions are recorded here when merged to `main`;
 tags and releases follow on the owner's go-ahead.
 
+## Unreleased
+
+- Examples and `CONTRACT_API_URL` use the API's default host port `http://localhost:8080` (Compose publishes `127.0.0.1:8080:8080`); Docker-network URLs stay `http://api:8080`.
+
 ## 1.3.0 — Unreleased
 
 - Add a GitHub security policy (`SECURITY.md`) and [docs/security.md](docs/security.md) covering allowed folders, writes, API keys and HTTP mode.
