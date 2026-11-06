@@ -89,7 +89,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Effective limits of this server (upload, JSON body, queue, timeouts).
+         * Effective upload, queue, wait, I/O, job and storage-scheme limits.
          * @description Lets clients pre-check inputs. `queue.depth` is a live value. `auth.required` says whether a bearer key is needed; keys are never exposed.
          */
         get: operations["getLimits"];
@@ -112,7 +112,7 @@ export interface paths {
         put?: never;
         /**
          * Detect the format and encoding of a subtitle.
-         * @description Send multipart `file`, or JSON {content, contentEncoding, fileName} (binary files as base64). Returns `kind`, `codePage` for binary input and up to 5 `candidates`. 422 format-not-detected when nothing matches.
+         * @description Send multipart `file`, or JSON {content, contentEncoding, fileName} (binary files as base64). Or send `input` (file, S3 or HTTPS URI) instead of inline content/file. Returns `kind`, `codePage` for binary input and up to 5 `candidates`. 422 format-not-detected when nothing matches.
          */
         post: operations["detect"];
         delete?: never;
@@ -309,6 +309,22 @@ export interface components {
             /** Format: int64 */
             json: number | string;
         };
+        LimitsIo: {
+            /** Format: int32 */
+            timeoutSeconds: number | string;
+            /** Format: int32 */
+            retries: number | string;
+        };
+        LimitsJobs: {
+            /** Format: int32 */
+            maxEntries: number | string;
+            /** Format: int32 */
+            ttlSeconds: number | string;
+            /** Format: int32 */
+            maxActive: number | string;
+            /** Format: int32 */
+            maxMetadataBytes: number | string;
+        };
         LimitsJson: {
             /** Format: int64 */
             maxDecodedContentBytes: number | string;
@@ -338,6 +354,15 @@ export interface components {
             rateLimitPerMinute: number | string;
             auth: components["schemas"]["LimitsAuth"];
             binary: components["schemas"]["LimitsBinary"];
+            /** Format: int32 */
+            requestWaitSeconds: number | string;
+            io: components["schemas"]["LimitsIo"];
+            jobs: components["schemas"]["LimitsJobs"];
+            storage: components["schemas"]["LimitsStorage"];
+        };
+        LimitsStorage: {
+            inputSchemes: string[];
+            outputSchemes: string[];
         };
         OutputDto: {
             fileName: string;
@@ -349,7 +374,6 @@ export interface components {
             encoding: string;
             /** Format: int32 */
             cues: number | string;
-            source?: null | string;
             /** @default text */
             kind: string;
             verification?: null | components["schemas"]["Verification"];

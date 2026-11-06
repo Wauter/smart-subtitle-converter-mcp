@@ -14,10 +14,10 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 | `SUBTITLE_MCP_READONLY_DIRS` | `--allow-dir-ro` | unset | Read-only roots |
 | `SUBTITLE_MCP_USE_CLIENT_ROOTS` | – | `true` | Local mode: add the client's `roots/list` folders to the configured ones ([folders-and-roots.md](folders-and-roots.md)) |
 | `SUBTITLE_MCP_ALLOW_DESTRUCTIVE` | – | `false` | Allow `ifExists: replace/delete` in convert_subtitle ([writing-files.md](writing-files.md)) |
-| `SUBTITLE_MCP_PARTIAL_MAX_AGE_MS` | – | `3600000` | Age after which staging files/folders are swept |
+| `SUBTITLE_MCP_PARTIAL_MAX_AGE_MS` | – | `3600000` | Age after which staging files are swept |
 | `SUBTITLE_MCP_MAX_BYTES` | – | unset | Local cap per input file (effective cap = min with the API limit) |
 | `SUBTITLE_MCP_TIMEOUT_MS` | – | `120000` | Per-attempt timeout for conversions (metadata: min(this, 15000)) |
-| `SUBTITLE_MCP_RETRY_MAX_ATTEMPTS` | – | `3` | Retries for 429/503/connection errors |
+| `SUBTITLE_MCP_RETRY_MAX_ATTEMPTS` | – | `3` | Retries for 429/503 and safe metadata connection errors; conversion POST connection loss is not replayed |
 | `SUBTITLE_MCP_RETRY_MAX_WAIT_MS` | – | `60000` | Longest single `Retry-After` wait accepted |
 | `SUBTITLE_MCP_RETRY_BUDGET_MS` | – | `90000` | Total retry wait per call |
 | `SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES` | – | `65536` | Larger inline text outputs come back as an embedded resource |
@@ -33,3 +33,18 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 
 Logs are JSON lines on stderr. Content, base64, profile values, API keys and tokens are never logged; paths are
 hashed unless `SUBTITLE_MCP_LOG_PATHS=true`.
+
+## API storage and asynchronous jobs
+
+API `input`/`output` URIs are independent of MCP-local folders. Configure `STORAGE_FILE_ROOTS`,
+`S3_ALLOWED_BUCKETS`/`S3_ALLOWED_PREFIXES` or `HTTP_ALLOWED_HOSTS` on the **API**, not this MCP.
+Its `GET /v1/limits` describes enabled schemes, default wait, I/O and job retention settings; the limits
+resource relays that response. Storage credentials belong to the API runtime, never tool arguments.
+
+The MCP requests a synchronous wait up to 30 seconds, shortened for a small tool timeout, and polls the
+returned job on 202 within the remaining tool budget. Increase `SUBTITLE_MCP_TIMEOUT_MS` for slower work,
+but prefer an API output URI: job metadata cannot replay subtitle bytes. Cancelling or timing out the MCP
+does not cancel an admitted API job. Capture `jobId` and inspect it before resubmitting writes.
+
+The MCP's local `SUBTITLE_MCP_ALLOW_DESTRUCTIVE` switch and `ifExists` policy do not govern API destinations.
+See [tools](tools.md#api-storage-and-job-ids) and [writing files](writing-files.md#api-destinations-are-separate).

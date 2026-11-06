@@ -1,4 +1,4 @@
-import { z, type ZodRawShape, type ZodTypeAny } from "zod";
+import { z, type ZodTypeAny } from "zod";
 import type { McpServer, RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult, ContentBlock, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { errorText, FieldError, mcpError, ToolFailure, ToolErrorSchema, Warning, type ToolError, type WarningT } from "../errors.js";
@@ -22,13 +22,13 @@ export interface ToolOutcome {
   logFields?: Record<string, unknown>;
 }
 
-export interface ToolDef<S extends ZodRawShape> {
+export interface ToolDef<S extends Record<string, z.ZodType>> {
   name: string;
   title: string;
   /** A function when the text depends on the allowed folders: it's rebuilt after a client-roots change. */
   description: string | (() => string);
   shape: S;
-  output: ZodRawShape;
+  output: Record<string, z.ZodType>;
   annotations: ToolAnnotations;
   /** structured.warnings is a Warning[] ({code,message}); the version-mismatch warning may be added there. */
   warningArray?: boolean;
@@ -56,7 +56,7 @@ export function refreshToolDescriptions(server: McpServer, _deps?: Deps): boolea
 }
 
 /** Registers a tool with strict input parsing (→ invalid-arguments), error mapping and one log record per call. */
-export function defineTool<S extends ZodRawShape>(server: McpServer, deps: Deps, def: ToolDef<S>): void {
+export function defineTool<S extends Record<string, z.ZodType>>(server: McpServer, deps: Deps, def: ToolDef<S>): void {
   const strict = z.object(def.shape).strict();
   const describe = typeof def.description === "function" ? def.description : undefined;
   const registered = server.registerTool(
@@ -294,7 +294,7 @@ export const DetectedOutput = z.object({
   paragraphs: z.number().int(),
   candidates: z.array(z.string()).nullish(),
   codePage: z.string().optional(),
-  formatDetails: z.record(z.unknown()).optional(),
+  formatDetails: z.record(z.string(), z.unknown()).optional(),
   /** detect_format only (API 1.2.0): BOM and line endings of a text source. */
   bom: z.boolean().optional(),
   lineEndings: z.enum(["crlf", "lf", "cr", "mixed", "none"]).optional(),

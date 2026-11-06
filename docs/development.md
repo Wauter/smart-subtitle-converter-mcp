@@ -39,3 +39,12 @@ Tags and releases are cut only on the owner's go-ahead.
 4. `convert_subtitle` with `path` + `outputDir`: the file appears atomically; a second run fails with `output-exists`.
 5. Convert another single file; the caller owns any loop.
 6. HTTP mode: a request without the token gets 401; `/healthz` answers without one.
+
+Optional `CONTRACT_STORAGE_ROOT` points at an already-existing directory allowlisted by the API and visible
+at the same absolute path to the test process. The suite creates its own source/output there and removes only
+those files. This covers API URI output and the metadata sidecar without cloud credentials. The normal
+contract suite also checks job ids and direct `Prefer: wait=0` polling.
+
+The API image in CI targets the matching major/minor series. Until that image is published, CI reports the
+contract image unavailable; unit/MCP/e2e suites still run. Run against the locally built API during development;
+do not publish an image just to make this check run.

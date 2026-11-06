@@ -38,7 +38,7 @@ export const ConvertOutput = {
   detected: DetectedOutput.nullish(),
   stats: z.object({ paragraphsIn: z.number(), paragraphsOut: z.number(), elapsedMs: z.number().optional(), queueWaitMs: z.number().optional() }),
   warnings: z.array(Warning),
-  profile: z.record(z.unknown()).optional(),
+  profile: z.record(z.string(), z.unknown()).optional(),
   requestId: z.string().optional(),
   attempts: z.number().int(),
 };
@@ -95,7 +95,7 @@ export function registerConvertTool(server: McpServer, deps: Deps): void {
     fileName: z.string().max(255).optional().describe("Source file name; used for detection and to name the output"),
     preset: z.string().max(200).optional().describe("Preset name from list_presets"),
     target: z.string().max(100).optional().describe("Target format id or alias, e.g. 'webvtt', 'ebustl'"),
-    profile: z.record(z.unknown()).optional().describe("Profile JSON or overrides on top of preset"),
+    profile: z.record(z.string(), z.unknown()).optional().describe("Profile JSON or overrides on top of preset"),
     ...(paths
       ? {
           profilePath: z.string().optional().describe("Absolute path to a profile .json file (instead of `profile`)"),

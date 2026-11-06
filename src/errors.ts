@@ -130,6 +130,10 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
     ...(typeof b.title === "string" ? { title: b.title } : {}),
     ...(typeof b.detail === "string" ? { detail: b.detail } : {}),
   };
+  if (typeof b.id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(b.id)) {
+    te.jobId = b.id;
+    te.jobUrl = `/v1/jobs/${b.id}`;
+  }
   if (Array.isArray(b.errors)) {
     te.errors = b.errors
       .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
@@ -188,6 +192,7 @@ export function errorText(e: ToolError): string {
   if (e.limit) s += `\nLimit ${e.limit.name}=${e.limit.value}, actual ${e.limit.actual}`;
   if (e.retryAfterSeconds !== undefined) s += `\nRetry after: ${e.retryAfterSeconds}s`;
   if (e.hint) s += `\nHint: ${e.hint}`;
+  if (e.jobId) s += `\njobId: ${e.jobId}${e.jobUrl ? ` (${e.jobUrl})` : ""}`;
   if (e.requestId) s += `\nrequestId: ${e.requestId}`;
   return s;
 }

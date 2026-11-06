@@ -1,17 +1,5 @@
 # Changelog
 
-## 1.3.0 — Unreleased
-
-Pairs with API 1.3.0.
-
-- Include structured tool errors in advertised output schemas, retaining required-success validation, so clients that list tools can read failed job/conversion results.
-
-- Pass input/output/sidecar to the API, expose jobId and poll 202 job URLs with a bounded wait. Preserve local single-file writes; report metadata-only asynchronous results without inventing empty files.
-- Mark possible API storage writes in tool annotations; do not replay uncertain conversion POSTs after a connection loss.
-
-- Breaking: remove convert_batch, ZIP helpers and batch configuration. Submit one subtitle per call.
-
-
 All notable changes to `subtitleedit-converter-mcp` are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -21,11 +9,20 @@ The MCP shares its major.minor version with the
 major.minor matches your API. Patch versions move independently. Versions are recorded here when merged to `main`;
 tags and releases follow on the owner's go-ahead.
 
-## [Unreleased]
+## 1.3.0 — Unreleased
 
-### Changed
-- Documentation split into a short README and pages under `docs/` (clients, folders and roots, tools, writing
-  files, configuration, HTTP sidecar, troubleshooting, development); this changelog added. No code changes.
+Pairs with API 1.3.0.
+
+- Move schema validation to Zod 4.6.7 and refresh body-parser/fast-uri locks to satisfy the existing production dependency-audit gate; retain structured success/error and validation regression coverage.
+
+- Complete API/local storage distinctions, asynchronous timeout/error guidance and configuration/README pointers. Preserve admitted synchronous failure job ids; refresh effective-limits types.
+
+- Include structured tool errors in advertised output schemas, retaining required-success validation, so clients that list tools can read failed job/conversion results.
+
+- Pass input/output/sidecar to the API, expose jobId and poll 202 job URLs with a bounded wait. Preserve local single-file writes; report metadata-only asynchronous results without inventing empty files.
+- Mark possible API storage writes in tool annotations; do not replay uncertain conversion POSTs after a connection loss.
+
+- Breaking: remove convert_batch, ZIP helpers and batch configuration. Submit one subtitle per call.
 
 ## [1.2.1] - 2026-10-17
 

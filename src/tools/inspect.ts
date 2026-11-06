@@ -17,10 +17,10 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
       "Check a custom conversion profile without converting anything. Returns `valid`, errors with JSON pointers and hints, warnings, and the resolved profile. Always validate a profile you wrote yourself before using it in convert_subtitle . The JSON Schema is available as the resource `subtitleedit://schemas/profile.json`. A profile without `target.format` can be valid (with a warning) because it may be a base for other presets." +
       (paths ? ` Give exactly one of \`profile\` or \`path\`. ${deps.rootsText}` : ""),
     shape: {
-      profile: z.record(z.unknown()).optional().describe("Profile JSON object"),
+      profile: z.record(z.string(), z.unknown()).optional().describe("Profile JSON object"),
       ...(paths ? { path: z.string().optional().describe("Absolute path to a profile .json file in an allowed folder") } : {}),
     },
-    output: { valid: z.boolean(), errors: z.array(FieldError), warnings: z.array(FieldError), resolved: z.record(z.unknown()).nullable() },
+    output: { valid: z.boolean(), errors: z.array(FieldError), warnings: z.array(FieldError), resolved: z.record(z.string(), z.unknown()).nullable() },
     annotations: RO,
     handler: async (a: any, call) => {
       requirePathsAllowed(deps, a, ["path"]);

@@ -80,3 +80,11 @@ All subtitle format support comes from [Subtitle Edit](https://github.com/Subtit
 [Subtitle Edit Converter API](https://github.com/Wauter/subtitleedit-converter-api). Thank you.
 
 This server is MIT licensed, see [LICENSE](LICENSE).
+
+## API locations and job tracking
+
+`convert_subtitle` can pass API-side `input`, `output` and `sidecar`; `detect_format` accepts `input` too.
+These are separate from MCP-local `path`/`outputPath`. The MCP surfaces `jobId` and polls accepted jobs,
+whose retained results are metadata only. Use an API output location for work that may outlive the wait.
+See [tools](docs/tools.md#api-storage-and-job-ids), [configuration](docs/configuration.md#api-storage-and-asynchronous-jobs)
+and [writing files](docs/writing-files.md#api-destinations-are-separate). Submit one file per call.

@@ -38,6 +38,12 @@ describe("problem mapping (§8.1)", () => {
     expect(te.hint?.startsWith("API hint.")).toBe(true);
     if (hint) expect(te.hint).toMatch(hint);
   });
+  it("retains admitted synchronous job ids without accepting arbitrary job URLs", () => {
+    const te = mapProblem(422, p(422, "format-not-detected", { id: "abc123" }), ctx);
+    expect(te.jobId).toBe("abc123"); expect(te.jobUrl).toBe("/v1/jobs/abc123");
+    expect(errorText(te)).toContain("jobId: abc123");
+    expect(mapProblem(422, p(422, "format-not-detected", { id: "https://elsewhere.test/" }), ctx).jobUrl).toBeUndefined();
+  });
   it("sidecar 401 hint names the operator", () => {
     expect(mapProblem(401, p(401, "unauthorized"), { ...ctx, mode: "sidecar" }).hint).toMatch(/ask the operator/);
   });

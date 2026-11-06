@@ -50,3 +50,14 @@ port (`http://api:8080`). From a VM, `localhost` may not be your host. `401` fro
 - Unknown `SUBTITLE_MCP_*` variables fail startup on purpose (typo protection); check the spelling against
   [configuration.md](configuration.md).
 - `--http` needs an inbound token ([http-sidecar.md](http-sidecar.md)); `--hosted` isn't available yet.
+
+## Jobs and storage URIs
+
+- `storage-location-rejected`: configure the matching API allowlist; use a complete filename, not a trailing slash.
+  MCP-local folder grants do not grant API filesystem access. API file storage currently requires Linux.
+- `job-gone`: the job record expired, was evicted, or its API process restarted. This does not mean the write failed.
+- `output-not-retained`: an asynchronous job had no API output. Polling cannot download file bytes; use an API
+  output URI next time. No empty local file was created.
+- `mcp-timeout` after acceptance: inspect the returned `jobId`; work can still be running. Do not blindly replay writes.
+- `sidecar-write-failed`: retain the successful subtitle and inspect warnings; only the sidecar failed.
+- `sidecar-skipped`: HTTPS PUT has no second signed URL for the sidecar, so none was attempted.

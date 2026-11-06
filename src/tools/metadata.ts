@@ -108,7 +108,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
     shape: { name: z.string().min(1).max(200) },
     output: {
       name: z.string(), origin: z.string(), valid: z.boolean(), description: z.string().nullish(), target: z.string().nullish(), shadows: z.string().nullish(),
-      path: z.string().nullish(), errors: z.array(FieldError), warnings: z.array(FieldError), raw: z.record(z.unknown()).nullable(), resolved: z.record(z.unknown()).nullable(),
+      path: z.string().nullish(), errors: z.array(FieldError), warnings: z.array(FieldError), raw: z.record(z.string(), z.unknown()).nullable(), resolved: z.record(z.string(), z.unknown()).nullable(),
     },
     annotations: RO,
     handler: async (a, call) => {

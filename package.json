@@ -24,7 +24,7 @@
   "homepage": "https://github.com/Wauter/subtitleedit-converter-mcp#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
-    "zod": "3.25.76"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
