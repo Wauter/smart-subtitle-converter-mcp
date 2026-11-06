@@ -18,11 +18,11 @@ Nothing is ever suffixed (`_2`).
 
 ## Staging rules
 
-- The staging folder must be on the same filesystem as the destination. A mount inside an output root fails with
-  `cross-device` (configure that mount as its own output root); there is never a non-atomic copy.
+- The staging folder must be on the same filesystem as the destination. A mount inside an allowed folder fails with
+  `cross-device` (configure that mount as its own allowed output folder); there is never a non-atomic copy.
 - Stale staging files (older than `SUBTITLE_MCP_PARTIAL_MAX_AGE_MS`) are swept at startup and
   periodically, only inside `.subtitle-mcp-staging/`. No state is stored.
-- In the sidecar image the output roots must be writable by uid 65532 ([http-sidecar.md](http-sidecar.md)).
+- In the sidecar image the output folders must be writable by uid 65532 ([http-sidecar.md](http-sidecar.md)).
 
 ## Race windows
 

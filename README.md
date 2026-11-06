@@ -11,14 +11,13 @@
 > please [report issues](https://github.com/Wauter/subtitleedit-converter-mcp/issues).
 
 This [Model Context Protocol](https://modelcontextprotocol.io) server gives AI agents the Subtitle Edit Converter
-API and adds what an agent working on your files needs: access only to folders you or your client name, atomic
-single-file writes through staging, and structured errors and
-warnings the agent can act on. It does no conversion itself.
+API and adds what an agent working on your files needs: access only to folders you name, atomic single-file writes
+through staging, and structured errors and warnings the agent can act on. It does no conversion itself.
 
 ## What it adds
 
-- **Allowed folders only:** it reads and writes only inside folders you configure or your client shares as MCP
-  roots (Claude Code does this automatically). Read-only folders stay read-only.
+- **Allowed folders only:** it reads and writes only inside folders you name in the settings
+  (`SUBTITLE_MCP_ALLOWED_DIRS` / `SUBTITLE_MCP_READONLY_DIRS`). Read-only folders stay read-only.
 - **Atomic writes:** single files are staged and committed with a rename; existing files are never overwritten
   unless you allow it.
 - **Results with a verdict:** binary outputs carry the API's `verification` verdict, and warnings carry a `hint`
@@ -35,12 +34,13 @@ Start the API first (its [quick start](https://github.com/Wauter/subtitleedit-co
 ```bash
 claude mcp add --transport stdio \
   --env SUBTITLE_API_URL=http://localhost:8080 \
+  --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/Subtitles \
   subtitleedit -- npx -y subtitleedit-converter-mcp
 ```
 
-Start Claude Code in the folder that holds your subtitles; it shares that folder with the server. Then ask:
+Point `SUBTITLE_MCP_ALLOWED_DIRS` at the folder that holds your subtitles, then ask:
 
-> Convert `movie.srt` in this folder to EBU STL at 25 fps and tell me whether anything was lost.
+> Convert `movie.srt` in `/Users/me/Subtitles` to EBU STL at 25 fps and tell me whether anything was lost.
 
 Claude Desktop, Cursor, Windows, a VM, or building from source: see [docs/clients.md](docs/clients.md).
 
@@ -48,7 +48,7 @@ Claude Desktop, Cursor, Windows, a VM, or building from source: see [docs/client
 
 | Tool | What it does |
 |---|---|
-| `convert_subtitle` | Convert one file (inline or `path`) to text inline or to `outputPath`/`outputDir` |
+| `convert_subtitle` | Convert one file (`path`, inline, or API `input`) to inline, local output, or API `output` |
 | `detect_format` | Format, encoding, BOM, line endings and language of a file |
 | `list_formats` | Formats with read/write and text/binary flags |
 | `list_presets` / `get_profile` | Built-in and mounted presets, raw and resolved |
@@ -76,14 +76,14 @@ output while the API still has its record. See [tools](docs/tools.md#api-storage
 | Read this | When you want to |
 |---|---|
 | [docs/clients.md](docs/clients.md) | Set it up in Claude Code, Claude Desktop, Cursor, Windows or a VM; build from source |
-| [docs/folders-and-roots.md](docs/folders-and-roots.md) | Understand which folders it may use and how roots combine with config |
+| [docs/folders-and-roots.md](docs/folders-and-roots.md) | Understand which folders it may use |
 | [docs/tools.md](docs/tools.md) | See every tool's inputs, results, verification and warning fields |
 | [API errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) | Look up what an API error or warning means, why it happened and what to do |
 | [docs/writing-files.md](docs/writing-files.md) | Know how files are staged and committed, `ifExists`, race windows |
 | [docs/configuration.md](docs/configuration.md) | Look up every `SUBTITLE_MCP_*` variable and flag |
 | [docs/security.md](docs/security.md) | See allowed folders, writes, API keys and HTTP-mode safeguards |
 | [docs/http-sidecar.md](docs/http-sidecar.md) | Run it over Streamable HTTP next to the API in Docker |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | Fix version-mismatch warnings, missing folders, write and job errors; find where each error code is explained |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Fix MCP-local errors (folders, writes, talking to the API); API codes are on the errors and warnings page above |
 | [docs/development.md](docs/development.md) | Build, test, run the contract suite and the smoke checklist |
 | [CHANGELOG.md](CHANGELOG.md) | See what changed in each version |
 

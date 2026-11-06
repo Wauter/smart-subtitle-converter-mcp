@@ -15,7 +15,8 @@
   to start; it isn't available yet.
 
 In HTTP mode, `SUBTITLE_MCP_ALLOWED_HOSTS` and `SUBTITLE_MCP_ALLOWED_ORIGINS` guard against DNS rebinding and
-cross-origin calls ([configuration.md](configuration.md)). Client roots don't apply; configure the folders.
+cross-origin calls ([configuration.md](configuration.md)). Name the allowed folders with
+`SUBTITLE_MCP_ALLOWED_DIRS` / `SUBTITLE_MCP_READONLY_DIRS`; client-offered extras do not apply here.
 
 ## Reference Compose
 
@@ -57,4 +58,4 @@ secrets:
 ```
 
 The image is distroless (Node.js, `nonroot`), works on a read-only rootfs and writes nothing outside the mounted
-output roots.
+output folders.

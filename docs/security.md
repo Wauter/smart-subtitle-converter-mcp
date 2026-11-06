@@ -10,7 +10,7 @@ the API's [security notes](https://github.com/Wauter/subtitleedit-converter-api/
 ## Defaults
 
 - The usual setup is stdio: the server talks to one local client, not the network.
-- It reads and writes only inside folders you configure or your client shares as MCP roots.
+- It reads and writes only inside folders you name (`SUBTITLE_MCP_ALLOWED_DIRS` / `SUBTITLE_MCP_READONLY_DIRS`).
 - File contents go by `path`, so they do not pass through the model's context.
 - Logs never include subtitle content, profile values, API keys or tokens. Paths are hashed unless
   `SUBTITLE_MCP_LOG_PATHS=true`.
@@ -19,13 +19,11 @@ the API's [security notes](https://github.com/Wauter/subtitleedit-converter-api/
 
 ## Allowed folders
 
-- `SUBTITLE_MCP_ALLOWED_DIRS` (read-write) and `SUBTITLE_MCP_READONLY_DIRS` (read-only), or the
-  `--allow-dir` / `--allow-dir-ro` flags.
-- When the client supports MCP roots and `SUBTITLE_MCP_USE_CLIENT_ROOTS` is not `false`, its workspace
-  folders are added as read-write. The effective set is the union. A configured read-only folder stays
-  read-only even inside a client root.
-- Claude Desktop sends an empty roots list; set the environment folders there. Details:
-  [folders-and-roots.md](folders-and-roots.md).
+- Name them with `SUBTITLE_MCP_ALLOWED_DIRS` (read-write) and `SUBTITLE_MCP_READONLY_DIRS` (read-only), or the
+  `--allow-dir` / `--allow-dir-ro` flags. That is the setup path for every client.
+- Some clients can still add extra folders via the older MCP roots feature when
+  `SUBTITLE_MCP_USE_CLIENT_ROOTS` is not `false`; a configured read-only folder stays read-only. Don't rely on
+  that feature — name your folders in the settings. Details: [folders-and-roots.md](folders-and-roots.md).
 - `list_allowed_folders` shows what is in effect. Path errors use `path-not-allowed` and include the current list.
 
 ## Writing files

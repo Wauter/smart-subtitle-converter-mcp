@@ -4,27 +4,28 @@ How to add the server to each MCP client. All examples use stdio (the client sta
 API runs on `http://localhost:8080`, the host port the API's `docker-compose.yml` publishes (bound to `127.0.0.1`;
 the container itself listens on 8080). If you changed that mapping, use your host port.
 
-## Claude Code
+Name the folders the server may use with `SUBTITLE_MCP_ALLOWED_DIRS` (read-write) and, if needed,
+`SUBTITLE_MCP_READONLY_DIRS` (read-only). Without those, local `path` / `outputPath` / `outputDir` calls have
+nowhere to work.
 
-Claude Code shares its workspace folder as an MCP root, so no folder setting is needed.
+## Claude Code
 
 ```bash
 claude mcp add --transport stdio \
   --env SUBTITLE_API_URL=http://localhost:8080 \
+  --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/Subtitles \
   subtitleedit -- npx -y subtitleedit-converter-mcp
 ```
 
-- The folder you start Claude Code in becomes the read-write folder. A session started elsewhere gets that folder instead.
-- Extra folders outside the workspace: add `--env SUBTITLE_MCP_ALLOWED_DIRS=...` (read-write) or
-  `--env SUBTITLE_MCP_READONLY_DIRS=/Volumes/Masters` (read-only) before the server name. They are combined with
-  the workspace folder.
+- Add more folders the same way (`SUBTITLE_MCP_ALLOWED_DIRS` for read-write,
+  `SUBTITLE_MCP_READONLY_DIRS=/Volumes/Masters` for read-only). Separate several paths with `:` (`;` on Windows),
+  or use a JSON array.
 - To change settings: `claude mcp remove subtitleedit`, add it again, and restart Claude Code.
 - Check what is registered with `claude mcp get subtitleedit`.
 
 ## Claude Desktop and Cursor
 
-Claude Desktop advertises MCP roots but answers `roots/list` with an empty list, so folders you approve in a chat
-never reach this server. Name the folders in the config:
+Claude Desktop does not pass folders you approve in a chat to this server. Name them in the config:
 
 ```jsonc
 { "mcpServers": { "subtitleedit": {
@@ -64,6 +65,5 @@ If the client runs in a Linux VM or container (paths like `/mnt/mac/Users/...`),
 
 ## Check that it works
 
-Ask the agent to call `list_allowed_folders`. It returns the folders in effect, each with `mode` and `source`
-(`config` or `client-roots`), and a `state` such as `ready`, `waiting-for-roots` or `roots-empty`. See
-[troubleshooting.md](troubleshooting.md) if the list is empty.
+Ask the agent to call `list_allowed_folders`. It returns the folders in effect, each with `mode` and `source`, and a
+`state` such as `ready` or `none`. See [troubleshooting.md](troubleshooting.md) if the list is empty.

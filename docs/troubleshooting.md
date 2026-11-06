@@ -3,14 +3,14 @@
 Start with `list_allowed_folders` (folders and their `state`) and the server's log (JSON lines on stderr, shown in
 the client's MCP log). Every error carries a `code`, a `hint` and a `source`:
 
-- `source: "api"`: the converter API raised it. The API's [errors and warnings reference](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) explains every
-  API error and warning code: what happened, why, and what to do. The sections below repeat the ones MCP users
-  meet most.
-- `source: "mcp"`: this server raised it, about local folders, files, or talking to the API. They are explained on
-  this page.
+- `source: "api"`: the converter API raised it. Look it up on the API's
+  [errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) page (what happened, why, and what to do).
+  This page does not repeat those codes.
+- `source: "mcp"`: this server raised it, about local folders, files, or talking to the API. They are explained
+  below.
 
-Warnings come from the API and are passed through unchanged; only `mcp-api-version-mismatch` and `mcp-ebu-size`
-are added by the MCP.
+Warnings from the API are passed through unchanged; they are on that same page. The MCP adds only
+`mcp-api-version-mismatch` and `mcp-ebu-size`.
 
 ## Version mismatch
 
@@ -30,9 +30,11 @@ If you did update and still see an older MCP version in the warning, the client 
 
 ## No allowed folders, or `path-not-allowed`
 
-- `state: roots-empty` in Claude Desktop is expected: it doesn't pass approved folders. Set
-  `SUBTITLE_MCP_ALLOWED_DIRS` / `SUBTITLE_MCP_READONLY_DIRS` ([folders-and-roots.md](folders-and-roots.md)).
-- `state: waiting-for-roots`: the client hasn't sent its roots yet; the tool descriptions update once it does.
+- Set `SUBTITLE_MCP_ALLOWED_DIRS` / `SUBTITLE_MCP_READONLY_DIRS` to the folders that hold your files
+  ([folders-and-roots.md](folders-and-roots.md)). Claude Desktop never passes chat-approved folders here.
+- `state: none` or `roots-empty`: no configured folders (and no client extras). Name them in the settings.
+- `state: waiting-for-roots`: a client that still offers the older roots feature hasn't sent them yet; the tool
+  descriptions update once it does. Prefer configured folders so you don't wait on that.
 - `path-not-allowed`: the path is outside the allowed folders, relative, or inside a read-only folder for a write.
   The hint lists the folders in effect.
 
@@ -56,17 +58,17 @@ system failures.
 
 **`cross-device`**
 
-- **What:** The output folder is on a different disk or mount than its output root.
+- **What:** The output folder is on a different disk or mount than its allowed output folder.
 - **Why:** Files are committed with an atomic rename, which only works within one filesystem; there is never a
   non-atomic copy.
-- **What to do:** Configure that mount as its own output root.
+- **What to do:** Configure that mount as its own allowed output folder.
 
 **`staging-unavailable`**
 
-- **What:** The `.subtitle-mcp-staging/` folder in the output root can't be created or used.
+- **What:** The `.subtitle-mcp-staging/` folder in the allowed output folder can't be created or used.
 - **Why:** Every write is staged there first.
 - **What to do:** Make that folder writable for the MCP's user (in the sidecar image, the container user), or
-  choose another output root.
+  choose another allowed output folder.
 
 **`path-not-found`, `not-a-file`, `not-a-directory`**
 
@@ -105,10 +107,8 @@ system failures.
   (`http://localhost:8080` with the API's defaults); from a container on the same Docker network it's the container
   port (`http://api:8080`). From a VM, `localhost` may not be your host.
 
-**`unauthorized`** (from the API)
-
-- **What:** The API didn't accept the key.
-- **What to do:** Set `SUBTITLE_API_KEY` (or `_FILE`) to a key the API accepts.
+Auth failures from the API are on that
+[errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) page; the MCP sends `SUBTITLE_API_KEY` (or `_FILE`).
 
 **`mcp-timeout`**
 
@@ -146,83 +146,24 @@ system failures.
 ## Jobs and storage URIs
 
 These apply when `convert_subtitle` uses API-side `input` / `output` locations, and to `get_job_file`.
+Storage, overwrite, sidecar and job codes from the API are on the
+[errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) page.
 
-**`storage-location-rejected`** (from the API)
-
-- **What:** The API may not use that location.
-- **Why:** API storage is limited to the API's own allowlists. MCP-local folder grants don't give the API access.
-- **What to do:** Name a complete file (not a folder) inside an allowed location, or ask the API's operator to
-  allowlist it. API filesystem storage requires a Linux server.
-
-**`output-exists`** (from the API)
-
-- **What:** The API output already exists, so nothing was overwritten.
-- **What to do:** Check it, then choose another name or send `ifExists: "replace"`.
-
-**`job-not-ready`**
-
-- **What:** The result isn't available yet.
-- **Why:** Either the MCP stopped waiting after its time budget, or `get_job_file` asked for an output that is still
-  being produced. The job keeps running in the API.
-- **What to do:** Keep the `jobId` and check the job or the output location later. Don't resubmit writes blindly:
-  the first job may still finish.
-
-**`job-not-found`**
-
-- **What:** The API no longer has a record of the job.
-- **Why:** The record expired, was evicted, or the API restarted. It does **not** mean the conversion failed.
-- **What to do:** Check the output location directly.
-
-**`job-output-not-stored`**
-
-- **What:** There is no stored output to fetch.
-- **Why:** The conversion ran without an API `output` and took longer than the wait, so its bytes were not kept;
-  or the conversion failed. No empty local file was created.
-- **What to do:** Use an API `output` location for work that may take a while.
+Cancelling an MCP call, or running out of wait time, does not cancel work the API has already accepted.
+If the MCP stops waiting it reports `job-not-ready` and keeps the `jobId`; the API job continues. Don't send
+the same convert again just because you stopped waiting: the first job may still finish and write its `output`.
+Use an API `output` location for work that may take a while (job records don't keep subtitle bytes). MCP-local
+folder grants don't give the API access to its own storage.
 
 **`job-metadata-truncated`**
 
 - **What:** The job finished, but its detailed result was too large for the API's job record.
 - **What to do:** Read the full diagnostics from the sidecar (`sidecar: true`).
 
-**`job-input-not-stored`, `job-file-gone`, `job-location-not-replayable`** (from the API, `get_job_file`)
-
-The input was a local upload, the file has since moved, or it was a signed HTTPS URL whose signature isn't kept.
-Use the original file, or check the storage directly; details in the API's [reference](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md#job-file-errors).
-
-**Sidecar warnings** (from the API): `sidecar-write-failed` (the subtitle was written, its `{output}.json` wasn't),
-`sidecar-delete-failed` (an older `{output}.json` couldn't be removed after a write without `sidecar`), and
-`sidecar-skipped` (HTTPS outputs get no sidecar). In all three the subtitle itself is fine; see the API's
-[reference](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md#sidecar-write-failed).
-
 ## Character sets and formats
 
-**`ambiguous-encoding`** (from the API)
-
-- **What:** The API couldn't tell which character set the file uses, and won't guess.
-- **Why:** The same bytes read as different letters in different character sets. `error.probe` says which check
-  failed: `pac-code-page` (a PAC file, often a very short one) or `text-encoding` (a text file that isn't UTF-8 and
-  still reads as words in more than one encoding after script-priority filtering). For `text-encoding`,
-  `error.candidates` is a list of `{encoding, language, hits, sample}` (samples are always present). For PAC,
-  `candidates` are code page name strings and may be empty.
-- **What to do:** For PAC, pass `profile.formatOptions.pac.inputCodePage` (for example `greek`), chosen from the
-  candidates or the file's language. For text, show the samples to the user, pick **only** from the candidate
-  list, say what you chose, then retry with `profile.encoding.input` or `profile.encoding.language` (ISO code
-  such as `ar`, `he`, `th`), or save the file as UTF-8.
-
-**`ambiguous-format`** (from the API)
-
-- **What:** The file could be PAC or Unicode PAC (FPC).
-- **What to do:** Pass `profile.source.format` (`pac` or `fpc`), or give the file its `.pac` / `.fpc` name.
-
-**`encoding-guessed`** warning (from the API): the text's character set was guessed. Check the converted text; if
-letters look wrong, pass `profile.encoding.input`.
-
-**`encoding-forced`** warning (from the API): `profile.encoding.input` forced the page (including a wrong one).
-Confirm the text.
-
-**`language-applied`** warning (from the API): `profile.encoding.language` selected the page. Confirm the text; if
-wrong, pass `profile.encoding.input` instead.
+API format and encoding errors and warnings are on the
+[errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) page.
 
 **`mcp-ebu-size`** warning (from the MCP)
 

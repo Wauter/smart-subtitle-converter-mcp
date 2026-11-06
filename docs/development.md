@@ -33,7 +33,7 @@ Tags and releases are cut only on the owner's go-ahead.
 
 ## Smoke checklist (Claude Desktop / Cursor, MCP Inspector)
 
-1. `tools/list` shows every tool from [tools.md](tools.md); `list_allowed_folders` whenever paths are available.
+1. `tools/list` shows every tool from [tools.md](tools.md), including `list_allowed_folders` (even with no folders yet).
 2. `list_formats` returns `subrip`, `webvtt`, `ebustl`.
 3. `convert_subtitle` with inline SRT → WebVTT returns the text inline.
 4. `convert_subtitle` with `path` + `outputDir`: the file appears atomically; a second run fails with `output-exists`.
