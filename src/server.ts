@@ -5,7 +5,6 @@ import { registerFoldersTool } from "./tools/folders.js";
 import { registerMetadataTools } from "./tools/metadata.js";
 import { registerInspectTools } from "./tools/inspect.js";
 import { registerConvertTool } from "./tools/convert.js";
-import { registerBatchTool } from "./tools/batch.js";
 import { registerResources } from "./resources.js";
 
 /**
@@ -18,7 +17,6 @@ class SubtitleMcpServer extends McpServer {}
 export function instructions(deps: Deps): string {
   return (
     "Converts and inspects subtitle files with Subtitle Edit's libse via a converter API. Typical flow: list_formats or list_presets to choose a target → optionally detect_format → convert_subtitle (one file)" +
-    (deps.batchEnabled ? " or convert_batch (a folder)" : "") +
     "." +
     (deps.pathsInSchema
       ? ` Prefer \`path\` plus \`outputPath\`/\`outputDir\`: files then never enter your context and binary formats stay byte-exact. ${instructionsFoldersText(deps.guard.roots.snapshot())}`
@@ -35,7 +33,6 @@ export function createServer(deps: Deps): McpServer {
   registerMetadataTools(server, deps);
   registerInspectTools(server, deps);
   registerConvertTool(server, deps);
-  if (deps.batchEnabled) registerBatchTool(server, deps);
   if (deps.pathsInSchema) registerFoldersTool(server, deps);
   registerResources(server, deps);
   // The tool and resource sets are fixed for the server's lifetime; with client roots the path tools' descriptions

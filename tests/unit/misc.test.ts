@@ -39,8 +39,8 @@ describe("request ids", () => {
 
 describe("limits normalisation", () => {
   it("reads the shipped contract with string numbers", () => {
-    const l = normalizeLimits({ maxUploadBytes: "10485760", maxRequestBodyBytes: { multipart: 1, json: "14112088" }, json: { maxDecodedContentBytes: 10485760 }, zip: { maxRatio: "100" } });
-    expect([l.maxUploadBytes, l.bodyJson, l.jsonMaxDecoded, l.zip.maxRatio]).toEqual([10485760, 14112088, 10485760, 100]);
+    const l = normalizeLimits({ maxUploadBytes: "10485760", maxRequestBodyBytes: { multipart: 1, json: "14112088" }, json: { maxDecodedContentBytes: 10485760 }, maxCues: "100" });
+    expect([l.maxUploadBytes, l.bodyJson, l.jsonMaxDecoded, l.maxCues]).toEqual([10485760, 14112088, 10485760, 100]);
   });
 });
 
@@ -147,9 +147,9 @@ describe("version check (D-37/D-43)", () => {
     expect(versionCompatible("1.1.0", "1.1.2")).toBe(true);
     expect(versionCompatible("1.2.0", "1.1.2")).toBe(false);
   });
-  it("package.json carries the shared 1.2 version line (pairs with API 1.2.x) and stays private", async () => {
+  it("package.json carries the shared 1.3 version line (pairs with API 1.3.x) and stays private", async () => {
     const pkg = JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
-    expect(pkg.version).toMatch(/^1\.2\.\d+$/);
+    expect(pkg.version).toMatch(/^1\.3\.\d+$/);
     expect(pkg.private).toBe(true);
   });
 });

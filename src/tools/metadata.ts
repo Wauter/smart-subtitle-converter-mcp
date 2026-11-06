@@ -74,7 +74,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
     name: "list_presets",
     title: "List conversion presets",
     description:
-      "List the conversion presets available on this server: built-in ones plus any the operator mounted. Each preset fixes a target format and a set of clean-up operations (e.g. \"netflix-en-vtt\"). Pass a preset `name` as `preset` to convert_subtitle or convert_batch. Invalid presets are listed too, with `valid: false` and errors, so you can explain why one can't be used. Use get_profile to see what a preset does.",
+      "List the conversion presets available on this server: built-in ones plus any the operator mounted. Each preset fixes a target format and a set of clean-up operations (e.g. \"netflix-en-vtt\"). Pass a preset `name` as `preset` to convert_subtitle . Invalid presets are listed too, with `valid: false` and errors, so you can explain why one can't be used. Use get_profile to see what a preset does.",
     shape: {},
     output: { presets: z.array(presetShape), profilesDir: z.string().nullish(), mountError: z.string().nullish() },
     annotations: RO,

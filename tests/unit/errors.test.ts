@@ -24,7 +24,7 @@ describe("problem mapping (§8.1)", () => {
     [422, "unsafe-xml", "unsafe-xml", null],
     [422, "unsafe-zip", "unsafe-zip", null],
     [422, "input-limits-exceeded", "input-limits-exceeded", /Split/],
-    [422, "ambiguous-batch-names", "ambiguous-batch-names", /\{stem\}/],
+    [422, "format-not-supported", "format-not-supported", /list_formats/],
     [422, "conversion-failed", "conversion-failed", /operation/],
     [429, "rate-limited", "rate-limited", /rate limited/],
     [503, "queue-full", "queue-full", /busy/],
@@ -51,9 +51,7 @@ describe("problem mapping (§8.1)", () => {
   it("404 on /v1/limits is not remapped", () => {
     expect(mapProblem(404, p(404, "not-found"), { ...ctx, endpoint: "/v1/limits" }).code).toBe("not-found");
   });
-  it("unsafe-zip in a batch is an MCP bug", () => {
-    expect(mapProblem(422, p(422, "unsafe-zip"), { ...ctx, batch: true }).code).toBe("api-protocol-error");
-  });
+
   it("format-not-supported → list_formats hint (no text-only mode, D-36)", () => {
     expect(mapProblem(422, p(422, "format-not-supported"), ctx).hint).toMatch(/list_formats/);
   });

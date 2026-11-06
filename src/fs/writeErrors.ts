@@ -10,9 +10,9 @@ export const WRITE_FAILURE_CODES = new Set<string>([
   "staging-unavailable", "cross-device", "io-error", "write-failed",
 ]);
 
-/** Policy failures that also stop a failFast batch (§5.7.4). */
+/** Filesystem policy failures. */
 export const WRITE_STOP_CODES = new Set<string>([
-  ...WRITE_FAILURE_CODES, "output-exists", "archive-exists", "archive-failed", "delete-failed", "source-overwrite-refused", "ambiguous-batch-names",
+  ...WRITE_FAILURE_CODES, "output-exists", "archive-exists", "archive-failed", "delete-failed", "source-overwrite-refused",
 ]);
 
 export const WRITE_HINTS: Record<WriteFailureCode, string> = {

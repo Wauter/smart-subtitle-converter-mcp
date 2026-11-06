@@ -24,10 +24,6 @@ export interface Config {
   retryMaxWaitMs: number;
   retryBudgetMs: number;
   inlineTextMaxBytes: number;
-  batchMaxFiles: number;
-  batchMaxEntries?: number;
-  batchMaxBytes?: number;
-  batchMaxResponseBytes: number;
   jsonMaxDecodedBytes?: number;
   limitsTtlMs: number;
   includeDebug: boolean;
@@ -42,8 +38,8 @@ const KNOWN_ENV = new Set([
   "SUBTITLE_MCP_HTTP", "SUBTITLE_MCP_HOSTED", "SUBTITLE_MCP_ALLOWED_DIRS", "SUBTITLE_MCP_READONLY_DIRS",
   "SUBTITLE_MCP_USE_CLIENT_ROOTS", "SUBTITLE_MCP_ALLOW_DESTRUCTIVE", "SUBTITLE_MCP_PARTIAL_MAX_AGE_MS", "SUBTITLE_MCP_MAX_BYTES",
   "SUBTITLE_MCP_TIMEOUT_MS", "SUBTITLE_MCP_RETRY_MAX_ATTEMPTS", "SUBTITLE_MCP_RETRY_MAX_WAIT_MS", "SUBTITLE_MCP_RETRY_BUDGET_MS",
-  "SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES", "SUBTITLE_MCP_BATCH_MAX_FILES", "SUBTITLE_MCP_BATCH_MAX_ENTRIES", "SUBTITLE_MCP_BATCH_MAX_BYTES",
-  "SUBTITLE_MCP_BATCH_MAX_RESPONSE_BYTES", "SUBTITLE_MCP_JSON_MAX_DECODED_BYTES", "SUBTITLE_MCP_LIMITS_TTL_MS",
+  "SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES",
+  "SUBTITLE_MCP_JSON_MAX_DECODED_BYTES", "SUBTITLE_MCP_LIMITS_TTL_MS",
   "SUBTITLE_MCP_INCLUDE_DEBUG", "SUBTITLE_MCP_ALLOWED_ORIGINS", "SUBTITLE_MCP_ALLOWED_HOSTS", "SUBTITLE_MCP_LOG_LEVEL",
   "SUBTITLE_MCP_LOG_PATHS",
 ]);
@@ -224,10 +220,6 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv, opts: { checkF
     retryMaxWaitMs: int("SUBTITLE_MCP_RETRY_MAX_WAIT_MS", env.SUBTITLE_MCP_RETRY_MAX_WAIT_MS, 60_000)!,
     retryBudgetMs: int("SUBTITLE_MCP_RETRY_BUDGET_MS", env.SUBTITLE_MCP_RETRY_BUDGET_MS, 90_000)!,
     inlineTextMaxBytes: int("SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES", env.SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES, 65_536)!,
-    batchMaxFiles: int("SUBTITLE_MCP_BATCH_MAX_FILES", env.SUBTITLE_MCP_BATCH_MAX_FILES, 1000, 1)!,
-    batchMaxEntries: int("SUBTITLE_MCP_BATCH_MAX_ENTRIES", env.SUBTITLE_MCP_BATCH_MAX_ENTRIES, undefined, 1),
-    batchMaxBytes: int("SUBTITLE_MCP_BATCH_MAX_BYTES", env.SUBTITLE_MCP_BATCH_MAX_BYTES, undefined, 1),
-    batchMaxResponseBytes: int("SUBTITLE_MCP_BATCH_MAX_RESPONSE_BYTES", env.SUBTITLE_MCP_BATCH_MAX_RESPONSE_BYTES, 67_108_864, 1)!,
     jsonMaxDecodedBytes: int("SUBTITLE_MCP_JSON_MAX_DECODED_BYTES", env.SUBTITLE_MCP_JSON_MAX_DECODED_BYTES, undefined, 1),
     limitsTtlMs: int("SUBTITLE_MCP_LIMITS_TTL_MS", env.SUBTITLE_MCP_LIMITS_TTL_MS, 300_000)!,
     includeDebug: bool("SUBTITLE_MCP_INCLUDE_DEBUG", env.SUBTITLE_MCP_INCLUDE_DEBUG, false),
@@ -256,7 +248,7 @@ export function defaultConfig(over: Partial<Config> = {}): Config {
   return {
     mode: "local", apiUrl: "http://api.test", httpTokens: [], allowedDirs: [], readonlyDirs: [], useClientRoots: true,
     allowDestructive: false, partialMaxAgeMs: 3_600_000, timeoutMs: 120_000, retryMaxAttempts: 3, retryMaxWaitMs: 60_000,
-    retryBudgetMs: 90_000, inlineTextMaxBytes: 65_536, batchMaxFiles: 1000, batchMaxResponseBytes: 67_108_864,
+    retryBudgetMs: 90_000, inlineTextMaxBytes: 65_536,
     limitsTtlMs: 300_000, includeDebug: false, allowedOrigins: [], allowedHosts: ["localhost", "127.0.0.1", "[::1]"],
     logLevel: "error", logPaths: false, ...over,
   };

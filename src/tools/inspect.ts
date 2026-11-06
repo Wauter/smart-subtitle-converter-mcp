@@ -14,7 +14,7 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
     name: "validate_profile",
     title: "Validate a conversion profile",
     description: () =>
-      "Check a custom conversion profile without converting anything. Returns `valid`, errors with JSON pointers and hints, warnings, and the resolved profile. Always validate a profile you wrote yourself before using it in convert_subtitle or convert_batch. The JSON Schema is available as the resource `subtitleedit://schemas/profile.json`. A profile without `target.format` can be valid (with a warning) because it may be a base for other presets." +
+      "Check a custom conversion profile without converting anything. Returns `valid`, errors with JSON pointers and hints, warnings, and the resolved profile. Always validate a profile you wrote yourself before using it in convert_subtitle . The JSON Schema is available as the resource `subtitleedit://schemas/profile.json`. A profile without `target.format` can be valid (with a warning) because it may be a base for other presets." +
       (paths ? ` Give exactly one of \`profile\` or \`path\`. ${deps.rootsText}` : ""),
     shape: {
       profile: z.record(z.unknown()).optional().describe("Profile JSON object"),
@@ -54,7 +54,7 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
     description: () =>
       "Identify a subtitle file's format, character encoding, language and cue count without converting it. Use it when you don't know what a file is, or before converting when the file extension is missing or misleading." +
       (paths ? " Prefer `path` (the file stays out of your context and binary files stay intact); give exactly one of `content` or `path`." : " Binary files must be sent as base64 content.") +
-      " If detection is ambiguous, `candidates` lists alternatives, and you can force one in a conversion with `profile.source.format`. For text files it also reports `bom` and `lineEndings`, and `warnings` flag source problems by cue number (`zero-length-cue`, `source-replacement-chars` for U+FFFD already in the file). PAC and Unicode PAC (FPC) bytes look alike: without a .pac/.fpc name the API answers `ambiguous-format`; then set `profile.source.format`. Zip files aren't accepted here; use convert_batch for folders." +
+      " If detection is ambiguous, `candidates` lists alternatives, and you can force one in a conversion with `profile.source.format`. For text files it also reports `bom` and `lineEndings`, and `warnings` flag source problems by cue number (`zero-length-cue`, `source-replacement-chars` for U+FFFD already in the file). PAC and Unicode PAC (FPC) bytes look alike: without a .pac/.fpc name the API answers `ambiguous-format`; then set `profile.source.format`. ZIP files are not accepted; submit one subtitle per request." +
       (paths ? ` ${deps.rootsText}` : ""),
     shape: {
       content: z.string().optional().describe("Subtitle content: text, or base64 if contentEncoding is 'base64'"),

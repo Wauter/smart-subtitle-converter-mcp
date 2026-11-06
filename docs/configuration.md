@@ -19,11 +19,8 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 | `SUBTITLE_MCP_TIMEOUT_MS` | – | `120000` | Per-attempt timeout for conversions (metadata: min(this, 15000)) |
 | `SUBTITLE_MCP_RETRY_MAX_ATTEMPTS` | – | `3` | Retries for 429/503/connection errors |
 | `SUBTITLE_MCP_RETRY_MAX_WAIT_MS` | – | `60000` | Longest single `Retry-After` wait accepted |
-| `SUBTITLE_MCP_RETRY_BUDGET_MS` | – | `90000` | Total retry wait per call (per chunk for batches) |
+| `SUBTITLE_MCP_RETRY_BUDGET_MS` | – | `90000` | Total retry wait per call |
 | `SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES` | – | `65536` | Larger inline text outputs come back as an embedded resource |
-| `SUBTITLE_MCP_BATCH_MAX_FILES` | – | `1000` | Max files per convert_batch call |
-| `SUBTITLE_MCP_BATCH_MAX_ENTRIES` / `_BATCH_MAX_BYTES` | – | unset | Chunking fallback when `/v1/limits` is unreadable |
-| `SUBTITLE_MCP_BATCH_MAX_RESPONSE_BYTES` | – | `67108864` | Cap on the estimated JSON response per batch chunk |
 | `SUBTITLE_MCP_JSON_MAX_DECODED_BYTES` | – | unset (10485760) | JSON decoded-content cap while `/v1/limits` is unreadable |
 | `SUBTITLE_MCP_LIMITS_TTL_MS` | – | `300000` | `/v1/limits` cache TTL |
 | `SUBTITLE_MCP_INCLUDE_DEBUG` | – | `false` | Pass the API's `debug` member into errors |

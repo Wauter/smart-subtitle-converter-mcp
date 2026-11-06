@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0 — Unreleased
+
+Pairs with API 1.3.0.
+
+- Breaking: remove convert_batch, ZIP helpers and batch configuration. Submit one subtitle per call.
+
+
 All notable changes to `subtitleedit-converter-mcp` are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).

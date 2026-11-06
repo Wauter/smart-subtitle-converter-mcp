@@ -12,7 +12,7 @@
 
 This [Model Context Protocol](https://modelcontextprotocol.io) server gives AI agents the Subtitle Edit Converter
 API and adds what an agent working on your files needs: access only to folders you or your client name, atomic
-writes that never leave a half-written file or folder, all-or-nothing batch conversion, and structured errors and
+single-file writes through staging, and structured errors and
 warnings the agent can act on. It does no conversion itself.
 
 ## What it adds
@@ -21,7 +21,6 @@ warnings the agent can act on. It does no conversion itself.
   roots (Claude Code does this automatically). Read-only folders stay read-only.
 - **Atomic writes:** single files are staged and committed with a rename; existing files are never overwritten
   unless you allow it.
-- **All-or-nothing batches:** `convert_batch` writes into a new folder that appears only when every file succeeded.
 - **Results with a verdict:** binary outputs carry the API's `verification` verdict, and warnings carry a `hint`
   and a structured `remedy`. Errors have a stable `code`, a `hint` and, for path errors, the allowed folders.
 - **Content stays on your machine:** files go by `path`, so their contents don't pass through the model's context;
@@ -49,7 +48,6 @@ Claude Desktop, Cursor, Windows, a VM, or building from source: see [docs/client
 | Tool | What it does |
 |---|---|
 | `convert_subtitle` | Convert one file (inline or `path`) to text inline or to `outputPath`/`outputDir` |
-| `convert_batch` | Convert a folder or list of files into a **new** folder, all or nothing |
 | `detect_format` | Format, encoding, BOM, line endings and language of a file |
 | `list_formats` | Formats with read/write and text/binary flags |
 | `list_presets` / `get_profile` | Built-in and mounted presets, raw and resolved |
@@ -65,7 +63,7 @@ Inputs, results and warning fields: [docs/tools.md](docs/tools.md).
 | [docs/clients.md](docs/clients.md) | Set it up in Claude Code, Claude Desktop, Cursor, Windows or a VM; build from source |
 | [docs/folders-and-roots.md](docs/folders-and-roots.md) | Understand which folders it may use and how roots combine with config |
 | [docs/tools.md](docs/tools.md) | See every tool's inputs, results, verification and warning fields |
-| [docs/writing-files.md](docs/writing-files.md) | Know how files are staged and committed, `ifExists`, batch rules, race windows |
+| [docs/writing-files.md](docs/writing-files.md) | Know how files are staged and committed, `ifExists`, race windows |
 | [docs/configuration.md](docs/configuration.md) | Look up every `SUBTITLE_MCP_*` variable and flag |
 | [docs/http-sidecar.md](docs/http-sidecar.md) | Run it over Streamable HTTP next to the API in Docker |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Fix version-mismatch warnings, missing folders, stale builds |

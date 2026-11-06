@@ -26,14 +26,12 @@ If you did update and still see an older MCP version in the warning, the client 
 - `state: waiting-for-roots`: the client hasn't sent its roots yet; the tool descriptions update once it does.
 - `path-not-allowed`: the path is outside the allowed folders, relative, or inside a read-only folder for a write.
   The hint lists the folders in effect.
-- `convert_batch` is missing from the tool list: there is no writable folder.
 
 ## Write errors
 
 | Code | What to do |
 |---|---|
 | `output-exists` | Use `ifExists: "archive"`, or a different `outputPath` ([writing-files.md](writing-files.md)) |
-| `output-dir-exists` | `convert_batch` needs a new folder; pick another name |
 | `destructive-not-allowed` | `ifExists: replace/delete` needs `SUBTITLE_MCP_ALLOW_DESTRUCTIVE=true` |
 | `cross-device` | The destination is on another mount than its output root; configure that mount as its own output root |
 | `staging-unavailable` | The `.subtitle-mcp-staging/` folder in the output root can't be created or used; check permissions |

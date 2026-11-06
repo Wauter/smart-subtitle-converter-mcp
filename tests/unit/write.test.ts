@@ -206,11 +206,7 @@ describe("SafeWriter", () => {
     expect(fs.readFileSync(real, "utf8")).toBe("real");
     expect(fs.lstatSync(path.join(dir, "a.vtt")).isSymbolicLink()).toBe(false);
   });
-  it("batch-internal clash: a second output to the same path fails with ambiguous-batch-names", async () => {
-    const committed = new Map<string, string>();
-    await writer().write({ dir, name: "x.vtt", data, ifExists: "error", committed, sourceLabel: "/in/a.srt" });
-    expect(await errCode(writer().write({ dir, name: "X.vtt", data, ifExists: "replace", committed, sourceLabel: "/in/b.srt" }))).toBe("ambiguous-batch-names");
-  });
+
   it("cancellation mid-write leaves no staging file", async () => {
     const ac = new AbortController();
     const w = writer({

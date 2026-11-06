@@ -54,7 +54,7 @@ describe("metadata tools", () => {
     apiInfo.version = "1.0.0";
     apiInfo.versionMismatch = true;
     const r = await callTool(h, "list_formats", {});
-    expect(r.content[0].text).toMatch(/mcp-api-version-mismatch: API version 1\.0\.0 is not compatible with this MCP \(1\.2\.x\)/);
+    expect(r.content[0].text).toMatch(/mcp-api-version-mismatch: API version 1\.0\.0 is not compatible with this MCP \(1\.3\.x\)/);
 
     // Tools whose `warnings` are FieldErrors keep a valid output schema (found by the contract run).
     mswServer.use(http.post(`${API}/v1/profiles/validate`, () => HttpResponse.json({ valid: true, errors: [], warnings: [{ pointer: "/target/format", message: "No target format" }], resolved: {} })));
@@ -435,7 +435,7 @@ describe("modes, annotations, resources", () => {
     mswServer.use(...baseHandlers());
     const h = await harness();
     const { tools } = await h.client.listTools();
-    expect(tools.map((t) => t.name)).toEqual(["list_formats", "list_presets", "get_profile", "validate_profile", "detect_format", "convert_subtitle", "convert_batch", "list_allowed_folders"]);
+    expect(tools.map((t) => t.name)).toEqual(["list_formats", "list_presets", "get_profile", "validate_profile", "detect_format", "convert_subtitle", "list_allowed_folders"]);
     const conv = tools.find((t) => t.name === "convert_subtitle")!;
     expect(Object.keys(conv.inputSchema.properties!)).toContain("outputDir");
     expect(conv.inputSchema.additionalProperties).toBe(false);
@@ -449,7 +449,6 @@ describe("modes, annotations, resources", () => {
     const { tools } = await h.client.listTools();
     expect(tools.find((t) => t.name === "convert_subtitle")!.annotations!.destructiveHint).toBe(true);
     // D-44: convert_batch only ever creates a new folder.
-    expect(tools.find((t) => t.name === "convert_batch")!.annotations!.destructiveHint).toBe(false);
     await h.close();
   });
   it("sidecar without roots and hosted: no path params, no convert_batch, read-only convert", async () => {

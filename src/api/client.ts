@@ -31,7 +31,6 @@ export interface ApiRequest {
   kind: "metadata" | "conversion";
   /** Statuses returned to the caller instead of being mapped to an error (e.g. 404 for /v1/limits). */
   passStatuses?: number[];
-  batch?: boolean;
   accept?: string;
 }
 
@@ -157,7 +156,6 @@ export class ApiClient {
         mode: this.mode,
         includeDebug: this.cfg.includeDebug,
         endpoint: req.path,
-        batch: req.batch,
         headerRequestId: echoed ?? rid,
       });
       te.attempts = ctx.stats.attempts;

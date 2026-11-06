@@ -12,7 +12,6 @@ export interface Limits {
   jsonMaxDecoded?: number;
   maxProfileBytes?: number;
   maxCues?: number;
-  zip: { maxEntries?: number; maxUnpackedBytes?: number; maxRatio?: number; maxEntryBytes?: number };
   conversionTimeoutSeconds?: number;
   ebuStlMaxBytes?: number;
   raw: unknown;
@@ -33,12 +32,6 @@ export function normalizeLimits(raw: any): Limits {
     jsonMaxDecoded: toOptInt(raw?.json?.maxDecodedContentBytes),
     maxProfileBytes: toOptInt(raw?.maxProfileBytes),
     maxCues: toOptInt(raw?.maxCues),
-    zip: {
-      maxEntries: toOptInt(raw?.zip?.maxEntries),
-      maxUnpackedBytes: toOptInt(raw?.zip?.maxUnpackedBytes),
-      maxRatio: toOptInt(raw?.zip?.maxRatio),
-      maxEntryBytes: toOptInt(raw?.zip?.maxEntryBytes),
-    },
     conversionTimeoutSeconds: toOptInt(raw?.conversionTimeoutSeconds),
     ebuStlMaxBytes: toOptInt(raw?.binary?.ebuStlMaxBytes),
     raw,
@@ -55,15 +48,11 @@ export interface Caps {
   jsonBody: number;
   maxUpload?: number;
   maxProfile?: number;
-  zipMaxEntries: number;
-  zipMaxUnpacked: number;
-  zipMaxRatio: number;
-  zipMaxEntryBytes: number;
   ebuStlMaxBytes?: number;
   localMax?: number;
 }
 
-export function capsFrom(state: LimitsState, cfg: Pick<Config, "jsonMaxDecodedBytes" | "batchMaxEntries" | "batchMaxBytes" | "maxBytes">): Caps {
+export function capsFrom(state: LimitsState, cfg: Pick<Config, "jsonMaxDecodedBytes" | "maxBytes">): Caps {
   const l = state.kind === "ok" ? state.limits : undefined;
   return {
     limitsKnown: !!l,
@@ -71,10 +60,6 @@ export function capsFrom(state: LimitsState, cfg: Pick<Config, "jsonMaxDecodedBy
     jsonBody: l?.bodyJson ?? API_DEFAULT_JSON_BODY,
     maxUpload: l?.maxUploadBytes,
     maxProfile: l?.maxProfileBytes,
-    zipMaxEntries: l?.zip.maxEntries ?? cfg.batchMaxEntries ?? 100,
-    zipMaxUnpacked: l?.zip.maxUnpackedBytes ?? cfg.batchMaxBytes ?? 52_428_800,
-    zipMaxRatio: l?.zip.maxRatio ?? 100,
-    zipMaxEntryBytes: l?.zip.maxEntryBytes ?? l?.maxUploadBytes ?? DEFAULT_UPLOAD,
     ebuStlMaxBytes: l?.ebuStlMaxBytes,
     localMax: cfg.maxBytes,
   };

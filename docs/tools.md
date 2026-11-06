@@ -12,10 +12,9 @@ sees are the authoritative, live version of this page (they include the allowed 
 | `validate_profile` | `POST /v1/profiles/validate` | Validate a profile (inline or `profilePath`); pointer-level errors with hints |
 | `detect_format` | `POST /v1/detect` | Format, encoding and language of inline content or a `path`, plus `bom`, `lineEndings` and source `warnings` |
 | `convert_subtitle` | `POST /v1/convert/json` | Convert one file: inline content or `path`, result inline or to `outputPath`/`outputDir` |
-| `convert_batch` | `POST /v1/convert/json` (base64 zip, chunked) | Convert a folder or list of files into a **new** folder, all or nothing |
 | `list_allowed_folders` | – (local) | The folders in effect, with `mode`, `source` and `state` ([folders-and-roots.md](folders-and-roots.md)) |
 
-`convert_batch` is listed only when a writable folder is available; `list_allowed_folders` whenever paths are
+`list_allowed_folders` is listed whenever paths are
 available. Inline text outputs larger than `SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES` come back as an embedded resource.
 How files are written: [writing-files.md](writing-files.md).
 
@@ -66,8 +65,7 @@ Full field list: the API's
 
 ## Verification
 
-Binary outputs carry `verification` (`convert_subtitle`: `outputs[].verification`; `convert_batch`:
-`entries[].verification`): the written file is read back and compared, with a verdict `lossless` | `quantised` |
+Binary outputs carry `outputs[].verification`: the written file is read back and compared, with a verdict `lossless` | `quantised` |
 `lossy` | `unverified`, cue counts, timing shift and replaced characters by cue. The summary shows one line per
 output.
 

@@ -75,6 +75,7 @@ const LOCK_CODES = new Set(["EBUSY", "EPERM", "EACCES", "ETXTBSY"]);
 const NO_LINK_CODES = new Set(["ENOTSUP", "EOPNOTSUPP", "ENOSYS", "EPERM", "EMLINK", "EINVAL"]);
 
 export interface WriteRequest {
+  signal?: AbortSignal;
   dir: string; // realpath'd destination folder in a writable root
   /** realpath of the output root (deepest writable root containing dir); resolved via rootOf when omitted. */
   root?: string;
@@ -83,11 +84,7 @@ export interface WriteRequest {
   ifExists: IfExists;
   /** Realpaths of source files; an output may never replace one. */
   sources?: Set<string>;
-  /** Batch-internal: normalised paths committed earlier in this call (path → source). */
-  committed?: Map<string, string>;
-  /** Description of the source for batch clash messages. */
-  sourceLabel?: string;
-  signal?: AbortSignal;
+
 }
 
 export interface WriteResult {
@@ -128,15 +125,6 @@ export class SafeWriter {
       // Step 3: checks, then policy.
       if (req.sources && (await this.isSource(target, req.sources))) {
         throw mcpError("source-overwrite-refused", `Refusing to write over the source file: ${target}`, "Choose another output folder or file name.", { path: target });
-      }
-      if (req.committed?.has(normKey(target))) {
-        const other = req.committed.get(normKey(target));
-        throw mcpError(
-          "ambiguous-batch-names",
-          `Output ${target} was already written in this call from ${other}; ${req.sourceLabel ?? "this file"} maps to the same path. Nothing was renamed.`,
-          "Rename the clashing files or split them into separate batches; check `profile.target.fileName` (include `{stem}`).",
-          { groups: [[other ?? "", req.sourceLabel ?? ""]], path: target },
-        );
       }
       const existing = await this.lstatOrNull(target);
       let action: WriteAction = "written";
@@ -198,7 +186,6 @@ export class SafeWriter {
       }
       staging = undefined;
       await this.ops.fsyncDir(dir).catch(() => {});
-      req.committed?.set(normKey(target), req.sourceLabel ?? "");
       return { path: target, action, ...(archivedTo ? { archivedTo } : {}), warnings };
     } catch (err) {
       // Step 5: roll back.

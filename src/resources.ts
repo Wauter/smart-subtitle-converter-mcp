@@ -44,7 +44,7 @@ export function registerResources(server: McpServer, deps: Deps): void {
   server.registerResource(
     "limits",
     "subtitleedit://limits",
-    { title: "API limits", description: "Effective limits of the converter API (upload, JSON body, zip, queue, timeouts).", mimeType: "application/json" },
+    { title: "API limits", description: "Effective limits of the converter API (upload, JSON body, queue, timeouts).", mimeType: "application/json" },
     async (uri, extra) => {
       const st = await deps.limits.get(ctx(extra));
       if (st.kind === "unsupported") throw new McpError(ErrorCode.InternalError, "limits endpoint not available on this API version", { source: "mcp", code: "not-supported" });

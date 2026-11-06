@@ -71,7 +71,6 @@ export interface MapContext {
   includeDebug: boolean;
   /** Which endpoint the problem came from, for 404 handling. */
   endpoint?: string;
-  batch?: boolean;
   headerRequestId?: string;
 }
 
@@ -87,8 +86,6 @@ export const MCP_HINTS: Record<string, string> = {
   "ambiguous-format":
     "The file matches both PAC and Unicode PAC (FPC). Pass profile.source.format ('pac' or 'fpc'), or give the file its .pac or .fpc name.",
   "input-limits-exceeded": "Split the file.",
-  "ambiguous-batch-names":
-    "Rename the clashing files or split them into separate batches; for output-path clashes, check `target.additional` and `profile.target.fileName` (include `{stem}`).",
   "conversion-failed": "Try removing the named operation from the profile.",
   "rate-limited": "The API is rate limited; try again later.",
   "queue-full": "The converter is busy; retry later or ask the operator to scale out.",
@@ -168,12 +165,6 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
     case "unsupported-media-type":
       te.code = "api-protocol-error";
       mcpHint = "Report this with the requestId.";
-      break;
-    case "unsafe-zip":
-      if (ctx.batch) {
-        te.code = "api-protocol-error";
-        mcpHint = "The MCP's zip entry name check missed a case; report this with the requestId.";
-      }
       break;
     case "format-not-supported":
       mcpHint = "Pick a format from list_formats.";

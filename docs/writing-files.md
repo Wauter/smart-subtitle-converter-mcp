@@ -17,15 +17,6 @@ Writes through a staging file in `<output-root>/.subtitle-mcp-staging/` and comm
 
 Nothing is ever suffixed (`_2`).
 
-## `convert_batch`
-
-- Requires an `outputDir` that does **not exist yet** (`output-dir-exists` otherwise). There is no overwrite
-  option; pick a new folder name for a rerun.
-- Outputs are staged in `<output-root>/.subtitle-mcp-staging/<dirname>.<6hex>.partial/`. Only when every file has
-  converted and been written is that folder renamed to `outputDir` (missing parent folders are created just before).
-- On any failure the staging folder is deleted and nothing is written; the result lists the failing file(s) with a
-  hint.
-
 ## Staging rules
 
 - The staging folder must be on the same filesystem as the destination. A mount inside an output root fails with
@@ -40,5 +31,3 @@ Documented and small:
 
 - On filesystems without hard links (many SMB shares, FAT/exFAT) a single-file commit is a plain `rename` right
   after an `lstat`, so a file created at the same instant by another program could be overwritten.
-- A batch commit is `lstat` + `rename(staging, outputDir)`. POSIX `rename` replaces an **empty** directory created
-  in between; that loses no data.

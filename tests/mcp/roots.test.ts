@@ -18,7 +18,7 @@ beforeAll(() => mswServer.listen({ onUnhandledFrame: "error" }));
 afterAll(() => mswServer.close());
 afterEach(() => mswServer.resetHandlers());
 
-const PATH_TOOLS = ["convert_subtitle", "detect_format", "validate_profile", "convert_batch"];
+const PATH_TOOLS = ["convert_subtitle", "detect_format", "validate_profile"];
 const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 
 /** Wires a server exactly like transports/stdio.ts, against a client that declares the roots capability. */
@@ -223,7 +223,7 @@ describe("configured folders combined with client roots (supersedes D-13)", () =
     const s = await stdioLike([], async () => []);
     await s.firstChange;
     expect(s.rootsCalls()).toBe(1);
-    expect((await s.descriptions()).convert_batch).toContain("Allowed folders: none, so file paths are disabled (the client's roots/list is empty). Ask the user to set SUBTITLE_MCP_ALLOWED_DIRS");
+    expect((await s.descriptions()).convert_subtitle).toContain("Allowed folders: none, so file paths are disabled (the client's roots/list is empty). Ask the user to set SUBTITLE_MCP_ALLOWED_DIRS");
     expect(s.logs.some((l) => /"level":"info".*"msg":"client roots received".*"received":0,"count":0/.test(l))).toBe(true);
     const r: any = await s.client.callTool({ name: "list_allowed_folders", arguments: {} });
     expect(r.structuredContent).toMatchObject({ state: "roots-empty", folders: [], clientRoots: "empty" });
@@ -349,17 +349,17 @@ describe("client roots change with configured folders", () => {
     const s = await stdioLike(await realpathRoots([], [cfgDir]), async () => current.map((d) => ({ uri: pathToFileURL(d).href })));
     expect(s.client.getServerCapabilities()?.tools?.listChanged).toBe(true);
     await s.firstChange;
-    expect((await s.descriptions()).convert_batch).toContain(`Allowed folders: ${cfgDir} (read-only).`);
+    expect((await s.descriptions()).convert_subtitle).toContain(`Allowed folders: ${cfgDir} (read-only).`);
     current = [x];
     let changed = s.nextToolsChanged();
     await s.client.sendRootsListChanged();
     await changed;
-    expect((await s.descriptions()).convert_batch).toContain(`Allowed folders: ${cfgDir} (read-only), ${x} (read-write).`);
+    expect((await s.descriptions()).convert_subtitle).toContain(`Allowed folders: ${cfgDir} (read-only), ${x} (read-write).`);
     current = [];
     changed = s.nextToolsChanged();
     await s.client.sendRootsListChanged();
     await changed;
-    expect((await s.descriptions()).convert_batch).toContain(`Allowed folders: ${cfgDir} (read-only).`);
+    expect((await s.descriptions()).convert_subtitle).toContain(`Allowed folders: ${cfgDir} (read-only).`);
     await s.close();
   });
 });
