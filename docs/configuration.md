@@ -13,17 +13,13 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 | `SUBTITLE_MCP_ALLOWED_DIRS` | `--allow-dir` | unset | Read-write roots (`:`-separated, `;` on Windows, or a JSON array) |
 | `SUBTITLE_MCP_READONLY_DIRS` | `--allow-dir-ro` | unset | Read-only roots |
 | `SUBTITLE_MCP_USE_CLIENT_ROOTS` | – | `true` | Local mode: add the client's `roots/list` folders to the configured ones ([folders-and-roots.md](folders-and-roots.md)) |
-| `SUBTITLE_MCP_ALLOW_DESTRUCTIVE` | – | `false` | Allow `ifExists: replace/delete` in convert_subtitle ([writing-files.md](writing-files.md)) |
-| `SUBTITLE_MCP_PARTIAL_MAX_AGE_MS` | – | `3600000` | Age after which staging files/folders are swept |
+| `SUBTITLE_MCP_PARTIAL_MAX_AGE_MS` | – | `3600000` | Age after which staging files are swept |
 | `SUBTITLE_MCP_MAX_BYTES` | – | unset | Local cap per input file (effective cap = min with the API limit) |
 | `SUBTITLE_MCP_TIMEOUT_MS` | – | `120000` | Per-attempt timeout for conversions (metadata: min(this, 15000)) |
-| `SUBTITLE_MCP_RETRY_MAX_ATTEMPTS` | – | `3` | Retries for 429/503/connection errors |
+| `SUBTITLE_MCP_RETRY_MAX_ATTEMPTS` | – | `3` | Retries for safe metadata/read-only calls; conversion POST is never replayed |
 | `SUBTITLE_MCP_RETRY_MAX_WAIT_MS` | – | `60000` | Longest single `Retry-After` wait accepted |
-| `SUBTITLE_MCP_RETRY_BUDGET_MS` | – | `90000` | Total retry wait per call (per chunk for batches) |
+| `SUBTITLE_MCP_RETRY_BUDGET_MS` | – | `90000` | Total retry wait per call |
 | `SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES` | – | `65536` | Larger inline text outputs come back as an embedded resource |
-| `SUBTITLE_MCP_BATCH_MAX_FILES` | – | `1000` | Max files per convert_batch call |
-| `SUBTITLE_MCP_BATCH_MAX_ENTRIES` / `_BATCH_MAX_BYTES` | – | unset | Chunking fallback when `/v1/limits` is unreadable |
-| `SUBTITLE_MCP_BATCH_MAX_RESPONSE_BYTES` | – | `67108864` | Cap on the estimated JSON response per batch chunk |
 | `SUBTITLE_MCP_JSON_MAX_DECODED_BYTES` | – | unset (10485760) | JSON decoded-content cap while `/v1/limits` is unreadable |
 | `SUBTITLE_MCP_LIMITS_TTL_MS` | – | `300000` | `/v1/limits` cache TTL |
 | `SUBTITLE_MCP_INCLUDE_DEBUG` | – | `false` | Pass the API's `debug` member into errors |
@@ -36,3 +32,18 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 
 Logs are JSON lines on stderr. Content, base64, profile values, API keys and tokens are never logged; paths are
 hashed unless `SUBTITLE_MCP_LOG_PATHS=true`.
+
+## API storage and asynchronous jobs
+
+API `input`/`output` URIs are independent of MCP-local folders. Configure `STORAGE_FILE_ROOTS`,
+`S3_ALLOWED_BUCKETS`/`S3_ALLOWED_PREFIXES` or `HTTP_ALLOWED_HOSTS` on the **API**, not this MCP.
+Its `GET /v1/limits` describes enabled schemes, default wait, I/O and job retention settings; the limits
+resource relays that response. Storage credentials belong to the API runtime, never tool arguments.
+
+The MCP requests a wait equal to the smaller of its timeout (whole seconds) and the API's `requestMaxWaitSeconds` (fallback 60 if absent; requestWaitSeconds is informational only), and polls the
+returned job on 202 within the remaining tool budget. Increase `SUBTITLE_MCP_TIMEOUT_MS` for slower work,
+but prefer an API output URI: job metadata cannot replay subtitle bytes. Cancelling or timing out the MCP
+does not cancel an admitted API job. Poll timeout reports `job-not-ready`; capture `jobId` and inspect it before resubmitting writes.
+
+Explicit `ifExists:replace` is sufficient for local and API outputs; there is no separate operator gate.
+See [tools](tools.md#api-storage-and-job-ids) and [writing files](writing-files.md#api-destinations-are-separate).

@@ -54,7 +54,7 @@ describe("metadata tools", () => {
     apiInfo.version = "1.0.0";
     apiInfo.versionMismatch = true;
     const r = await callTool(h, "list_formats", {});
-    expect(r.content[0].text).toMatch(/mcp-api-version-mismatch: API version 1\.0\.0 is not compatible with this MCP \(1\.2\.x\)/);
+    expect(r.content[0].text).toMatch(/mcp-api-version-mismatch: API version 1\.0\.0 is not compatible with this MCP \(1\.3\.x\)/);
 
     // Tools whose `warnings` are FieldErrors keep a valid output schema (found by the contract run).
     mswServer.use(http.post(`${API}/v1/profiles/validate`, () => HttpResponse.json({ valid: true, errors: [], warnings: [{ pointer: "/target/format", message: "No target format" }], resolved: {} })));
@@ -153,7 +153,7 @@ describe("convert_subtitle", () => {
     const c = convertCalls()[0];
     expect(c.body).toEqual({ content: Buffer.from(SRT).toString("base64"), contentEncoding: "base64", fileName: "movie.srt", target: "webvtt" });
     const TRANSPORT = ["accept-encoding", "accept-language", "connection", "content-length", "host", "sec-fetch-mode", "user-agent"];
-    expect(Object.keys(c.headers).filter((k) => !TRANSPORT.includes(k)).sort()).toEqual(["accept", "authorization", "content-type", "x-request-id"]);
+    expect(Object.keys(c.headers).filter((k) => !TRANSPORT.includes(k)).sort()).toEqual(["accept", "authorization", "content-type", "prefer", "x-request-id"]);
     expect(c.headers.authorization).toBe("Bearer upstream-key");
     expect(c.headers["x-request-id"]).toMatch(/^mcp-[0-9A-Z]{26}$/);
     expect(recorded.some((x) => x.path === "/v1/profiles/validate")).toBe(false); // no name prediction
@@ -208,31 +208,14 @@ describe("convert_subtitle", () => {
     expect(fs.readdirSync(path.join(dir, "out"))).toEqual(["movie.vtt"]);
   });
 
-  it("archive keeps the old file as .bak", async () => {
+  it("explicit local replace needs no operator flag and ignores API sidecar", async () => {
     await setup();
     fs.writeFileSync(path.join(dir, "movie.vtt"), "old");
     mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "movie.vtt", content: Buffer.from("WEBVTT\n").toString("base64"), contentEncoding: "base64" }]))));
-    const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "webvtt", outputPath: path.join(dir, "movie.vtt"), ifExists: "archive" });
-    expect(r.structuredContent.outputs[0].action).toBe("archived");
-    expect(fs.readFileSync(r.structuredContent.outputs[0].archivedTo, "utf8")).toBe("old");
-    expect(r.content[0].text).toMatch(/archived the old file to movie\.vtt\.\d{8}-\d{6}\.bak/);
-  });
-
-  it("replace/delete without SUBTITLE_MCP_ALLOW_DESTRUCTIVE → destructive-not-allowed, zero API calls", async () => {
-    await setup();
-    for (const ifExists of ["replace", "delete"]) {
-      const r = await callTool(h, "convert_subtitle", { content: SRT, target: "webvtt", outputDir: path.join(dir, "out"), ifExists });
-      expect(r.structuredContent.error.code).toBe("destructive-not-allowed");
-      expect(r.structuredContent.error.hint).toMatch(/SUBTITLE_MCP_ALLOW_DESTRUCTIVE/);
-    }
-    expect(recorded).toHaveLength(0);
-  });
-
-  it("replace works with the flag", async () => {
-    await setup({ allowDestructive: true });
-    fs.writeFileSync(path.join(dir, "movie.vtt"), "old");
-    mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "movie.vtt", content: Buffer.from("WEBVTT\n").toString("base64"), contentEncoding: "base64" }]))));
-    const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "webvtt", outputPath: path.join(dir, "movie.vtt"), ifExists: "replace" });
+    const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "webvtt", outputPath: path.join(dir, "movie.vtt"), ifExists: "replace", sidecar: true });
+    expect(convertCalls()[0].body).not.toHaveProperty("sidecar");
+    expect(convertCalls()[0].body).not.toHaveProperty("input");
+    expect(fs.existsSync(path.join(dir, "movie.vtt.json"))).toBe(false);
     expect(r.structuredContent.outputs[0].action).toBe("replaced");
     expect(fs.readFileSync(path.join(dir, "movie.vtt"), "utf8")).toBe("WEBVTT\n");
   });
@@ -246,7 +229,7 @@ describe("convert_subtitle", () => {
   });
 
   it("source-overwrite-refused for outputPath == path, before the call", async () => {
-    await setup({ allowDestructive: true });
+    await setup();
     const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "subrip", outputPath: path.join(dir, "in", "movie.srt"), ifExists: "replace" });
     expect(r.structuredContent.error.code).toBe("source-overwrite-refused");
     expect(convertCalls()).toHaveLength(0);
@@ -277,32 +260,13 @@ describe("convert_subtitle", () => {
     await h2.close();
   });
 
-  it("503 is retried with progress notifications; the request id gets .r1", async () => {
-    await setup();
-    let n = 0;
-    mswServer.use(http.post(`${API}/v1/convert/json`, () => (n++ === 0 ? problem(503, "queue-full", {}, { "Retry-After": "0" }) : HttpResponse.json(convertOk([{ fileName: "a.vtt", content: "x" }])))));
-    const msgs: string[] = [];
-    const r = await callTool(h, "convert_subtitle", { content: SRT, target: "webvtt" }, { progress: (m) => msgs.push(m) });
-    expect(r.isError).toBeFalsy();
-    expect(r.structuredContent.attempts).toBe(2);
-    expect(msgs[0]).toMatch(/Converter busy \(queue full\); retrying in 0s \(attempt 2\/4\)/);
-    const ids = convertCalls().map((c) => c.headers["x-request-id"]);
-    expect(ids[1]).toBe(ids[0] + ".r1");
-  });
-
-  it("504 running phase is not retried; queue phase is", async () => {
-    await setup();
-    mswServer.use(http.post(`${API}/v1/convert/json`, () => problem(504, "conversion-timeout", { phase: "running" })));
-    let r = await callTool(h, "convert_subtitle", { content: SRT, target: "webvtt" });
-    expect(r.structuredContent.error.code).toBe("conversion-timeout");
-    expect(r.structuredContent.error.hint).toMatch(/Split the file/);
-    expect(convertCalls()).toHaveLength(1);
-    recorded.length = 0;
-    let n = 0;
-    mswServer.use(http.post(`${API}/v1/convert/json`, () => (n++ === 0 ? problem(504, "conversion-timeout", { phase: "queue" }) : HttpResponse.json(convertOk([{ fileName: "a.vtt", content: "x" }])))));
-    r = await callTool(h, "convert_subtitle", { content: SRT, target: "webvtt" });
-    expect(r.isError).toBeFalsy();
-    expect(convertCalls()).toHaveLength(2);
+  it.each([429, 503, 504, 409])("conversion POST is never replayed after HTTP %s", async (status) => {
+    await setup(); let posts = 0;
+    const code = status === 409 ? "output-exists" : status === 429 ? "rate-limited" : status === 503 ? "queue-full" : "conversion-timeout";
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => { posts++; return problem(status, code, { phase: "queue", hint: "error | replace" }, { "Retry-After": "0" }); }));
+    const r = await callTool(h, "convert_subtitle", { content: SRT, target: "webvtt" });
+    expect(r.isError).toBe(true); expect(r.structuredContent.error.code).toBe(code); expect(posts).toBe(1);
+    expect(r.structuredContent.error.hint).toContain("not replayed");
   });
 
   it("cancellation aborts the in-flight fetch", async () => {
@@ -408,6 +372,40 @@ describe("convert_subtitle", () => {
     expect(r.content[0].text).toMatch(/profile\.source\.format \('pac' or 'fpc'\)/);
   });
 
+  it("ambiguous-encoding (PAC code page) becomes a ToolError with candidates, probe and an inputCodePage hint", async () => {
+    await setup();
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => problem(422, "ambiguous-encoding", { candidates: ["pac-latin", "pac-czech"], probe: "pac-code-page", errors: [{ pointer: "/formatOptions/pac/inputCodePage", message: "m" }] })));
+    const r = await callTool(h, "convert_subtitle", { content: "AAAA", contentEncoding: "base64", fileName: "a.pac", target: "srt" });
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent.error).toMatchObject({ code: "ambiguous-encoding", candidates: ["pac-latin", "pac-czech"], probe: "pac-code-page" });
+    expect(r.content[0].text).toMatch(/profile\.formatOptions\.pac\.inputCodePage/);
+    expect(r.content[0].text).toContain("\nCandidates: pac-latin, pac-czech\n");
+  });
+
+  it("follow-up source/header warnings pass through with their details (no MCP-only codes)", async () => {
+    await setup();
+    const warnings = [
+      { code: "overlapping-cues", message: "1 cue(s) overlap", count: 1, hint: "h", details: { cueCount: 1, cues: [2] } },
+      { code: "long-cue", message: "1 cue(s) over 30 s", count: 1, details: { cueCount: 1, cues: [3], durations: [{ cue: 3, durationMs: 40500 }] } },
+      { code: "programme-start-not-applied", message: "TCP 10:00:00:00", hint: "Set timing.offsetMs to -36000000.", details: { timecode: "10:00:00:00" } },
+      { code: "frame-rate-assumed", message: "Read at 23.976", hint: "Set source.fps.", details: { frameRate: 23.976 } },
+      { code: "format-defaults-applied", message: "filled in", count: 2, hint: "Set formatOptions.ebuStl.originalProgrammeTitle, countryOfOrigin", details: { fields: { originalProgrammeTitle: "No Title", countryOfOrigin: "USA" } } },
+      { code: "encoding-guessed", message: "guessed" },
+      { code: "sidecar-delete-failed", message: "stale sidecar kept" },
+    ];
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.stl", content: "AAAA", contentEncoding: "base64" }], { warnings }))));
+    const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "ebustl", outputDir: path.join(dir, "out") });
+    expect(r.isError).toBeFalsy();
+    const out = r.structuredContent.warnings.filter((w: { code: string }) => !w.code.startsWith("mcp-"));
+    expect(out.map((w: { code: string }) => w.code)).toEqual(warnings.map((w) => w.code));
+    expect(out[0].details).toEqual({ cueCount: 1, cues: [2] });
+    expect(out[1].details).toEqual(warnings[1].details);
+    expect(out[2].details).toEqual({ timecode: "10:00:00:00" });
+    expect(out[3].details).toEqual({ frameRate: 23.976 });
+    expect(out[4]).toMatchObject({ code: "format-defaults-applied", message: "filled in (count 2)", details: { fields: { originalProgrammeTitle: "No Title", countryOfOrigin: "USA" } } });
+    expect(r.content[0].text).toContain("format-defaults-applied: filled in (count 2) (hint: Set formatOptions.ebuStl.originalProgrammeTitle, countryOfOrigin)");
+  });
+
   it("D-38: staging happens in <root>/.subtitle-mcp-staging/, never in the output folder", async () => {
     await setup();
     mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "movie.vtt", content: Buffer.from("WEBVTT\n").toString("base64"), contentEncoding: "base64" }]))));
@@ -431,40 +429,41 @@ describe("convert_subtitle", () => {
 
 describe("modes, annotations, resources", () => {
   afterEach(() => mswServer.resetHandlers());
-  it("local: all eight tools with path params", async () => {
+  it("local: single-file tools with path params", async () => {
     mswServer.use(...baseHandlers());
     const h = await harness();
     const { tools } = await h.client.listTools();
-    expect(tools.map((t) => t.name)).toEqual(["list_formats", "list_presets", "get_profile", "validate_profile", "detect_format", "convert_subtitle", "convert_batch", "list_allowed_folders"]);
+    expect(tools.map((t) => t.name)).toEqual(["list_formats", "list_presets", "get_profile", "validate_profile", "detect_format", "convert_subtitle", "get_job_file", "list_allowed_folders"]);
     const conv = tools.find((t) => t.name === "convert_subtitle")!;
     expect(Object.keys(conv.inputSchema.properties!)).toContain("outputDir");
     expect(conv.inputSchema.additionalProperties).toBe(false);
-    expect(conv.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, title: "Convert subtitle" });
+    expect(conv.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, title: "Convert subtitle" });
     expect(conv.outputSchema).toBeDefined();
     expect(tools.find((t) => t.name === "list_formats")!.annotations).toMatchObject({ readOnlyHint: true, idempotentHint: true });
     await h.close();
   });
-  it("destructiveHint follows SUBTITLE_MCP_ALLOW_DESTRUCTIVE", async () => {
-    const h = await harness({ allowDestructive: true });
+  it("conversion advertises possible remote object replacement", async () => {
+    const h = await harness();
     const { tools } = await h.client.listTools();
     expect(tools.find((t) => t.name === "convert_subtitle")!.annotations!.destructiveHint).toBe(true);
-    // D-44: convert_batch only ever creates a new folder.
-    expect(tools.find((t) => t.name === "convert_batch")!.annotations!.destructiveHint).toBe(false);
     await h.close();
   });
-  it("sidecar without roots and hosted: no path params, no convert_batch, read-only convert", async () => {
+  it("sidecar without roots and hosted: no path params, no convert_batch, remote output remains available", async () => {
     for (const mode of ["sidecar", "hosted"] as const) {
       const h = await harness({ mode });
       const { tools } = await h.client.listTools();
       expect(tools.map((t) => t.name)).not.toContain("convert_batch");
+      expect(tools.map((t) => t.name)).toContain("list_allowed_folders");
+      const folders = await callTool(h, "list_allowed_folders", {});
+      expect(folders.structuredContent).toMatchObject({ state: "none", folders: [], clientRoots: "not-used" });
       const conv = tools.find((t) => t.name === "convert_subtitle")!;
-      for (const k of ["path", "profilePath", "outputPath", "outputDir", "ifExists"]) expect(Object.keys(conv.inputSchema.properties!)).not.toContain(k);
-      expect(conv.annotations).toMatchObject({ readOnlyHint: true });
+      for (const k of ["path", "profilePath", "outputPath", "outputDir"]) expect(Object.keys(conv.inputSchema.properties!)).not.toContain(k);
+      expect(conv.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
       expect(Object.keys(tools.find((t) => t.name === "detect_format")!.inputSchema.properties!)).not.toContain("path");
       await h.close();
     }
   });
-  it("sidecar with only a read-only root: path inputs, no batch, read-only convert", async () => {
+  it("sidecar with only a read-only root: path inputs, no batch, remote output remains available", async () => {
     const dir = tmpDir();
     const h = await harness({ mode: "sidecar" }, { roots: await realpathRoots([], [dir]) });
     const { tools } = await h.client.listTools();

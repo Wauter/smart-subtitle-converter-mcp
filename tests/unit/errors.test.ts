@@ -14,7 +14,6 @@ describe("problem mapping (§8.1)", () => {
     [404, "preset-not-found", "preset-not-found", /list_presets/],
     [404, "not-found", "api-protocol-error", /SUBTITLE_API_URL/],
     [413, "payload-too-large", "payload-too-large", /Split the file/],
-    [413, "zip-limits-exceeded", "zip-limits-exceeded", null],
     [415, "unsupported-media-type", "api-protocol-error", /Report this/],
     [422, "format-not-detected", "format-not-detected", /profile.source.format/],
     [422, "format-not-supported", "format-not-supported", null],
@@ -22,9 +21,8 @@ describe("problem mapping (§8.1)", () => {
     [422, "invalid-binary-input", "invalid-binary-input", /via path or base64/],
     [422, "encoding-error", "encoding-error", /encoding.input/],
     [422, "unsafe-xml", "unsafe-xml", null],
-    [422, "unsafe-zip", "unsafe-zip", null],
     [422, "input-limits-exceeded", "input-limits-exceeded", /Split/],
-    [422, "ambiguous-batch-names", "ambiguous-batch-names", /\{stem\}/],
+    [422, "format-not-supported", "format-not-supported", /list_formats/],
     [422, "conversion-failed", "conversion-failed", /operation/],
     [429, "rate-limited", "rate-limited", /rate limited/],
     [503, "queue-full", "queue-full", /busy/],
@@ -40,6 +38,12 @@ describe("problem mapping (§8.1)", () => {
     expect(te.hint?.startsWith("API hint.")).toBe(true);
     if (hint) expect(te.hint).toMatch(hint);
   });
+  it("retains admitted synchronous job ids without accepting arbitrary job URLs", () => {
+    const te = mapProblem(422, p(422, "format-not-detected", { id: "abc123" }), ctx);
+    expect(te.jobId).toBe("abc123"); expect(te.jobUrl).toBe("/v1/jobs/abc123");
+    expect(errorText(te)).toContain("jobId: abc123");
+    expect(mapProblem(422, p(422, "format-not-detected", { id: "https://elsewhere.test/" }), ctx).jobUrl).toBeUndefined();
+  });
   it("sidecar 401 hint names the operator", () => {
     expect(mapProblem(401, p(401, "unauthorized"), { ...ctx, mode: "sidecar" }).hint).toMatch(/ask the operator/);
   });
@@ -51,9 +55,7 @@ describe("problem mapping (§8.1)", () => {
   it("404 on /v1/limits is not remapped", () => {
     expect(mapProblem(404, p(404, "not-found"), { ...ctx, endpoint: "/v1/limits" }).code).toBe("not-found");
   });
-  it("unsafe-zip in a batch is an MCP bug", () => {
-    expect(mapProblem(422, p(422, "unsafe-zip"), { ...ctx, batch: true }).code).toBe("api-protocol-error");
-  });
+
   it("format-not-supported → list_formats hint (no text-only mode, D-36)", () => {
     expect(mapProblem(422, p(422, "format-not-supported"), ctx).hint).toMatch(/list_formats/);
   });
@@ -73,19 +75,31 @@ describe("problem mapping (§8.1)", () => {
     expect(mapProblem(422, body, { ...ctx, includeDebug: true }).debug).toEqual({ operation: "X" });
     expect(mapProblem(422, body, { ...ctx, includeDebug: true, mode: "hosted" }).debug).toBeUndefined();
   });
-  it("errors[], groups, outputs and entry pass through", () => {
-    const te = mapProblem(422, p(422, "ambiguous-batch-names", { errors: [{ pointer: "s1/EP1.vtt", message: "m" }], groups: [["ep1.srt", "EP1.vtt"]], outputs: ["out.vtt"], entry: "x" }), ctx);
-    expect(te.errors).toEqual([{ pointer: "s1/EP1.vtt", message: "m" }]);
-    expect(te.groups).toEqual([["ep1.srt", "EP1.vtt"]]);
-    expect(te.outputs).toEqual(["out.vtt"]);
-    expect(te.entry).toBe("x");
+  it("field errors pass through", () => {
+    const te = mapProblem(422, p(422, "storage-location-rejected", { errors: [{ pointer: "/input", message: "not allowed" }] }), ctx);
+    expect(te.errors).toEqual([{ pointer: "/input", message: "not allowed" }]);
   });
+
   it("ambiguous-format: candidates pass through, hint names profile.source.format", () => {
     const te = mapProblem(422, p(422, "ambiguous-format", { candidates: ["pacscreenelectronics", "pacunicodeunipac"], errors: [{ pointer: "/source/format", message: "m" }] }), ctx);
     expect(te.code).toBe("ambiguous-format");
     expect(te.candidates).toEqual(["pacscreenelectronics", "pacunicodeunipac"]);
     expect(te.hint).toMatch(/^API hint\. .*profile\.source\.format \('pac' or 'fpc'\)/);
     expect(errorText(te)).toMatch(/\nCandidates: pacscreenelectronics, pacunicodeunipac\n/);
+  });
+  it("ambiguous-encoding: candidates and probe pass through; the hint names the option for that probe", () => {
+    const pac = mapProblem(422, p(422, "ambiguous-encoding", { candidates: ["pac-greek", "pac-czech"], probe: "pac-code-page", errors: [{ pointer: "/formatOptions/pac/inputCodePage", message: "m" }] }), ctx);
+    expect(pac).toMatchObject({ code: "ambiguous-encoding", candidates: ["pac-greek", "pac-czech"], probe: "pac-code-page" });
+    expect(pac.errors).toEqual([{ pointer: "/formatOptions/pac/inputCodePage", message: "m" }]);
+    expect(pac.hint).toMatch(/^API hint\. Pass profile\.formatOptions\.pac\.inputCodePage/);
+    expect(errorText(pac)).toMatch(/\nCandidates: pac-greek, pac-czech\nProbe: pac-code-page\n/);
+    const text = mapProblem(422, p(422, "ambiguous-encoding", { candidates: ["windows-1256", "windows-1252"], probe: "text-encoding" }), ctx);
+    expect(text.hint).toMatch(/profile\.encoding\.input .*UTF-8/);
+    const empty = mapProblem(422, p(422, "ambiguous-encoding", { candidates: [], probe: "pac-code-page" }), ctx);
+    expect(empty.candidates).toEqual([]);
+    expect(errorText(empty)).not.toContain("Candidates:");
+    const unknown = mapProblem(422, p(422, "ambiguous-encoding", {}), ctx);
+    expect(unknown.hint).toMatch(/inputCodePage .*encoding\.input/);
   });
   it("error text format", () => {
     expect(errorText({ source: "mcp", code: "x", detail: "d", hint: "h", requestId: "r" })).toBe("x: d\nHint: h\nrequestId: r");

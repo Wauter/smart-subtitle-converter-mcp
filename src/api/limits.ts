@@ -7,12 +7,16 @@ import { toOptInt } from "./coerce.js";
 import { featureMismatch } from "../probe.js";
 
 export interface Limits {
+  requestMaxWaitSeconds?: number;
+  requestWaitSeconds?: number;
+  inputSchemes?: string[];
+  outputSchemes?: string[];
+  enabledSchemes?: string[];
   maxUploadBytes?: number;
   bodyJson?: number;
   jsonMaxDecoded?: number;
   maxProfileBytes?: number;
   maxCues?: number;
-  zip: { maxEntries?: number; maxUnpackedBytes?: number; maxRatio?: number; maxEntryBytes?: number };
   conversionTimeoutSeconds?: number;
   ebuStlMaxBytes?: number;
   raw: unknown;
@@ -27,18 +31,17 @@ export type LimitsState =
 export function normalizeLimits(raw: any): Limits {
   const mrb = raw?.maxRequestBodyBytes;
   const bodyJson = typeof mrb === "object" && mrb ? toOptInt(mrb.json) : undefined;
+  const schemes = (value: unknown): string[] | undefined => Array.isArray(value) ? value.filter((s: unknown): s is string => typeof s === "string" && ["file", "s3", "https"].includes(s)) : undefined;
+  const inputSchemes = schemes(raw?.storage?.inputSchemes), outputSchemes = schemes(raw?.storage?.outputSchemes);
   return {
+    requestWaitSeconds: toOptInt(raw?.requestWaitSeconds), inputSchemes, outputSchemes,
+    requestMaxWaitSeconds: toOptInt(raw?.requestMaxWaitSeconds),
+    enabledSchemes: inputSchemes || outputSchemes ? [...new Set([...(inputSchemes ?? []), ...(outputSchemes ?? [])])] : undefined,
     maxUploadBytes: toOptInt(raw?.maxUploadBytes),
     bodyJson,
     jsonMaxDecoded: toOptInt(raw?.json?.maxDecodedContentBytes),
     maxProfileBytes: toOptInt(raw?.maxProfileBytes),
     maxCues: toOptInt(raw?.maxCues),
-    zip: {
-      maxEntries: toOptInt(raw?.zip?.maxEntries),
-      maxUnpackedBytes: toOptInt(raw?.zip?.maxUnpackedBytes),
-      maxRatio: toOptInt(raw?.zip?.maxRatio),
-      maxEntryBytes: toOptInt(raw?.zip?.maxEntryBytes),
-    },
     conversionTimeoutSeconds: toOptInt(raw?.conversionTimeoutSeconds),
     ebuStlMaxBytes: toOptInt(raw?.binary?.ebuStlMaxBytes),
     raw,
@@ -50,31 +53,25 @@ export const FALLBACK_JSON_DECODED = 10_485_760;
 export const DEFAULT_UPLOAD = 10_485_760;
 
 export interface Caps {
+  requestMaxWaitSeconds?: number;
   limitsKnown: boolean;
   jsonDecoded: number;
   jsonBody: number;
   maxUpload?: number;
   maxProfile?: number;
-  zipMaxEntries: number;
-  zipMaxUnpacked: number;
-  zipMaxRatio: number;
-  zipMaxEntryBytes: number;
   ebuStlMaxBytes?: number;
   localMax?: number;
 }
 
-export function capsFrom(state: LimitsState, cfg: Pick<Config, "jsonMaxDecodedBytes" | "batchMaxEntries" | "batchMaxBytes" | "maxBytes">): Caps {
+export function capsFrom(state: LimitsState, cfg: Pick<Config, "jsonMaxDecodedBytes" | "maxBytes">): Caps {
   const l = state.kind === "ok" ? state.limits : undefined;
   return {
+    requestMaxWaitSeconds: l?.requestMaxWaitSeconds,
     limitsKnown: !!l,
     jsonDecoded: l?.jsonMaxDecoded ?? cfg.jsonMaxDecodedBytes ?? FALLBACK_JSON_DECODED,
     jsonBody: l?.bodyJson ?? API_DEFAULT_JSON_BODY,
     maxUpload: l?.maxUploadBytes,
     maxProfile: l?.maxProfileBytes,
-    zipMaxEntries: l?.zip.maxEntries ?? cfg.batchMaxEntries ?? 100,
-    zipMaxUnpacked: l?.zip.maxUnpackedBytes ?? cfg.batchMaxBytes ?? 52_428_800,
-    zipMaxRatio: l?.zip.maxRatio ?? 100,
-    zipMaxEntryBytes: l?.zip.maxEntryBytes ?? l?.maxUploadBytes ?? DEFAULT_UPLOAD,
     ebuStlMaxBytes: l?.ebuStlMaxBytes,
     localMax: cfg.maxBytes,
   };

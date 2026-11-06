@@ -10,9 +10,9 @@ export const WRITE_FAILURE_CODES = new Set<string>([
   "staging-unavailable", "cross-device", "io-error", "write-failed",
 ]);
 
-/** Policy failures that also stop a failFast batch (§5.7.4). */
+/** Filesystem policy failures. */
 export const WRITE_STOP_CODES = new Set<string>([
-  ...WRITE_FAILURE_CODES, "output-exists", "archive-exists", "archive-failed", "delete-failed", "source-overwrite-refused", "ambiguous-batch-names",
+  ...WRITE_FAILURE_CODES, "output-exists", "source-overwrite-refused",
 ]);
 
 export const WRITE_HINTS: Record<WriteFailureCode, string> = {
@@ -45,7 +45,7 @@ const OS_TEXT: Record<string, string> = {
 };
 
 export interface ClassifyContext {
-  /** The operation touches an existing target (replace/archive/delete): EPERM/EACCES may be a sharing violation. */
+  /** The operation touches an existing target (replace): EPERM/EACCES may be a sharing violation. */
   existingTarget?: boolean;
   platform?: NodeJS.Platform;
 }
@@ -93,9 +93,4 @@ export function writeFailure(e: unknown, callerPath: string, ctx: ClassifyContex
   const verb = ctx.verb ?? "write";
   const detail = `Couldn't ${verb} ${callerPath}: ${os.message} (${os.code}${os.syscall ? `, ${os.syscall}` : ""}).`;
   return mcpError(code, detail, WRITE_HINTS[code], { path: callerPath, osError: os });
-}
-
-/** Human class name for archive-failed / delete-failed details ("locked", "permission denied", …). */
-export function className(code: WriteFailureCode): string {
-  return ({ "disk-full": "disk full", "permission-denied": "permission denied", "read-only-filesystem": "read-only file system", "output-locked": "locked", "path-too-long": "path too long", "staging-unavailable": "staging unavailable", "cross-device": "cross-device", "io-error": "I/O error", "write-failed": "write failed" } as const)[code];
 }

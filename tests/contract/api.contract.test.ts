@@ -2,7 +2,7 @@
  * Contract suite against a real converter API (§14), the version this MCP targets (D-36/D-37). Gated on CONTRACT_API_URL.
  *   CONTRACT_API_URL      e.g. http://127.0.0.1:4041 (the API's Compose host port)
  *   CONTRACT_API_KEY      key configured on the API (second run)
- *   CONTRACT_SMALL_LIMITS "1" when the API runs with MAX_UPLOAD_BYTES=1048576 ZIP_MAX_ENTRIES=3
+ *   CONTRACT_SMALL_LIMITS "1" when the API runs with MAX_UPLOAD_BYTES=1048576
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
@@ -72,8 +72,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
     });
     it("limits resource available (target API)", async () => {
       const r: any = await h.client.readResource({ uri: "subtitleedit://limits" });
-      const l = JSON.parse(r.contents[0].text);
-      expect(l.zip.maxEntries).toBe(SMALL ? 3 : 100);
+      expect(JSON.parse(r.contents[0].text).maxUploadBytes).toBeGreaterThan(0);
     });
   });
 
@@ -99,17 +98,14 @@ describe.skipIf(!URL_)("contract: real API", () => {
       expect(ok.isError).toBeFalsy();
       expect(ok.structuredContent.outputs).toHaveLength(2);
     });
-    it("write flow: existing outputPath under error → no request; archive and replace", async () => {
+    it("write flow: existing outputPath under error → no request; replace", async () => {
       const src = put("wf/a.srt");
       const out = put("wf/a.vtt", "old");
       const e = await callTool(h, "convert_subtitle", { path: src, target: "webvtt", outputPath: out });
       expect(e.structuredContent.error.code).toBe("output-exists");
       expect(e.structuredContent.attempts ?? 0).toBe(0);
       expect(fs.readFileSync(out, "utf8")).toBe("old");
-      const a = await callTool(h, "convert_subtitle", { path: src, target: "webvtt", outputPath: out, ifExists: "archive" });
-      expect(a.structuredContent.outputs[0].action).toBe("archived");
-      expect(fs.readFileSync(a.structuredContent.outputs[0].archivedTo, "utf8")).toBe("old");
-      const hd = await mk({ allowDestructive: true });
+      const hd = await mk();
       const r = await callTool(hd, "convert_subtitle", { path: src, target: "webvtt", outputPath: out, ifExists: "replace" });
       await hd.close();
       expect(r.structuredContent.outputs[0].action).toBe("replaced");
@@ -128,6 +124,64 @@ describe.skipIf(!URL_)("contract: real API", () => {
       const r = await callTool(h, "convert_subtitle", { path: src, target: "webvtt" });
       expect(r.structuredContent.error).toMatchObject({ code: "precheck-too-large", limit: { name: "json.maxDecodedContentBytes", value: 1048576 } });
       expect(r.structuredContent.attempts ?? 0).toBe(0);
+    });
+  });
+
+  describe("jobs and API locations", () => {
+    it("exposes a job id for synchronous conversion and retains only metadata", async () => {
+      const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
+      expect(r.structuredContent.jobId).toMatch(/^[a-f0-9]{32}$/);
+      const response = await fetch(`${URL_}/v1/jobs/${r.structuredContent.jobId}`, { headers: KEY ? { authorization: `Bearer ${KEY}` } : {} });
+      const job: any = await response.json();
+      expect(job.status).toBe("succeeded"); expect(job.result.outputs[0].content).toBeUndefined();
+      expect((await h.client.listTools()).tools.some((t) => t.name === "convert_batch")).toBe(false);
+    });
+    it("get_job_file explains response-only jobs and forgotten ids", async () => {
+      const result = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
+      for (const which of ["input", "output"] as const) {
+        const missing = await callTool(h, "get_job_file", { jobId: result.structuredContent.jobId, which });
+        expect(missing.structuredContent.error.code).toBe(which === "input" ? "job-input-not-stored" : "job-output-not-stored");
+        expect(missing.structuredContent.error.jobId).toBe(result.structuredContent.jobId);
+      }
+      const unknown = await callTool(h, "get_job_file", { jobId: "00000000000000000000000000000000", which: "output" });
+      expect(unknown.structuredContent.error.code).toBe("job-not-found");
+    });
+    it("Prefer wait=0 returns 202 and a retrievable terminal job", async () => {
+      const response = await fetch(`${URL_}/v1/convert/json`, { method: "POST", headers: { "content-type": "application/json", Prefer: "wait=0", ...(KEY ? { authorization: `Bearer ${KEY}` } : {}) }, body: JSON.stringify({ content: SRT, target: "vtt" }) });
+      expect(response.status).toBe(202);
+      const accepted: any = await response.json(); expect(response.headers.get("location")).toBe(`/v1/jobs/${accepted.id}`);
+      let job: any;
+      for (let i = 0; i < 100; i++) {
+        const r = await fetch(`${URL_}/v1/jobs/${accepted.id}`, { headers: KEY ? { authorization: `Bearer ${KEY}` } : {} }); job = await r.json();
+        if (job.status !== "running") break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(job.status).toBe("succeeded");
+    });
+    it.skipIf(!process.env.CONTRACT_STORAGE_ROOT)("passes API filesystem input/output and sidecar", async () => {
+      const root = process.env.CONTRACT_STORAGE_ROOT!;
+      const source = path.join(root, `contract-${Date.now()}.srt`), output = source + ".vtt";
+      fs.writeFileSync(source, SRT);
+      try {
+        const d = await callTool(h, "detect_format", { input: source }); expect(d.structuredContent.id).toBe("subrip");
+        const r = await callTool(h, "convert_subtitle", { input: source, output, sidecar: true, target: "vtt" });
+        expect(r.isError).toBeFalsy(); expect(r.structuredContent.outputs[0].output).toBe(output);
+        expect(fs.readFileSync(output, "utf8")).toContain("WEBVTT"); expect(fs.existsSync(output + ".json")).toBe(true);
+        for (const which of ["input", "output"] as const) {
+          const file = await callTool(h, "get_job_file", { jobId: r.structuredContent.jobId, which });
+          expect(file.isError).toBeFalsy(); expect(file.structuredContent.which).toBe(which);
+          expect(file.structuredContent.bytes).toBe(fs.statSync(which === "input" ? source : output).size);
+          expect(file.content[1].text).toContain(which === "input" ? "Hello" : "WEBVTT");
+        }
+        const collision = await callTool(h, "convert_subtitle", { input: source, output, target: "vtt" });
+        expect(collision.structuredContent.error.code).toBe("output-exists"); expect(collision.structuredContent.error.hint).toContain("error | replace");
+        const replaced = await callTool(h, "convert_subtitle", { input: source, output, sidecar: true, target: "vtt", ifExists: "replace" });
+        expect(replaced.isError).toBeFalsy();
+        fs.unlinkSync(output);
+        const gone = await callTool(h, "get_job_file", { jobId: r.structuredContent.jobId, which: "output" });
+        expect(gone.structuredContent.error.code).toBe("job-file-gone"); expect(gone.structuredContent.error.location).toBe(new URL(`file://${output}`).href);
+
+      } finally { for (const f of [source, output, output + ".json"]) fs.rmSync(f, { force: true }); }
     });
   });
 
@@ -150,96 +204,6 @@ describe.skipIf(!URL_)("contract: real API", () => {
     });
   });
 
-  describe("batch (D-44: all or nothing)", () => {
-    const stagingLeft = () => {
-      const st = path.join(dir, ".subtitle-mcp-staging");
-      return fs.existsSync(st) ? fs.readdirSync(st) : [];
-    };
-    it("mixed folder, local exclusions, aliases, subfolders kept; forced multi-chunk; atomic commit", async () => {
-      const b = path.join(dir, "batch");
-      put("batch/a.srt", srt(3));
-      put("batch/s1/b.vtt", "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n");
-      put("batch/a..b.srt", srt(2));
-      put("batch/manifest.json", srt(1)); // aliased (the API would drop a top-level manifest.json)
-      put("batch/n.zip", "PK\x03\x04");
-      put("batch/._x.srt", "junk");
-      put("batch/__MACOSX/c.srt", "junk");
-      put("batch/old.vtt.20261017-093012.bak", "bak");
-      // Force several chunks via the response estimate (batchMaxEntries is only a fallback when /v1/limits is unreadable).
-      const hh = await mk({ batchMaxResponseBytes: 65_536 + 400 });
-      const out = path.join(dir, "batch-out");
-      const r = await callTool(hh, "convert_batch", { inputDir: b, pattern: "**/*", outputDir: out, target: "webvtt", writeManifest: true });
-      await hh.close();
-      expect(r.isError).toBeFalsy();
-      const by = Object.fromEntries(r.structuredContent.entries.map((e: any) => [path.relative(b, e.source), e]));
-      expect(by["s1/b.vtt"].outputs).toEqual([path.join(out, "s1", "b.vtt")]);
-      expect(by["a..b.srt"].outputs).toEqual([path.join(out, "a..b.vtt")]);
-      expect(by["manifest.json"].outputs).toEqual([path.join(out, "manifest.vtt")]);
-      expect(by["a.srt"].detected.id).toBe("subrip");
-      expect(r.structuredContent.excluded.map((x: any) => x.reason).sort()).toEqual(["macos-metadata", "macos-metadata", "nested-zip"]);
-      expect(r.structuredContent.totals.chunks).toBeGreaterThan(1);
-      expect(fs.readdirSync(out).sort()).toEqual(["a..b.vtt", "a.vtt", "manifest.vtt", "s1", "subtitle-mcp-manifest.json"]);
-      expect(stagingLeft()).toEqual([]);
-    });
-    it("chunking by estimated response size", async () => {
-      for (let i = 0; i < 3; i++) put(`rs/f${i}.srt`, srt(400));
-      const hh = await mk({ batchMaxResponseBytes: 120_000 });
-      const r = await callTool(hh, "convert_batch", { inputDir: path.join(dir, "rs"), outputDir: path.join(dir, "rs-out"), target: "webvtt" });
-      await hh.close();
-      expect(r.structuredContent.totals).toMatchObject({ converted: 3 });
-      expect(r.structuredContent.totals.chunks).toBeGreaterThanOrEqual(2);
-    });
-    it("a bad second file (real failFast problem from the API): batch-failed, later chunks not sent, nothing written", async () => {
-      put("ff/1.srt", srt(2));
-      put("ff/2.srt", "garbage that is not a subtitle\n");
-      put("ff/3.srt", srt(2));
-      put("ff/4.srt", srt(2));
-      // Two files per chunk: the response estimate is Σsize × 2 + 64 KiB (§5.7.3).
-      const sz = (n: string) => fs.statSync(path.join(dir, "ff", n)).size;
-      const hh = await mk({ batchMaxResponseBytes: 65_536 + 2 * (sz("1.srt") + sz("2.srt")) });
-      const out = path.join(dir, "ff", "new", "ff-out");
-      const r = await callTool(hh, "convert_batch", { inputDir: path.join(dir, "ff"), outputDir: out, target: "webvtt" });
-      await hh.close();
-      expect(r.structuredContent.error.code).toBe("batch-failed");
-      expect(r.structuredContent.failures).toEqual([expect.objectContaining({ source: path.join(dir, "ff", "2.srt"), code: "format-not-detected", requestId: expect.any(String) })]);
-      expect(r.structuredContent).toMatchObject({ converted: 1, notAttempted: 2 });
-      expect(r.structuredContent.requestIds).toHaveLength(1);
-      expect(fs.existsSync(path.join(dir, "ff", "new"))).toBe(false);
-      expect(stagingLeft()).toEqual([]);
-    });
-    it("an existing outputDir → output-dir-exists, nothing sent", async () => {
-      put("ex/a.srt", srt(2));
-      put("ex-out/a.vtt", "old");
-      const r = await callTool(h, "convert_batch", { inputDir: path.join(dir, "ex"), outputDir: path.join(dir, "ex-out"), target: "webvtt" });
-      expect(r.structuredContent.error.code).toBe("output-dir-exists");
-      expect(fs.readdirSync(path.join(dir, "ex-out"))).toEqual(["a.vtt"]);
-    });
-    it("D-29 local check and preserveStructure", async () => {
-      put("amb/s1/ep1.srt", srt(1));
-      put("amb/s1/EP1.vtt", "WEBVTT\n");
-      let r = await callTool(h, "convert_batch", { inputDir: path.join(dir, "amb"), pattern: "**/*", outputDir: path.join(dir, "amb-out"), target: "webvtt" });
-      expect(r.structuredContent.error.code).toBe("ambiguous-batch-names");
-      put("amb2/s1/ep1.srt", srt(1));
-      put("amb2/s2/ep1.srt", srt(1));
-      r = await callTool(h, "convert_batch", { inputDir: path.join(dir, "amb2"), pattern: "**/*", outputDir: path.join(dir, "amb2-out"), target: "webvtt" });
-      expect(r.structuredContent.totals.converted).toBe(2);
-      r = await callTool(h, "convert_batch", { inputDir: path.join(dir, "amb2"), pattern: "**/*", outputDir: path.join(dir, "amb2-flat"), target: "webvtt", preserveStructure: false });
-      expect(r.structuredContent.error.code).toBe("ambiguous-batch-names");
-    });
-    it("API 422 output clash (target.additional to the same format) maps outputs to local paths; nothing written", async () => {
-      put("clash/a.srt", srt(2));
-      const out = path.join(dir, "clash-out");
-      const r = await callTool(h, "convert_batch", { inputDir: path.join(dir, "clash"), outputDir: out, profile: { target: { format: "webvtt", additional: ["webvtt"] } } });
-      if (r.isError) {
-        expect(["ambiguous-batch-names", "invalid-profile"]).toContain(r.structuredContent.error.code);
-        for (const o of r.structuredContent.error.outputs ?? []) expect(path.isAbsolute(o)).toBe(true);
-        expect(fs.existsSync(out)).toBe(false);
-      } else {
-        expect(fs.readdirSync(out).filter((n) => /_2\./.test(n))).toEqual([]);
-      }
-      expect(stagingLeft()).toEqual([]);
-    });
-  });
 
   describe("1.2.0: verification, actionable warnings, source diagnostics, ambiguous-format", () => {
     const GREEK = "1\n00:00:01,000 --> 00:00:02,500\nΚαλημέρα κόσμε\n\n2\n00:00:03,000 --> 00:00:04,000\nΕίναι μια δοκιμή\n\n3\n00:00:05,000 --> 00:00:06,000\nΤέλος της δοκιμής\n";
@@ -305,10 +269,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
       expect(ok.isError).toBeFalsy();
       const named = await callTool(h, "detect_format", { path: put("v12/amb.fpc", bytes) });
       expect(named.structuredContent.id).toBe("pacunicodeunipac");
-      const b = await callTool(h, "convert_batch", { paths: [bin], outputDir: path.join(dir, "v12", "batch-amb"), target: "subrip" });
-      expect(b.isError).toBe(true);
-      expect(b.structuredContent.failures[0].code).toBe("ambiguous-format");
-      expect(b.structuredContent.failures[0].candidates).toEqual(expect.arrayContaining(["pacunicodeunipac"]));
+
     });
   });
 

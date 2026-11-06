@@ -4,6 +4,63 @@
  */
 
 export interface paths {
+    "/v1/jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get retained job metadata, never subtitle content. */
+        get: operations["getJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/jobs/{id}/input": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Re-read the job's stored input location; never a cached file.
+         * @description Any valid API key knowing the id may fetch it. Current allowlists/size limits apply. Query-redacted HTTPS locations cannot be replayed. Files may have changed or disappeared.
+         */
+        get: operations["getJobInput"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/jobs/{id}/output": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Re-read the job's stored output location; never a cached file.
+         * @description Any valid API key knowing the id may fetch it. Current allowlists/size limits apply. Query-redacted HTTPS locations cannot be replayed. Files may have changed or disappeared.
+         */
+        get: operations["getJobOutput"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/convert": {
         parameters: {
             query?: never;
@@ -15,7 +72,7 @@ export interface paths {
         put?: never;
         /**
          * Convert a subtitle file (multipart upload).
-         * @description Upload `file` with `preset`, `target` and/or `profile` (JSON overrides). A zip upload converts every entry and returns a zip with manifest.json. Response headers report detected format/encoding, cue counts and warnings.
+         * @description Upload `file` with `preset`, `target` and/or `profile` (JSON overrides). Response headers report detected format/encoding, cue counts and warnings.
          */
         post: operations["convert"];
         delete?: never;
@@ -72,7 +129,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Effective limits of this server (upload, JSON body, zip, queue, timeouts).
+         * Effective upload, queue, wait, I/O, job and storage-scheme limits.
          * @description Lets clients pre-check inputs. `queue.depth` is a live value. `auth.required` says whether a bearer key is needed; keys are never exposed.
          */
         get: operations["getLimits"];
@@ -95,7 +152,7 @@ export interface paths {
         put?: never;
         /**
          * Detect the format and encoding of a subtitle.
-         * @description Send multipart `file`, or JSON {content, contentEncoding, fileName} (binary files as base64). Returns `kind`, `codePage` for binary input and up to 5 `candidates`. 422 format-not-detected when nothing matches.
+         * @description Send multipart `file`, or JSON {content, contentEncoding, fileName} (binary files as base64). Or send `input` (file, S3 or HTTPS URI) instead of inline content/file. Returns `kind`, `codePage` for binary input and up to 5 `candidates`. 422 format-not-detected when nothing matches.
          */
         post: operations["detect"];
         delete?: never;
@@ -179,35 +236,34 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description RFC 7807 problem details with a stable `code` (docs/errors.md). Extra members may appear: `entry` (zip entry name), `phase` (conversion-timeout: queue|running), `groups`/`outputs` (ambiguous-batch-names), `candidates` (ambiguous-format). */
+        /** @description RFC 7807 problem details with a stable `code` (docs/errors.md). Extra members may appear: `phase` (conversion-timeout: queue|running), `candidates` (ambiguous-format, ambiguous-encoding), `probe` (ambiguous-encoding: pac-code-page|text-encoding). */
         ApiProblem: {
             /** @description URL of the code's section in docs/errors.md. */
             type: string;
             title: string;
             status: number;
             /** @enum {string} */
-            code: "invalid-request" | "invalid-profile" | "empty-input" | "unauthorized" | "not-found" | "preset-not-found" | "payload-too-large" | "zip-limits-exceeded" | "unsafe-zip" | "unsupported-media-type" | "format-not-detected" | "format-not-supported" | "format-not-writable" | "format-option-invalid" | "invalid-binary-input" | "ambiguous-batch-names" | "ambiguous-format" | "encoding-error" | "unsafe-xml" | "input-limits-exceeded" | "conversion-failed" | "rate-limited" | "queue-full" | "conversion-timeout" | "internal-error";
+            code: "job-not-found" | "job-input-not-stored" | "job-output-not-stored" | "job-not-ready" | "job-file-gone" | "job-location-not-replayable" | "storage-location-rejected" | "storage-not-found" | "storage-io-failed" | "output-exists" | "invalid-request" | "invalid-profile" | "empty-input" | "unauthorized" | "not-found" | "preset-not-found" | "payload-too-large" | "unsupported-media-type" | "format-not-detected" | "format-not-supported" | "format-not-writable" | "format-option-invalid" | "invalid-binary-input" | "ambiguous-format" | "ambiguous-encoding" | "encoding-error" | "unsafe-xml" | "input-limits-exceeded" | "conversion-failed" | "rate-limited" | "queue-full" | "conversion-timeout" | "internal-error";
             detail: string;
             /** @description What to do about it. */
             hint: string;
-            /** @description Same as the X-Request-Id header; absent inside manifest entries. */
+            /** @description Same as the X-Request-Id header. */
             requestId?: string;
             errors?: components["schemas"]["FieldError"][];
             /** @description Diagnostics, only when ERRORS_VERBOSE=true. Never contains file content. */
             debug?: Record<string, never>;
-            /** @description Zip entry name, for per-entry and failFast errors. */
-            entry?: string;
-            /** @description ambiguous-batch-names only: clashing zip entry paths, one array per group. */
-            groups?: string[][];
-            /** @description ambiguous-batch-names only, for output-path clashes: the colliding output paths. */
-            outputs?: string[];
             /**
              * @description conversion-timeout only: queue is retryable like 503.
              * @enum {string}
              */
             phase?: "queue" | "running";
-            /** @description ambiguous-format only: the format ids the bytes match; set profile.source.format to one of them. */
+            /** @description ambiguous-format: the format ids the bytes match; set profile.source.format to one of them. ambiguous-encoding: the PAC code pages or text encodings that remain possible (may be empty); set formatOptions.pac.inputCodePage or encoding.input. */
             candidates?: string[];
+            /**
+             * @description ambiguous-encoding only: which probe could not decide.
+             * @enum {string}
+             */
+            probe?: "pac-code-page" | "text-encoding";
         };
         CodePointCount: {
             codePoint: string;
@@ -215,14 +271,23 @@ export interface components {
             count: number | string;
         };
         ConvertJsonRequest: {
-            content: string;
+            content?: null | string;
             contentEncoding?: null | string;
             fileName?: null | string;
             preset?: null | string;
             profile?: null | components["schemas"]["JsonObject"];
             target?: null | string;
             responseEncoding?: null | string;
-            failFast?: null | boolean;
+            input?: null | string;
+            output?: null | string;
+            /** @default false */
+            sidecar: boolean;
+            /**
+             * @description Default error: exclusive filesystem create or conditional S3 PUT. replace explicitly permits replacement. HTTPS follows signer/receiver policy.
+             * @default error
+             * @enum {string}
+             */
+            ifExists: "error" | "replace";
         };
         ConvertJsonResponse: {
             outputs: components["schemas"]["OutputDto"][];
@@ -230,7 +295,13 @@ export interface components {
             stats: components["schemas"]["StatsDto"];
             warnings: components["schemas"]["Warning"][];
             profile: components["schemas"]["JsonObject"];
-            entries: null | components["schemas"]["ManifestEntry"][];
+            id?: null | string;
+        };
+        CueDuration: {
+            /** Format: int32 */
+            cue: number | string;
+            /** Format: double */
+            durationMs: number | string;
         };
         CueList: {
             /** Format: int32 */
@@ -254,9 +325,9 @@ export interface components {
             lineEndings?: null | string;
             warnings?: null | components["schemas"]["Warning"][];
         };
-        /** @description A problem located by a JSON pointer (profile field, zip entry, query parameter, ...). */
+        /** @description A problem located by a JSON pointer (profile field, query parameter, ...). */
         FieldError: {
-            /** @description JSON pointer, e.g. /target/format or /file/entries/2; for ambiguous-batch-names the zip entry path. */
+            /** @description JSON pointer, e.g. /target/format. */
             pointer: string;
             message: string;
             hint?: string;
@@ -295,6 +366,22 @@ export interface components {
             /** Format: int64 */
             json: number | string;
         };
+        LimitsIo: {
+            /** Format: int32 */
+            timeoutSeconds: number | string;
+            /** Format: int32 */
+            retries: number | string;
+        };
+        LimitsJobs: {
+            /** Format: int32 */
+            maxEntries: number | string;
+            /** Format: int32 */
+            ttlSeconds: number | string;
+            /** Format: int32 */
+            maxActive: number | string;
+            /** Format: int32 */
+            maxMetadataBytes: number | string;
+        };
         LimitsJson: {
             /** Format: int64 */
             maxDecodedContentBytes: number | string;
@@ -317,7 +404,6 @@ export interface components {
             maxCues: number | string;
             /** Format: int32 */
             maxLineChars: number | string;
-            zip: components["schemas"]["LimitsZip"];
             /** Format: int32 */
             conversionTimeoutSeconds: number | string;
             queue: components["schemas"]["LimitsQueue"];
@@ -325,51 +411,34 @@ export interface components {
             rateLimitPerMinute: number | string;
             auth: components["schemas"]["LimitsAuth"];
             binary: components["schemas"]["LimitsBinary"];
-        };
-        LimitsZip: {
             /** Format: int32 */
-            maxEntries: number | string;
-            /** Format: int64 */
-            maxUnpackedBytes: number | string;
-            /** Format: double */
-            maxRatio: number | string;
-            /** Format: int64 */
-            maxEntryBytes: number | string;
+            requestWaitSeconds: number | string;
+            /** Format: int32 */
+            requestMaxWaitSeconds: number | string;
+            io: components["schemas"]["LimitsIo"];
+            jobs: components["schemas"]["LimitsJobs"];
+            storage: components["schemas"]["LimitsStorage"];
         };
-        ManifestEntry: {
-            source: string;
-            /** @enum {string} */
-            status: "ok" | "error" | "skipped";
-            outputs: string[];
-            detected: null | components["schemas"]["DetectedInfo"];
-            warnings: components["schemas"]["Warning"][];
-            /** @description The entry's problem (ApiProblem without requestId); the request's X-Request-Id covers all entries. */
-            error: null | components["schemas"]["ApiProblem"];
-            kind?: null | string;
-            codePage?: null | string;
-            /**
-             * @description Why a skipped entry wasn't converted.
-             * @enum {null|string}
-             */
-            reason?: "nested-zip" | "macos-metadata" | null;
-            verification?: null | {
-                [key: string]: components["schemas"]["Verification"];
-            };
+        LimitsStorage: {
+            inputSchemes: string[];
+            outputSchemes: string[];
         };
         OutputDto: {
             fileName: string;
             format: string;
             formatId: string;
             mediaType: string;
-            content: string;
+            content: null | string;
             contentEncoding: string;
             encoding: string;
             /** Format: int32 */
             cues: number | string;
-            source?: null | string;
             /** @default text */
             kind: string;
             verification?: null | components["schemas"]["Verification"];
+            output?: null | string;
+            /** Format: int32 */
+            bytes?: null | number | string;
         };
         PresetDetail: {
             name: string;
@@ -482,6 +551,13 @@ export interface components {
             distinctCodePoints?: null | number | string;
             codePoints?: null | components["schemas"]["CodePointCount"][];
             remedy?: null | components["schemas"]["RemedyInfo"];
+            durations?: null | components["schemas"]["CueDuration"][];
+            fields?: null | {
+                [key: string]: string;
+            };
+            timecode?: null | string;
+            /** Format: double */
+            frameRate?: null | number | string;
         };
     };
     responses: never;
@@ -492,12 +568,317 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getJob: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional client request id, echoed back; replaced by a fresh ULID when it doesn't match the pattern. */
+                "X-Request-Id"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JsonObject"];
+                };
+            };
+            /** @description invalid-request: a parameter has an invalid value. */
+            400: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Unauthorized: API keys are configured and the bearer key is missing or wrong. */
+            401: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Rate limited (only when RATE_LIMIT_PER_MINUTE > 0). */
+            429: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+        };
+    };
+    getJobInput: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional client request id, echoed back; replaced by a fresh ULID when it doesn't match the pattern. */
+                "X-Request-Id"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid-request: a parameter has an invalid value. */
+            400: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Unauthorized: API keys are configured and the bearer key is missing or wrong. */
+            401: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Payload Too Large */
+            413: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Rate limited (only when RATE_LIMIT_PER_MINUTE > 0). */
+            429: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+        };
+    };
+    getJobOutput: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional client request id, echoed back; replaced by a fresh ULID when it doesn't match the pattern. */
+                "X-Request-Id"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid-request: a parameter has an invalid value. */
+            400: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Unauthorized: API keys are configured and the bearer key is missing or wrong. */
+            401: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Payload Too Large */
+            413: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Rate limited (only when RATE_LIMIT_PER_MINUTE > 0). */
+            429: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+        };
+    };
     convert: {
         parameters: {
             query?: never;
             header?: {
                 /** @description Optional client request id, echoed back; replaced by a fresh ULID when it doesn't match the pattern. */
                 "X-Request-Id"?: string;
+                /** @description wait=N, from 0 to 60 seconds; default configured wait is 30. wait=0 returns 202 immediately. */
+                Prefer?: string;
             };
             path?: never;
             cookie?: never;
@@ -507,17 +888,27 @@ export interface operations {
                 "multipart/form-data": {
                     /**
                      * Format: binary
-                     * @description The subtitle file, or a zip of subtitle files.
+                     * @description One subtitle file.
                      */
-                    file: string;
+                    file?: string;
+                    /**
+                     * @description error (default) | replace. Filesystem/S3 reject existing outputs by default; HTTPS follows signer/receiver policy.
+                     * @default error
+                     * @enum {string}
+                     */
+                    ifExists?: "error" | "replace";
+                    /** @description Storage URI; mutually exclusive with file. */
+                    input?: string;
+                    /** @description Exact output URI; omit to receive converted bytes. */
+                    output?: string;
+                    /** @description true | false (default false), write output.json beside output. */
+                    sidecar?: string;
                     /** @description Preset name (GET /v1/profiles). */
                     preset?: string;
                     /** @description Target format id/alias; shorthand for profile.target.format. */
                     target?: string;
                     /** @description Profile JSON (full profile or overrides on top of preset). Schema: GET /v1/schemas/profile.json. */
                     profile?: string;
-                    /** @description Zip input only: 'true' stops at the first failing entry instead of reporting it in manifest.json. */
-                    failFast?: string;
                 };
             };
         };
@@ -527,6 +918,8 @@ export interface operations {
                 headers: {
                     /** @description Request id (also in problem.requestId and the logs). */
                     "X-Request-Id"?: string;
+                    /** @description Job id; GET /v1/jobs/{id} retrieves metadata while retained. */
+                    "X-Job-Id"?: string;
                     /** @description Detected (or forced) source format id; single input only. */
                     "X-Detected-Format"?: string;
                     /** @description Detected text encoding, or `binary` for binary input. */
@@ -541,21 +934,30 @@ export interface operations {
                     "X-Cue-Count-In"?: string;
                     /** @description Number of warnings. */
                     "X-Warnings-Count"?: string;
-                    /** @description Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body / manifest. */
+                    /** @description Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body. */
                     "X-Warnings"?: string;
                     /** @description Single binary output only: read-back verdict lossless | quantised | lossy | unverified (details in the JSON response's outputs[].verification). */
                     "X-Verification-Verdict"?: string;
                     /** @description Preset name, when one was used. */
                     "X-Profile"?: string;
-                    /** @description Zip input: entries converted. */
-                    "X-Entries-Ok"?: string;
-                    /** @description Zip input: entries that failed. */
-                    "X-Entries-Failed"?: string;
-                    /** @description Zip input: entries skipped (nested zip, macOS metadata). */
-                    "X-Entries-Skipped"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Still running; poll Location. Jobs retain metadata, not subtitle bytes. */
+            202: {
+                headers: {
+                    /** @description Job id. */
+                    "X-Job-Id"?: string;
+                    /** @description Relative job URL. */
+                    Location?: string;
+                    /** @description Seconds before polling. */
+                    "Retry-After"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
             };
             /** @description Bad Request */
             400: {
@@ -581,6 +983,17 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     /** @description Request id (also in problem.requestId and the logs). */
                     "X-Request-Id"?: string;
@@ -636,6 +1049,17 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ApiProblem"];
                 };
             };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
             /** @description queue-full: retry after Retry-After seconds. */
             503: {
                 headers: {
@@ -668,6 +1092,8 @@ export interface operations {
             header?: {
                 /** @description Optional client request id, echoed back; replaced by a fresh ULID when it doesn't match the pattern. */
                 "X-Request-Id"?: string;
+                /** @description wait=N, from 0 to 60 seconds; default configured wait is 30. wait=0 returns 202 immediately. */
+                Prefer?: string;
             };
             path?: never;
             cookie?: never;
@@ -683,6 +1109,8 @@ export interface operations {
                 headers: {
                     /** @description Request id (also in problem.requestId and the logs). */
                     "X-Request-Id"?: string;
+                    /** @description Job id; GET /v1/jobs/{id} retrieves metadata while retained. */
+                    "X-Job-Id"?: string;
                     /** @description Detected (or forced) source format id; single input only. */
                     "X-Detected-Format"?: string;
                     /** @description Detected text encoding, or `binary` for binary input. */
@@ -697,22 +1125,31 @@ export interface operations {
                     "X-Cue-Count-In"?: string;
                     /** @description Number of warnings. */
                     "X-Warnings-Count"?: string;
-                    /** @description Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body / manifest. */
+                    /** @description Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body. */
                     "X-Warnings"?: string;
                     /** @description Single binary output only: read-back verdict lossless | quantised | lossy | unverified (details in the JSON response's outputs[].verification). */
                     "X-Verification-Verdict"?: string;
                     /** @description Preset name, when one was used. */
                     "X-Profile"?: string;
-                    /** @description Zip input: entries converted. */
-                    "X-Entries-Ok"?: string;
-                    /** @description Zip input: entries that failed. */
-                    "X-Entries-Failed"?: string;
-                    /** @description Zip input: entries skipped (nested zip, macOS metadata). */
-                    "X-Entries-Skipped"?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ConvertJsonResponse"];
+                };
+            };
+            /** @description Still running; poll Location. Jobs retain metadata, not subtitle bytes. */
+            202: {
+                headers: {
+                    /** @description Job id. */
+                    "X-Job-Id"?: string;
+                    /** @description Relative job URL. */
+                    Location?: string;
+                    /** @description Seconds before polling. */
+                    "Retry-After"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
                 };
             };
             /** @description Bad Request */
@@ -739,6 +1176,17 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     /** @description Request id (also in problem.requestId and the logs). */
                     "X-Request-Id"?: string;
@@ -777,6 +1225,17 @@ export interface operations {
                     "X-Request-Id"?: string;
                     /** @description Seconds to wait before retrying. */
                     "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -938,15 +1397,19 @@ export interface operations {
                 "multipart/form-data": {
                     /**
                      * Format: binary
-                     * @description The subtitle file, or a zip of subtitle files.
+                     * @description One subtitle file.
                      */
-                    file: string;
+                    file?: string;
+                    /** @description Storage URI, mutually exclusive with file. */
+                    input?: string;
                     /** @description Optional: force the input encoding. */
                     encoding?: string;
                 };
                 "application/json": {
+                    /** @description Storage URI, mutually exclusive with content. */
+                    input?: string;
                     /** @description Subtitle content (text, or base64). */
-                    content: string;
+                    content?: string;
                     /** @description text (default) | base64 */
                     contentEncoding?: string;
                     /** @description Optional file name (helps detection). */

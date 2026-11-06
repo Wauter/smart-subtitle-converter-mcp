@@ -39,8 +39,8 @@ describe("request ids", () => {
 
 describe("limits normalisation", () => {
   it("reads the shipped contract with string numbers", () => {
-    const l = normalizeLimits({ maxUploadBytes: "10485760", maxRequestBodyBytes: { multipart: 1, json: "14112088" }, json: { maxDecodedContentBytes: 10485760 }, zip: { maxRatio: "100" } });
-    expect([l.maxUploadBytes, l.bodyJson, l.jsonMaxDecoded, l.zip.maxRatio]).toEqual([10485760, 14112088, 10485760, 100]);
+    const l = normalizeLimits({ maxUploadBytes: "10485760", maxRequestBodyBytes: { multipart: 1, json: "14112088" }, json: { maxDecodedContentBytes: 10485760 }, maxCues: "100" });
+    expect([l.maxUploadBytes, l.bodyJson, l.jsonMaxDecoded, l.maxCues]).toEqual([10485760, 14112088, 10485760, 100]);
   });
 });
 
@@ -64,7 +64,6 @@ describe("config", () => {
     const c = cfg([]);
     expect(c.mode).toBe("local");
     expect(c.timeoutMs).toBe(120000);
-    expect(c.allowDestructive).toBe(false);
   });
 
   it("--http needs a long enough token; flags override env", () => {
@@ -79,7 +78,6 @@ describe("config", () => {
     expect(err([], { SUBTITLE_API_URL: undefined })).toMatch(/required/);
     expect(err([], { SUBTITLE_API_URL: "ftp://x" })).toMatch(/http or https/);
     expect(err([], { SUBTITLE_MCP_TIMEOUT_MS: "abc" })).toMatch(/integer/);
-    expect(err([], { SUBTITLE_MCP_ALLOW_DESTRUCTIVE: "maybe" })).toMatch(/true or false/);
     expect(err([], { SUBTITLE_MCP_ALLOW_OVERWRITE: "true" })).toMatch(/unknown environment variable/);
     expect(err([], { SUBTITLE_API_KEY: "a", SUBTITLE_API_KEY_FILE: "/x" })).toMatch(/not both/);
     expect(err(["--hosted"])).toMatch(/needs --http/);
@@ -147,9 +145,9 @@ describe("version check (D-37/D-43)", () => {
     expect(versionCompatible("1.1.0", "1.1.2")).toBe(true);
     expect(versionCompatible("1.2.0", "1.1.2")).toBe(false);
   });
-  it("package.json carries the shared 1.2 version line (pairs with API 1.2.x) and stays private", async () => {
+  it("package.json carries the shared 1.3 version line (pairs with API 1.3.x) and stays private", async () => {
     const pkg = JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
-    expect(pkg.version).toMatch(/^1\.2\.\d+$/);
+    expect(pkg.version).toMatch(/^1\.3\.\d+$/);
     expect(pkg.private).toBe(true);
   });
 });

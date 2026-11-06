@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Deps } from "../context.js";
 import { mcpError } from "../errors.js";
 import { readFileChecked } from "../fs/guard.js";
-import { DetectedOutput, defineTool, ebuSizeWarning, exactlyOne, fieldErrors, FieldError, getCaps, loadSource, mapDetected, mapWarnings, requirePathsAllowed, Warning, warningText } from "./common.js";
+import { apiStorageDescription, DetectedOutput, defineTool, ebuSizeWarning, exactlyOne, fieldErrors, FieldError, getCaps, loadSource, refreshToolDescriptions, mapDetected, mapWarnings, requirePathsAllowed, Warning, warningText } from "./common.js";
 
 const RO = { readOnlyHint: true, idempotentHint: true } as const;
 
@@ -14,13 +14,13 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
     name: "validate_profile",
     title: "Validate a conversion profile",
     description: () =>
-      "Check a custom conversion profile without converting anything. Returns `valid`, errors with JSON pointers and hints, warnings, and the resolved profile. Always validate a profile you wrote yourself before using it in convert_subtitle or convert_batch. The JSON Schema is available as the resource `subtitleedit://schemas/profile.json`. A profile without `target.format` can be valid (with a warning) because it may be a base for other presets." +
+      "Check a custom conversion profile without converting anything. Returns `valid`, errors with JSON pointers and hints, warnings, and the resolved profile. Always validate a profile you wrote yourself before using it in convert_subtitle . The JSON Schema is available as the resource `subtitleedit://schemas/profile.json`. A profile without `target.format` can be valid (with a warning) because it may be a base for other presets." +
       (paths ? ` Give exactly one of \`profile\` or \`path\`. ${deps.rootsText}` : ""),
     shape: {
-      profile: z.record(z.unknown()).optional().describe("Profile JSON object"),
+      profile: z.record(z.string(), z.unknown()).optional().describe("Profile JSON object"),
       ...(paths ? { path: z.string().optional().describe("Absolute path to a profile .json file in an allowed folder") } : {}),
     },
-    output: { valid: z.boolean(), errors: z.array(FieldError), warnings: z.array(FieldError), resolved: z.record(z.unknown()).nullable() },
+    output: { valid: z.boolean(), errors: z.array(FieldError), warnings: z.array(FieldError), resolved: z.record(z.string(), z.unknown()).nullable() },
     annotations: RO,
     handler: async (a: any, call) => {
       requirePathsAllowed(deps, a, ["path"]);
@@ -53,10 +53,12 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
     title: "Detect subtitle format",
     description: () =>
       "Identify a subtitle file's format, character encoding, language and cue count without converting it. Use it when you don't know what a file is, or before converting when the file extension is missing or misleading." +
-      (paths ? " Prefer `path` (the file stays out of your context and binary files stay intact); give exactly one of `content` or `path`." : " Binary files must be sent as base64 content.") +
-      " If detection is ambiguous, `candidates` lists alternatives, and you can force one in a conversion with `profile.source.format`. For text files it also reports `bom` and `lineEndings`, and `warnings` flag source problems by cue number (`zero-length-cue`, `source-replacement-chars` for U+FFFD already in the file). PAC and Unicode PAC (FPC) bytes look alike: without a .pac/.fpc name the API answers `ambiguous-format`; then set `profile.source.format`. Zip files aren't accepted here; use convert_batch for folders." +
+      (paths ? " Prefer `path` (the file stays out of your context and binary files stay intact); give exactly one of `content`, `path` or server-side `input`." : " Give content (base64 for binary) or a server-side input URI.") +
+      " API input is read by the API server, not this MCP or the user's laptop unless mounted there. list_allowed_folders covers local paths only, never API input." + apiStorageDescription(deps) +
+      " If detection is ambiguous, `candidates` lists alternatives, and you can force one in a conversion with `profile.source.format`. For text files it also reports `bom` and `lineEndings`, and `warnings` flag source problems by cue number (`zero-length-cue`, `source-replacement-chars` for U+FFFD already in the file). PAC and Unicode PAC (FPC) bytes look alike: without a .pac/.fpc name the API answers `ambiguous-format`; then set `profile.source.format`. ZIP files are not accepted; submit one subtitle per request." +
       (paths ? ` ${deps.rootsText}` : ""),
     shape: {
+      input: z.string().max(16384).optional().describe("Server-side input URI (file, s3 or https); mutually exclusive with content/path"),
       content: z.string().optional().describe("Subtitle content: text, or base64 if contentEncoding is 'base64'"),
       contentEncoding: z.enum(["text", "base64"]).default("text"),
       ...(paths ? { path: z.string().optional().describe("Absolute path to the file in an allowed folder") } : {}),
@@ -67,13 +69,14 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
     annotations: RO,
     handler: async (a: any, call) => {
       requirePathsAllowed(deps, a, ["path"]);
-      exactlyOne(a, paths ? ["content", "path"] : ["content"], "the subtitle source");
+      exactlyOne(a, paths ? ["content", "path", "input"] : ["content", "input"], "the subtitle source");
       const caps = await getCaps(deps, call);
+      refreshToolDescriptions(server);
       const src = await loadSource(deps, a, caps);
       call.log.source = src.callerPath ? "path" : "inline";
       if (src.ext) call.log.inputExt = src.ext;
       if (src.callerPath) call.log.inputHash = deps.log.p(src.callerPath);
-      const body: Record<string, unknown> = { content: src.content, contentEncoding: src.contentEncoding };
+      const body: Record<string, unknown> = src.input !== undefined ? { input: src.input } : { content: src.content, contentEncoding: src.contentEncoding };
       if (src.fileName) body.fileName = src.fileName;
       if (a.encoding) body.encoding = a.encoding;
       const res = await deps.api.request({ method: "POST", path: "/v1/detect", kind: "conversion", json: body }, call);

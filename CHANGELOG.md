@@ -9,11 +9,29 @@ The MCP shares its major.minor version with the
 major.minor matches your API. Patch versions move independently. Versions are recorded here when merged to `main`;
 tags and releases follow on the owner's go-ahead.
 
-## [Unreleased]
+## 1.3.0 — Unreleased
 
-### Changed
-- Documentation split into a short README and pages under `docs/` (clients, folders and roots, tools, writing
-  files, configuration, HTTP sidecar, troubleshooting, development); this changelog added. No code changes.
+- Add a GitHub security policy (`SECURITY.md`) and [docs/security.md](docs/security.md) covering allowed folders, writes, API keys and HTTP mode.
+- Docs: troubleshooting explains MCP error codes with what happened, why and what to do, and points to the API's errors reference for API codes; README lists `get_job_file` and covers API locations and jobs in the main flow; tools lists the error and warning detail fields.
+- Pass through API `ambiguous-encoding` (with `candidates` and the new `error.probe`) with a hint naming `formatOptions.pac.inputCodePage` or `encoding.input`. Keep the new API warning details (`durations`, `fields`, `timecode`, `frameRate`) for `long-cue`, `format-defaults-applied`, `programme-start-not-applied` and `frame-rate-assumed`; refresh the OpenAPI snapshot and types.
+- Pass through `profile.encoding.language`; document text-encoding `candidates` as `{encoding, language, hits, sample}` and the agent retry (`encoding.input` / `encoding.language`, pick only from the list, tell the user). Cover `encoding-forced` and `language-applied` warnings in troubleshooting.
+- Add get_job_file(jobId, input|output), current-location metadata and Unicode/binary body blocks; no generic URI fetch or local save parameter. Surface distinct job state/storage/replay errors with redacted locations.
+- Collapse ifExists to error | replace everywhere; remove archive/delete helpers, error codes and the local operator gate. Pass explicit policy to API outputs; HTTPS follows signer/receiver policy.
+- Negotiate wait from MCP timeout and API maximum, expose separate input/output URI schemes in descriptions/limits (omit missing scheme arrays), retain list_allowed_folders even without path access, report polling timeout as job-not-ready and missing asynchronous response bytes as job-output-not-stored. Never replay a conversion POST.
+
+
+Pairs with API 1.3.0.
+
+- Move schema validation to Zod 4.6.7 and refresh body-parser/fast-uri locks to satisfy the existing production dependency-audit gate; retain structured success/error and validation regression coverage.
+
+- Complete API/local storage distinctions, asynchronous timeout/error guidance and configuration/README pointers. Preserve admitted synchronous failure job ids; refresh effective-limits types.
+
+- Include structured tool errors in advertised output schemas, retaining required-success validation, so clients that list tools can read failed job/conversion results.
+
+- Pass input/output/sidecar to the API, expose jobId and poll 202 job URLs with a bounded wait. Preserve local single-file writes; report metadata-only asynchronous results without inventing empty files.
+- Mark possible API storage writes in tool annotations; do not replay uncertain conversion POSTs after a connection loss.
+
+- Breaking: remove convert_batch, ZIP helpers and batch configuration. Submit one subtitle per call.
 
 ## [1.2.1] - 2026-10-17
 
@@ -94,8 +112,7 @@ First version. Pairs with API 1.1.x (contract-tested against API 1.1.0).
   and `convert_batch`; resources for the profile schema, formats and limits. (#1)
 - stdio transport and stateless Streamable HTTP transport with a required inbound bearer token. (#1)
 - Allowed folders (read-write and read-only), with MCP client roots used when none are configured. (#1)
-- Atomic writes through a staging folder; `ifExists` (`error`, `archive`, and with
-  `SUBTITLE_MCP_ALLOW_DESTRUCTIVE` `replace`/`delete`). (#1)
+- Atomic writes through a staging folder and the original collision policies (superseded by error | replace). (#1)
 - All-or-nothing `convert_batch` into a new folder (decision D-44). (#1)
 - API version check at startup with an `mcp-api-version-mismatch` warning, retries for 429/503, CI and a
   distroless Dockerfile. (#1)

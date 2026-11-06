@@ -74,7 +74,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
     name: "list_presets",
     title: "List conversion presets",
     description:
-      "List the conversion presets available on this server: built-in ones plus any the operator mounted. Each preset fixes a target format and a set of clean-up operations (e.g. \"netflix-en-vtt\"). Pass a preset `name` as `preset` to convert_subtitle or convert_batch. Invalid presets are listed too, with `valid: false` and errors, so you can explain why one can't be used. Use get_profile to see what a preset does.",
+      "List the conversion presets available on this server: built-in ones plus any the operator mounted. Each preset fixes a target format and a set of clean-up operations (e.g. \"netflix-en-vtt\"). Pass a preset `name` as `preset` to convert_subtitle . Invalid presets are listed too, with `valid: false` and errors, so you can explain why one can't be used. Use get_profile to see what a preset does.",
     shape: {},
     output: { presets: z.array(presetShape), profilesDir: z.string().nullish(), mountError: z.string().nullish() },
     annotations: RO,
@@ -108,7 +108,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
     shape: { name: z.string().min(1).max(200) },
     output: {
       name: z.string(), origin: z.string(), valid: z.boolean(), description: z.string().nullish(), target: z.string().nullish(), shadows: z.string().nullish(),
-      path: z.string().nullish(), errors: z.array(FieldError), warnings: z.array(FieldError), raw: z.record(z.unknown()).nullable(), resolved: z.record(z.unknown()).nullable(),
+      path: z.string().nullish(), errors: z.array(FieldError), warnings: z.array(FieldError), raw: z.record(z.string(), z.unknown()).nullable(), resolved: z.record(z.string(), z.unknown()).nullable(),
     },
     annotations: RO,
     handler: async (a, call) => {

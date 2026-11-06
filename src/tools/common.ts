@@ -1,7 +1,7 @@
-import { z, type ZodRawShape, type ZodTypeAny } from "zod";
+import { z, type ZodTypeAny } from "zod";
 import type { McpServer, RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult, ContentBlock, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
-import { errorText, FieldError, mcpError, ToolFailure, Warning, type ToolError, type WarningT } from "../errors.js";
+import { errorText, FieldError, mcpError, ToolFailure, ToolErrorSchema, Warning, type ToolError, type WarningT } from "../errors.js";
 import { newCallId, withSuffix } from "../ids.js";
 import { newStats } from "../api/client.js";
 import { capsFrom, type Caps } from "../api/limits.js";
@@ -22,24 +22,35 @@ export interface ToolOutcome {
   logFields?: Record<string, unknown>;
 }
 
-export interface ToolDef<S extends ZodRawShape> {
+export interface ToolDef<S extends Record<string, z.ZodType>> {
   name: string;
   title: string;
   /** A function when the text depends on the allowed folders: it's rebuilt after a client-roots change. */
   description: string | (() => string);
   shape: S;
-  output: ZodRawShape;
+  output: Record<string, z.ZodType>;
   annotations: ToolAnnotations;
   /** structured.warnings is a Warning[] ({code,message}); the version-mismatch warning may be added there. */
   warningArray?: boolean;
   handler: (args: z.infer<z.ZodObject<S>>, call: Call) => Promise<ToolOutcome>;
 }
 
-/** Per server: tools whose description is rebuilt when the allowed folders change. */
+/** API schemes, deliberately separate from MCP-local folder roots. */
+export function apiStorageDescription(deps: Deps): string {
+  const state = deps.limits.peek(), l = state?.kind === "ok" ? state.limits : undefined;
+  if (!l?.inputSchemes || !l.outputSchemes) return "";
+  const schemes = l.enabledSchemes ?? [];
+  let text = ` API storage enabled: ${schemes.join(", ") || "none"}.`;
+  if (l?.inputSchemes && l.outputSchemes && l.inputSchemes.join(",") !== l.outputSchemes.join(","))
+    text += ` Input schemes: ${l.inputSchemes.join(", ") || "none"}; output schemes: ${l.outputSchemes.join(", ") || "none"}.`;
+  return text;
+}
+
+/** Per server: tools whose description is rebuilt when allowed folders or cached API schemes change. */
 const dynamicDescriptions = new WeakMap<McpServer, { tool: RegisteredTool; describe: () => string }[]>();
 
 /**
- * Rebuilds the folder-dependent tool descriptions from the current roots. When any changed (and the server is
+ * Rebuilds the folder/API-dependent tool descriptions from the current roots. When any changed (and the server is
  * connected), sends one notifications/tools/list_changed so clients fetch tools/list again. Returns whether any changed.
  */
 export function refreshToolDescriptions(server: McpServer, _deps?: Deps): boolean {
@@ -56,7 +67,7 @@ export function refreshToolDescriptions(server: McpServer, _deps?: Deps): boolea
 }
 
 /** Registers a tool with strict input parsing (→ invalid-arguments), error mapping and one log record per call. */
-export function defineTool<S extends ZodRawShape>(server: McpServer, deps: Deps, def: ToolDef<S>): void {
+export function defineTool<S extends Record<string, z.ZodType>>(server: McpServer, deps: Deps, def: ToolDef<S>): void {
   const strict = z.object(def.shape).strict();
   const describe = typeof def.description === "function" ? def.description : undefined;
   const registered = server.registerTool(
@@ -65,7 +76,13 @@ export function defineTool<S extends ZodRawShape>(server: McpServer, deps: Deps,
       title: def.title,
       description: describe ? describe() : (def.description as string),
       inputSchema: strict as unknown as S,
-      outputSchema: def.output,
+      // The client SDK validates structured errors too, even when isError=true. Advertise
+      // both shapes; success is still validated against the original required shape below.
+      outputSchema: {
+        ...Object.fromEntries(Object.entries(def.output).map(([key, value]) => [key, value.optional()])),
+        error: ToolErrorSchema.optional(),
+        ...(def.output.warnings ? { warnings: z.union([def.output.warnings, z.array(Warning)]).optional() } : { warnings: z.array(Warning).optional() }),
+      },
       annotations: { title: def.title, openWorldHint: false, ...def.annotations },
     },
     (async (rawArgs: unknown, extra: any): Promise<CallToolResult> => {
@@ -104,6 +121,7 @@ export function defineTool<S extends ZodRawShape>(server: McpServer, deps: Deps,
           }
           out.summary += `\nWarning ${mm.code}: ${mm.message}`;
         }
+        z.object(def.output).passthrough().parse(out.structured);
         return {
           content: [{ type: "text", text: out.summary }, ...(out.blocks ?? [])],
           structuredContent: out.structured,
@@ -177,16 +195,6 @@ export function requirePathsAllowed(deps: Deps, args: Record<string, unknown>, k
   for (const k of keys) if (args[k] !== undefined) throw mcpError("invalid-arguments", `\`${k}\` is not available in this mode.`);
 }
 
-export function checkDestructive(deps: Deps, ifExists: string | undefined): void {
-  if ((ifExists === "replace" || ifExists === "delete") && !deps.cfg.allowDestructive) {
-    throw mcpError(
-      "destructive-not-allowed",
-      `ifExists "${ifExists}" is disabled on this server.`,
-      "The operator can enable it with SUBTITLE_MCP_ALLOW_DESTRUCTIVE=true; `archive` keeps the old file as a .bak and is always allowed.",
-    );
-  }
-}
-
 export async function getCaps(deps: Deps, call: Call): Promise<Caps> {
   // Retry the /healthz probe on the first tool call if startup couldn't reach the API (§10 step 3).
   if (!apiInfo.probedAt) await probeApi(deps.cfg, deps.log);
@@ -207,6 +215,7 @@ export function tooLarge(what: string, limit: { name: string; value: number }, a
 }
 
 export interface SourceInput {
+  input?: string;
   /** Value for the JSON body. */
   content: string;
   contentEncoding: "text" | "base64";
@@ -220,7 +229,10 @@ export interface SourceInput {
 }
 
 /** §4.2: path → base64 of raw bytes with fileName=basename; inline content validated. */
-export async function loadSource(deps: Deps, args: { content?: string; contentEncoding?: "text" | "base64"; path?: string; fileName?: string }, caps: Caps): Promise<SourceInput> {
+export async function loadSource(deps: Deps, args: { content?: string; contentEncoding?: "text" | "base64"; path?: string; fileName?: string; input?: string }, caps: Caps): Promise<SourceInput> {
+  if (args.input !== undefined) {
+    return { input: args.input, content: "", contentEncoding: "text", fileName: args.fileName, size: 0 };
+  }
   const cap = inputCap(caps);
   if (args.path !== undefined) {
     const r = await deps.guard.resolveInputFile(args.path);
@@ -283,7 +295,7 @@ export const DetectedOutput = z.object({
   paragraphs: z.number().int(),
   candidates: z.array(z.string()).nullish(),
   codePage: z.string().optional(),
-  formatDetails: z.record(z.unknown()).optional(),
+  formatDetails: z.record(z.string(), z.unknown()).optional(),
   /** detect_format only (API 1.2.0): BOM and line endings of a text source. */
   bom: z.boolean().optional(),
   lineEndings: z.enum(["crlf", "lf", "cr", "mixed", "none"]).optional(),
@@ -385,6 +397,13 @@ export function mapWarnings(ws: unknown): WarningT[] {
       if (Array.isArray(d.cues)) det.cues = ints(d.cues);
       if (d.distinctCodePoints != null) det.distinctCodePoints = toInt(d.distinctCodePoints);
       if (Array.isArray(d.codePoints)) det.codePoints = codePoints(d.codePoints);
+      if (Array.isArray(d.durations))
+        det.durations = d.durations.filter((x: any) => x && typeof x === "object").slice(0, 50).map((x: any) => ({ cue: int(x.cue), durationMs: Number(x.durationMs) || 0 }));
+      if (d.fields && typeof d.fields === "object" && !Array.isArray(d.fields))
+        det.fields = Object.fromEntries(Object.entries(d.fields).slice(0, 20).map(([k, v]) => [k.slice(0, 100), String(v).slice(0, 200)]));
+      if (typeof d.timecode === "string") det.timecode = d.timecode.slice(0, 20);
+      const fr = typeof d.frameRate === "number" ? d.frameRate : typeof d.frameRate === "string" ? Number(d.frameRate) : NaN;
+      if (Number.isFinite(fr)) det.frameRate = fr;
       const rm = mapRemedy(d.remedy);
       if (rm) det.remedy = rm;
       if (Object.keys(det).length) out.details = det;

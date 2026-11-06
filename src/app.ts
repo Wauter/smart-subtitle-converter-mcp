@@ -18,7 +18,6 @@ export interface DepsOptions {
   fetchImpl?: typeof fetch;
   auth?: UpstreamAuth;
   fsOps?: FsOps;
-  clock?: () => Date;
   features?: Features;
   limits?: LimitsCache;
   rnd?: () => number;
@@ -36,9 +35,8 @@ export function buildDeps(cfg: Config, o: DepsOptions = {}): Deps {
   const dynamicRoots = provider instanceof ClientRoots || provider instanceof CombinedRoots;
   // Local: client roots (read-write) may still arrive, so writes are possible unless only fixed read-only roots exist.
   const writable = cfg.mode === "local" ? (configured && !dynamicRoots ? anyWritable : true) : cfg.mode === "sidecar" && anyWritable;
-  const batchEnabled = cfg.mode === "local" || (cfg.mode === "sidecar" && anyWritable);
   const guard = new PathGuard(provider);
-  const writer = new SafeWriter(log, o.fsOps, o.clock);
+  const writer = new SafeWriter(log, o.fsOps);
   writer.rootOf = (dir) => guard.outputRoot(dir);
   return {
     cfg,
@@ -50,7 +48,6 @@ export function buildDeps(cfg: Config, o: DepsOptions = {}): Deps {
     fsOps: o.fsOps ?? realFsOps,
     features: o.features ?? {},
     pathsInSchema,
-    batchEnabled,
     writable,
     get rootsText() {
       return allowedFoldersText(provider.snapshot());

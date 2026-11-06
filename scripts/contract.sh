@@ -14,7 +14,7 @@ wait_ready() {
 
 docker run -d --name se-contract-1 -p 127.0.0.1:18181:8080 --read-only --tmpfs /tmp --cap-drop ALL "$IMAGE" >/dev/null
 docker run -d --name se-contract-2 -p 127.0.0.1:18182:8080 --read-only --tmpfs /tmp --cap-drop ALL \
-  -e API_KEYS="$KEY" -e MAX_UPLOAD_BYTES=1048576 -e ZIP_MAX_ENTRIES=3 "$IMAGE" >/dev/null
+  -e API_KEYS="$KEY" -e MAX_UPLOAD_BYTES=1048576 "$IMAGE" >/dev/null
 wait_ready 18181 se-contract-1
 wait_ready 18182 se-contract-2
 echo "API: $(curl -s http://127.0.0.1:18181/healthz)"

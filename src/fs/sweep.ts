@@ -6,7 +6,7 @@ import { openStaging, STAGING_DIR, STAGING_RE } from "./write.js";
 
 /**
  * D-38: deletes orphaned staging files older than maxAgeMs, looking ONLY inside `<root>/.subtitle-mcp-staging/` of
- * each read-write root. Only that folder is listed (a stale batch folder is removed as a whole); no symlinks are
+ * each read-write root. Only that folder is listed; no symlinks are
  * followed and the staging folder itself stays. No persistent state.
  */
 export async function sweepOnce(roots: RootsProvider, maxAgeMs: number, log: Logger, now: () => number = Date.now): Promise<number> {
@@ -29,13 +29,12 @@ export async function sweepOnce(roots: RootsProvider, maxAgeMs: number, log: Log
     }
     for (const ent of entries) {
       const full = nodePath.join(sdir, ent.name);
-      // Files (convert_subtitle) and folders (convert_batch, D-44) named <name>.<6 hex>.partial; never symlinks.
-      if (!(ent.isFile() || ent.isDirectory()) || !STAGING_RE.test(ent.name) || openStaging.has(full)) continue;
+      // Files named <name>.<6 hex>.partial; never symlinks.
+      if (!ent.isFile() || !STAGING_RE.test(ent.name) || openStaging.has(full)) continue;
       try {
         const st = await fsp.lstat(full);
-        if (!(st.isFile() || st.isDirectory()) || now() - st.mtimeMs <= maxAgeMs) continue;
-        if (st.isDirectory()) await fsp.rm(full, { recursive: true, force: true }); // rm never follows symlinks inside
-        else await fsp.unlink(full);
+        if (!st.isFile() || now() - st.mtimeMs <= maxAgeMs) continue;
+        await fsp.unlink(full);
         removed++;
         log.info("sweep-removed", { path: log.p(full) });
       } catch {

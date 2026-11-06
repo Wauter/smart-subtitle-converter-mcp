@@ -79,10 +79,10 @@ describe("ApiClient retries", () => {
     expect(seen.length).toBe(3); // 40 + 40 fits 90, a third wait doesn't
     expect(err.toolError.attempts).toBe(3);
   });
-  it("retries a queue-phase 504 with backoff, not a running-phase or phase-less 504", async () => {
+  it("retries read-only detection after a queue-phase 504 with backoff, not a running-phase or phase-less 504", async () => {
     vi.useFakeTimers();
     const q = client([() => problem(504, "conversion-timeout", { phase: "queue" }), ok]);
-    const p = q.c.request({ method: "POST", path: "/v1/convert/json", kind: "conversion", json: {} }, ctx());
+    const p = q.c.request({ method: "POST", path: "/v1/detect", kind: "conversion", json: {} }, ctx());
     await vi.advanceTimersByTimeAsync(1000);
     await p;
     expect(q.seen.length).toBe(2);

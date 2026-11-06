@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { z } from "zod";
 
 export const FieldError = z.object({ pointer: z.string(), message: z.string(), hint: z.string().nullish() });
@@ -7,6 +8,14 @@ export const WarningDetails = z.object({
   cues: z.array(z.number().int()).optional(),
   distinctCodePoints: z.number().int().optional(),
   codePoints: z.array(z.object({ codePoint: z.string(), count: z.number().int() })).optional(),
+  /** long-cue: source cue number and duration (ms). */
+  durations: z.array(z.object({ cue: z.number().int(), durationMs: z.number() })).optional(),
+  /** format-defaults-applied: header field → value the writer filled in. */
+  fields: z.record(z.string(), z.string()).optional(),
+  /** programme-start-not-applied: the EBU STL TCP, HH:MM:SS:FF. */
+  timecode: z.string().optional(),
+  /** frame-rate-assumed: the rate a frame-based source was read at. */
+  frameRate: z.number().optional(),
   /** API 1.2.1, characters-replaced: the facts to choose a fix (option, allowed values, tested candidates). */
   remedy: z
     .object({
@@ -33,15 +42,17 @@ export const ToolErrorSchema = z.object({
   detail: z.string().optional(),
   hint: z.string().optional(),
   requestId: z.string().optional(),
+  location: z.string().optional(),
+  jobId: z.string().optional(),
+  jobUrl: z.string().optional(),
   errors: z.array(FieldError).optional(),
   retryAfterSeconds: z.number().optional(),
   attempts: z.number().int().optional(),
   limit: z.object({ name: z.string(), value: z.number(), actual: z.number() }).optional(),
-  groups: z.array(z.array(z.string())).optional(),
-  outputs: z.array(z.string()).optional(),
-  /** ambiguous-format: the format ids the bytes match. */
+  /** ambiguous-format: the format ids the bytes match; ambiguous-encoding: the code pages / encodings still possible. */
   candidates: z.array(z.string()).optional(),
-  entry: z.string().optional(),
+  /** ambiguous-encoding: which probe could not decide ("pac-code-page" | "text-encoding"). */
+  probe: z.string().optional(),
   phase: z.string().optional(),
   /** D-35: the caller-visible path a local failure is about. */
   path: z.string().optional(),
@@ -71,7 +82,6 @@ export interface MapContext {
   includeDebug: boolean;
   /** Which endpoint the problem came from, for 404 handling. */
   endpoint?: string;
-  batch?: boolean;
   headerRequestId?: string;
 }
 
@@ -86,9 +96,9 @@ export const MCP_HINTS: Record<string, string> = {
   "encoding-error": "Set profile.encoding.input.",
   "ambiguous-format":
     "The file matches both PAC and Unicode PAC (FPC). Pass profile.source.format ('pac' or 'fpc'), or give the file its .pac or .fpc name.",
+  "ambiguous-encoding":
+    "The API could not tell the character set from the file's words. Pass the right one from candidates (or the file's known language) in profile.formatOptions.pac.inputCodePage (PAC) or profile.encoding.input (text), or save text as UTF-8.",
   "input-limits-exceeded": "Split the file.",
-  "ambiguous-batch-names":
-    "Rename the clashing files or split them into separate batches; for output-path clashes, check `target.additional` and `profile.target.fileName` (include `{stem}`).",
   "conversion-failed": "Try removing the named operation from the profile.",
   "rate-limited": "The API is rate limited; try again later.",
   "queue-full": "The converter is busy; retry later or ask the operator to scale out.",
@@ -134,6 +144,13 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
     ...(typeof b.title === "string" ? { title: b.title } : {}),
     ...(typeof b.detail === "string" ? { detail: b.detail } : {}),
   };
+  if (typeof b.location === "string") {
+    try { const u = b.location.startsWith("/") ? pathToFileURL(b.location) : new URL(b.location); u.username = ""; u.password = ""; u.search = ""; u.hash = ""; te.location = u.href; } catch { /* do not echo malformed locations */ }
+  }
+  if (typeof b.id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(b.id)) {
+    te.jobId = b.id;
+    te.jobUrl = `/v1/jobs/${b.id}`;
+  }
   if (Array.isArray(b.errors)) {
     te.errors = b.errors
       .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
@@ -143,11 +160,9 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
         ...(typeof e.hint === "string" ? { hint: e.hint } : {}),
       }));
   }
-  if (Array.isArray(b.groups)) te.groups = b.groups.filter(Array.isArray).map((g) => (g as unknown[]).map(String));
-  if (Array.isArray(b.outputs)) te.outputs = b.outputs.map(String);
   if (Array.isArray(b.candidates)) te.candidates = b.candidates.map(String);
-  if (typeof b.entry === "string") te.entry = b.entry;
   if (typeof b.phase === "string") te.phase = b.phase;
+  if (typeof b.probe === "string") te.probe = b.probe;
   if (ctx.includeDebug && ctx.mode !== "hosted" && b.debug !== undefined) te.debug = b.debug;
 
   let mcpHint: string | undefined = MCP_HINTS[apiCode];
@@ -169,14 +184,14 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
       te.code = "api-protocol-error";
       mcpHint = "Report this with the requestId.";
       break;
-    case "unsafe-zip":
-      if (ctx.batch) {
-        te.code = "api-protocol-error";
-        mcpHint = "The MCP's zip entry name check missed a case; report this with the requestId.";
-      }
-      break;
     case "format-not-supported":
       mcpHint = "Pick a format from list_formats.";
+      break;
+    case "ambiguous-encoding":
+      if (b.probe === "pac-code-page")
+        mcpHint = "Pass profile.formatOptions.pac.inputCodePage (one of candidates, or the code page for the file's language, e.g. 'greek').";
+      else if (b.probe === "text-encoding")
+        mcpHint = "Pass profile.encoding.input (one of candidates), or save the file as UTF-8.";
       break;
     case "conversion-timeout":
       mcpHint =
@@ -197,11 +212,13 @@ export function errorText(e: ToolError): string {
   let s = `${e.code}: ${e.detail ?? e.title ?? "error"}`;
   if (e.errors?.length) s += "\n" + e.errors.slice(0, 10).map((x) => `  ${x.pointer}: ${x.message}${x.hint ? ` (${x.hint})` : ""}`).join("\n");
   if (e.candidates?.length) s += `\nCandidates: ${e.candidates.join(", ")}`;
-  if (e.groups?.length) s += "\nClashing: " + e.groups.map((g) => g.join(" <-> ")).join("; ");
+  if (e.probe) s += `\nProbe: ${e.probe}`;
   if (e.osError) s += `\nOS error: ${e.osError.code}${e.osError.syscall ? ` (${e.osError.syscall})` : ""}`;
   if (e.limit) s += `\nLimit ${e.limit.name}=${e.limit.value}, actual ${e.limit.actual}`;
   if (e.retryAfterSeconds !== undefined) s += `\nRetry after: ${e.retryAfterSeconds}s`;
   if (e.hint) s += `\nHint: ${e.hint}`;
+  if (e.location) s += `\nLocation: ${e.location}`;
+  if (e.jobId) s += `\njobId: ${e.jobId}${e.jobUrl ? ` (${e.jobUrl})` : ""}`;
   if (e.requestId) s += `\nrequestId: ${e.requestId}`;
   return s;
 }
