@@ -87,14 +87,9 @@ jobs:
             REVISION=${{ github.sha }}
           sbom: true
           provenance: mode=max
-      - name: Make package public
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Packages created while the repo was private stay private until visibility is changed.
-          name="subtitleedit-converter-mcp"
-          gh api --method PATCH "/user/packages/container/${name}" -f visibility=public \
-            || gh api --method PATCH "/users/${{ github.repository_owner }}/packages/container/${name}" -f visibility=public
+      # Packages REST API cannot change visibility (404). MCP image created after the repo
+      # went public is already pullable anonymously; if that ever regresses, set public at:
+      # https://github.com/users/Wauter/packages/container/subtitleedit-converter-mcp/settings
       - run: npm ci && npm run build
       - name: GitHub release
         env:

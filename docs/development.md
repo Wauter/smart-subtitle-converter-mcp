@@ -31,7 +31,7 @@ variable `CONTRACT_REQUIRED=true`.
 Version tags (`v*.*.*`) cut a release when the repo variable `PUBLISH_ENABLED` is `true`: multi-arch image to
 GHCR (`ghcr.io/wauter/subtitleedit-converter-mcp`), a GitHub Release, and `npm publish` of
 `subtitleedit-converter-mcp` (needs the `NPM_TOKEN` secret or npm trusted publishing). The image is marked
-public after push. Docs-only commits do not need a version bump.
+public when created against a public repo (otherwise set public once in the package settings UI; the Packages API cannot change visibility). Docs-only commits do not need a version bump.
 
 ## Smoke checklist (Claude Desktop / Cursor, MCP Inspector)
 
