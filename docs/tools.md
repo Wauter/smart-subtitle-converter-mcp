@@ -37,7 +37,9 @@ and for local write failures `path` + `osError`. API codes are explained in the 
   candidates in `error.candidates`; pass `profile.source.format` (`pac` or `fpc`).
 - Files whose character set the API can't tell from their words fail with `ambiguous-encoding`. `error.probe` says
   which: `pac-code-page` (pass `profile.formatOptions.pac.inputCodePage`) or `text-encoding` (pass
-  `profile.encoding.input`, or save the file as UTF-8). `error.candidates` lists what is still possible and may be empty.
+  `profile.encoding.input` or `profile.encoding.language`, picking only from `error.candidates` and their
+  `sample`s, or save the file as UTF-8). Text candidates are `{encoding, language, hits, sample}`; PAC candidates
+  are code page name strings and may be empty.
 
 ## Warnings
 

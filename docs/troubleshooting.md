@@ -202,9 +202,13 @@ Use the original file, or check the storage directly; details in the API's [refe
 - **What:** The API couldn't tell which character set the file uses, and won't guess.
 - **Why:** The same bytes read as different letters in different character sets. `error.probe` says which check
   failed: `pac-code-page` (a PAC file, often a very short one) or `text-encoding` (a text file that isn't UTF-8 and
-  reads as words in more than one encoding). `error.candidates` lists what is still possible and may be empty.
+  still reads as words in more than one encoding after script-priority filtering). For `text-encoding`,
+  `error.candidates` is a list of `{encoding, language, hits, sample}` (samples are always present). For PAC,
+  `candidates` are code page name strings and may be empty.
 - **What to do:** For PAC, pass `profile.formatOptions.pac.inputCodePage` (for example `greek`), chosen from the
-  candidates or the file's language. For text, pass `profile.encoding.input`, or save the file as UTF-8.
+  candidates or the file's language. For text, show the samples to the user, pick **only** from the candidate
+  list, say what you chose, then retry with `profile.encoding.input` or `profile.encoding.language` (ISO code
+  such as `ar`, `he`, `th`), or save the file as UTF-8.
 
 **`ambiguous-format`** (from the API)
 
@@ -213,6 +217,12 @@ Use the original file, or check the storage directly; details in the API's [refe
 
 **`encoding-guessed`** warning (from the API): the text's character set was guessed. Check the converted text; if
 letters look wrong, pass `profile.encoding.input`.
+
+**`encoding-forced`** warning (from the API): `profile.encoding.input` forced the page (including a wrong one).
+Confirm the text.
+
+**`language-applied`** warning (from the API): `profile.encoding.language` selected the page. Confirm the text; if
+wrong, pass `profile.encoding.input` instead.
 
 **`mcp-ebu-size`** warning (from the MCP)
 
