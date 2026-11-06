@@ -11,6 +11,7 @@ tags and releases follow on the owner's go-ahead.
 
 ## 1.3.0 — Unreleased
 
+- Add a GitHub security policy (`SECURITY.md`) and [docs/security.md](docs/security.md) covering allowed folders, writes, API keys and HTTP mode.
 - Docs: troubleshooting explains MCP error codes with what happened, why and what to do, and points to the API's errors reference for API codes; README lists `get_job_file` and covers API locations and jobs in the main flow; tools lists the error and warning detail fields.
 - Pass through API `ambiguous-encoding` (with `candidates` and the new `error.probe`) with a hint naming `formatOptions.pac.inputCodePage` or `encoding.input`. Keep the new API warning details (`durations`, `fields`, `timecode`, `frameRate`) for `long-cue`, `format-defaults-applied`, `programme-start-not-applied` and `frame-rate-assumed`; refresh the OpenAPI snapshot and types.
 - Pass through `profile.encoding.language`; document text-encoding `candidates` as `{encoding, language, hits, sample}` and the agent retry (`encoding.input` / `encoding.language`, pick only from the list, tell the user). Cover `encoding-forced` and `language-applied` warnings in troubleshooting.

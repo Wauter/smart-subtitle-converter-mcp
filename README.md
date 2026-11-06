@@ -81,6 +81,7 @@ output while the API still has its record. See [tools](docs/tools.md#api-storage
 | [API errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) | Look up what an API error or warning means, why it happened and what to do |
 | [docs/writing-files.md](docs/writing-files.md) | Know how files are staged and committed, `ifExists`, race windows |
 | [docs/configuration.md](docs/configuration.md) | Look up every `SUBTITLE_MCP_*` variable and flag |
+| [docs/security.md](docs/security.md) | See allowed folders, writes, API keys and HTTP-mode safeguards |
 | [docs/http-sidecar.md](docs/http-sidecar.md) | Run it over Streamable HTTP next to the API in Docker |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Fix version-mismatch warnings, missing folders, write and job errors; find where each error code is explained |
 | [docs/development.md](docs/development.md) | Build, test, run the contract suite and the smoke checklist |
