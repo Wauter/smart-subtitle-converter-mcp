@@ -5,7 +5,7 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 
 | Variable | Flag | Default | Description |
 |---|---|---|---|
-| `SUBTITLE_API_URL` | `--api-url` | **required** | API base URL: `http://localhost:4041` for the API's Compose on your machine (host port 4041), `http://api:8080` from a container on the same Docker network (container port) |
+| `SUBTITLE_API_URL` | `--api-url` | **required** | API base URL: `http://localhost:8080` for the API's Compose on your machine (host port 8080), `http://api:8080` from a container on the same Docker network (container port) |
 | `SUBTITLE_API_KEY` / `SUBTITLE_API_KEY_FILE` | – | unset | Bearer key sent to the API (the only upstream key; never taken from requests) |
 | `SUBTITLE_MCP_HTTP_TOKEN` / `SUBTITLE_MCP_HTTP_TOKEN_FILE` | – | unset | HTTP mode: inbound token(s), ≥ 32 chars, comma list / one per line, file re-read on change. Required with `--http` |
 | `SUBTITLE_MCP_HTTP` | `--http [host:]port` | stdio | Serve Streamable HTTP on `/mcp` ([http-sidecar.md](http-sidecar.md)) |

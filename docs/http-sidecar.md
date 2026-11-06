@@ -34,7 +34,7 @@ services:
     image: ghcr.io/wauter/subtitleedit-converter-mcp:X.Y.Z      # same major.minor as the API
     read_only: true
     environment:
-      SUBTITLE_API_URL: http://api:8080              # container port on the internal network (host port 4041 is not involved)
+      SUBTITLE_API_URL: http://api:8080              # container port on the internal network (host port 8080 is not involved)
       SUBTITLE_MCP_READONLY_DIRS: /data/in
       SUBTITLE_MCP_ALLOWED_DIRS: /data/out
       SUBTITLE_MCP_ALLOWED_HOSTS: mcp,localhost,127.0.0.1

@@ -30,11 +30,11 @@ warnings the agent can act on. It does no conversion itself.
 ## Quick start (Claude Code)
 
 Start the API first (its [quick start](https://github.com/Wauter/subtitleedit-converter-api#quick-start) serves
-`http://localhost:4041`), then:
+`http://localhost:8080`), then:
 
 ```bash
 claude mcp add --transport stdio \
-  --env SUBTITLE_API_URL=http://localhost:4041 \
+  --env SUBTITLE_API_URL=http://localhost:8080 \
   subtitleedit -- npx -y subtitleedit-converter-mcp
 ```
 

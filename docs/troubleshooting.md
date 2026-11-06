@@ -102,7 +102,7 @@ system failures.
 - **What:** The MCP couldn't reach the API, or the connection dropped.
 - **Why:** Usually a wrong `SUBTITLE_API_URL` or the API isn't running.
 - **What to do:** Check that the API is running and the URL is right. On your machine that's the host port
-  (`http://localhost:4041` with the API's defaults); from a container on the same Docker network it's the container
+  (`http://localhost:8080` with the API's defaults); from a container on the same Docker network it's the container
   port (`http://api:8080`). From a VM, `localhost` may not be your host.
 
 **`unauthorized`** (from the API)

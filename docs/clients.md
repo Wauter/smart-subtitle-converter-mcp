@@ -1,7 +1,7 @@
 # Client setup
 
 How to add the server to each MCP client. All examples use stdio (the client starts the server) and assume the
-API runs on `http://localhost:4041`, the host port the API's `docker-compose.yml` publishes (bound to `127.0.0.1`;
+API runs on `http://localhost:8080`, the host port the API's `docker-compose.yml` publishes (bound to `127.0.0.1`;
 the container itself listens on 8080). If you changed that mapping, use your host port.
 
 ## Claude Code
@@ -10,7 +10,7 @@ Claude Code shares its workspace folder as an MCP root, so no folder setting is 
 
 ```bash
 claude mcp add --transport stdio \
-  --env SUBTITLE_API_URL=http://localhost:4041 \
+  --env SUBTITLE_API_URL=http://localhost:8080 \
   subtitleedit -- npx -y subtitleedit-converter-mcp
 ```
 
@@ -29,7 +29,7 @@ never reach this server. Name the folders in the config:
 ```jsonc
 { "mcpServers": { "subtitleedit": {
     "command": "npx", "args": ["-y", "subtitleedit-converter-mcp"],
-    "env": { "SUBTITLE_API_URL": "http://localhost:4041",
+    "env": { "SUBTITLE_API_URL": "http://localhost:8080",
              "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/Subtitles" } } } }
 ```
 
