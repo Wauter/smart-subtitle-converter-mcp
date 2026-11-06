@@ -1,7 +1,7 @@
 name: release
 
 # Version tags build/test, then publish the image and GitHub Release when enabled.
-# npm is deliberately separate: only the manual npm-publish.yml workflow publishes it.
+# npm is deliberately separate: the manual npm-publish.yml workflow stages it for 2FA approval.
 on:
   push:
     tags: ["v*.*.*"]
