@@ -21,6 +21,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/jobs/{id}/input": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Re-read the job's stored input location; never a cached file.
+         * @description Any valid API key knowing the id may fetch it. Current allowlists/size limits apply. Query-redacted HTTPS locations cannot be replayed. Files may have changed or disappeared.
+         */
+        get: operations["getJobInput"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/jobs/{id}/output": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Re-read the job's stored output location; never a cached file.
+         * @description Any valid API key knowing the id may fetch it. Current allowlists/size limits apply. Query-redacted HTTPS locations cannot be replayed. Files may have changed or disappeared.
+         */
+        get: operations["getJobOutput"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/convert": {
         parameters: {
             query?: never;
@@ -203,7 +243,7 @@ export interface components {
             title: string;
             status: number;
             /** @enum {string} */
-            code: "storage-location-rejected" | "storage-not-found" | "storage-io-failed" | "output-exists" | "invalid-request" | "invalid-profile" | "empty-input" | "unauthorized" | "not-found" | "preset-not-found" | "payload-too-large" | "unsupported-media-type" | "format-not-detected" | "format-not-supported" | "format-not-writable" | "format-option-invalid" | "invalid-binary-input" | "ambiguous-format" | "encoding-error" | "unsafe-xml" | "input-limits-exceeded" | "conversion-failed" | "rate-limited" | "queue-full" | "conversion-timeout" | "internal-error";
+            code: "job-not-found" | "job-input-not-stored" | "job-output-not-stored" | "job-not-ready" | "job-file-gone" | "job-location-not-replayable" | "storage-location-rejected" | "storage-not-found" | "storage-io-failed" | "output-exists" | "invalid-request" | "invalid-profile" | "empty-input" | "unauthorized" | "not-found" | "preset-not-found" | "payload-too-large" | "unsupported-media-type" | "format-not-detected" | "format-not-supported" | "format-not-writable" | "format-option-invalid" | "invalid-binary-input" | "ambiguous-format" | "encoding-error" | "unsafe-xml" | "input-limits-exceeded" | "conversion-failed" | "rate-limited" | "queue-full" | "conversion-timeout" | "internal-error";
             detail: string;
             /** @description What to do about it. */
             hint: string;
@@ -237,6 +277,12 @@ export interface components {
             output?: null | string;
             /** @default false */
             sidecar: boolean;
+            /**
+             * @description Default error: exclusive filesystem create or conditional S3 PUT. replace explicitly permits replacement. HTTPS follows signer/receiver policy.
+             * @default error
+             * @enum {string}
+             */
+            ifExists: "error" | "replace";
         };
         ConvertJsonResponse: {
             outputs: components["schemas"]["OutputDto"][];
@@ -356,6 +402,8 @@ export interface components {
             binary: components["schemas"]["LimitsBinary"];
             /** Format: int32 */
             requestWaitSeconds: number | string;
+            /** Format: int32 */
+            requestMaxWaitSeconds: number | string;
             io: components["schemas"]["LimitsIo"];
             jobs: components["schemas"]["LimitsJobs"];
             storage: components["schemas"]["LimitsStorage"];
@@ -575,6 +623,236 @@ export interface operations {
             };
         };
     };
+    getJobInput: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional client request id, echoed back; replaced by a fresh ULID when it doesn't match the pattern. */
+                "X-Request-Id"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid-request: a parameter has an invalid value. */
+            400: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Unauthorized: API keys are configured and the bearer key is missing or wrong. */
+            401: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Payload Too Large */
+            413: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Rate limited (only when RATE_LIMIT_PER_MINUTE > 0). */
+            429: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+        };
+    };
+    getJobOutput: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional client request id, echoed back; replaced by a fresh ULID when it doesn't match the pattern. */
+                "X-Request-Id"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid-request: a parameter has an invalid value. */
+            400: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Unauthorized: API keys are configured and the bearer key is missing or wrong. */
+            401: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Payload Too Large */
+            413: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Rate limited (only when RATE_LIMIT_PER_MINUTE > 0). */
+            429: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+        };
+    };
     convert: {
         parameters: {
             query?: never;
@@ -595,6 +873,12 @@ export interface operations {
                      * @description One subtitle file.
                      */
                     file?: string;
+                    /**
+                     * @description error (default) | replace. Filesystem/S3 reject existing outputs by default; HTTPS follows signer/receiver policy.
+                     * @default error
+                     * @enum {string}
+                     */
+                    ifExists?: "error" | "replace";
                     /** @description Storage URI; mutually exclusive with file. */
                     input?: string;
                     /** @description Exact output URI; omit to receive converted bytes. */
@@ -690,6 +974,17 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ApiProblem"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
             /** @description Payload Too Large */
             413: {
                 headers: {
@@ -730,6 +1025,17 @@ export interface operations {
                     "X-Request-Id"?: string;
                     /** @description Seconds to wait before retrying. */
                     "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -861,6 +1167,17 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ApiProblem"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
             /** @description Payload Too Large */
             413: {
                 headers: {
@@ -890,6 +1207,17 @@ export interface operations {
                     "X-Request-Id"?: string;
                     /** @description Seconds to wait before retrying. */
                     "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
                     [name: string]: unknown;
                 };
                 content: {

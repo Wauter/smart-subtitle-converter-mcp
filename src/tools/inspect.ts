@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Deps } from "../context.js";
 import { mcpError } from "../errors.js";
 import { readFileChecked } from "../fs/guard.js";
-import { DetectedOutput, defineTool, ebuSizeWarning, exactlyOne, fieldErrors, FieldError, getCaps, loadSource, mapDetected, mapWarnings, requirePathsAllowed, Warning, warningText } from "./common.js";
+import { apiStorageDescription, DetectedOutput, defineTool, ebuSizeWarning, exactlyOne, fieldErrors, FieldError, getCaps, loadSource, refreshToolDescriptions, mapDetected, mapWarnings, requirePathsAllowed, Warning, warningText } from "./common.js";
 
 const RO = { readOnlyHint: true, idempotentHint: true } as const;
 
@@ -54,6 +54,7 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
     description: () =>
       "Identify a subtitle file's format, character encoding, language and cue count without converting it. Use it when you don't know what a file is, or before converting when the file extension is missing or misleading." +
       (paths ? " Prefer `path` (the file stays out of your context and binary files stay intact); give exactly one of `content`, `path` or server-side `input`." : " Give content (base64 for binary) or a server-side input URI.") +
+      " API input is read by the API server, not this MCP or the user's laptop unless mounted there. list_allowed_folders covers local paths only, never API input." + apiStorageDescription(deps) +
       " If detection is ambiguous, `candidates` lists alternatives, and you can force one in a conversion with `profile.source.format`. For text files it also reports `bom` and `lineEndings`, and `warnings` flag source problems by cue number (`zero-length-cue`, `source-replacement-chars` for U+FFFD already in the file). PAC and Unicode PAC (FPC) bytes look alike: without a .pac/.fpc name the API answers `ambiguous-format`; then set `profile.source.format`. ZIP files are not accepted; submit one subtitle per request." +
       (paths ? ` ${deps.rootsText}` : ""),
     shape: {
@@ -70,6 +71,7 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
       requirePathsAllowed(deps, a, ["path"]);
       exactlyOne(a, paths ? ["content", "path", "input"] : ["content", "input"], "the subtitle source");
       const caps = await getCaps(deps, call);
+      refreshToolDescriptions(server);
       const src = await loadSource(deps, a, caps);
       call.log.source = src.callerPath ? "path" : "inline";
       if (src.ext) call.log.inputExt = src.ext;

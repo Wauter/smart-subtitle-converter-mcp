@@ -16,7 +16,6 @@ export interface Config {
   allowedDirs: string[];
   readonlyDirs: string[];
   useClientRoots: boolean;
-  allowDestructive: boolean;
   partialMaxAgeMs: number;
   maxBytes?: number;
   timeoutMs: number;
@@ -36,7 +35,7 @@ export interface Config {
 const KNOWN_ENV = new Set([
   "SUBTITLE_API_URL", "SUBTITLE_API_KEY", "SUBTITLE_API_KEY_FILE", "SUBTITLE_MCP_HTTP_TOKEN", "SUBTITLE_MCP_HTTP_TOKEN_FILE",
   "SUBTITLE_MCP_HTTP", "SUBTITLE_MCP_HOSTED", "SUBTITLE_MCP_ALLOWED_DIRS", "SUBTITLE_MCP_READONLY_DIRS",
-  "SUBTITLE_MCP_USE_CLIENT_ROOTS", "SUBTITLE_MCP_ALLOW_DESTRUCTIVE", "SUBTITLE_MCP_PARTIAL_MAX_AGE_MS", "SUBTITLE_MCP_MAX_BYTES",
+  "SUBTITLE_MCP_USE_CLIENT_ROOTS", "SUBTITLE_MCP_PARTIAL_MAX_AGE_MS", "SUBTITLE_MCP_MAX_BYTES",
   "SUBTITLE_MCP_TIMEOUT_MS", "SUBTITLE_MCP_RETRY_MAX_ATTEMPTS", "SUBTITLE_MCP_RETRY_MAX_WAIT_MS", "SUBTITLE_MCP_RETRY_BUDGET_MS",
   "SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES",
   "SUBTITLE_MCP_JSON_MAX_DECODED_BYTES", "SUBTITLE_MCP_LIMITS_TTL_MS",
@@ -212,7 +211,6 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv, opts: { checkF
     allowedDirs,
     readonlyDirs,
     useClientRoots: bool("SUBTITLE_MCP_USE_CLIENT_ROOTS", env.SUBTITLE_MCP_USE_CLIENT_ROOTS, true),
-    allowDestructive: bool("SUBTITLE_MCP_ALLOW_DESTRUCTIVE", env.SUBTITLE_MCP_ALLOW_DESTRUCTIVE, false),
     partialMaxAgeMs: int("SUBTITLE_MCP_PARTIAL_MAX_AGE_MS", env.SUBTITLE_MCP_PARTIAL_MAX_AGE_MS, 3_600_000, 1)!,
     maxBytes: int("SUBTITLE_MCP_MAX_BYTES", env.SUBTITLE_MCP_MAX_BYTES, undefined, 1),
     timeoutMs: int("SUBTITLE_MCP_TIMEOUT_MS", env.SUBTITLE_MCP_TIMEOUT_MS, 120_000, 1)!,
@@ -247,7 +245,7 @@ export function safeUrl(u: string): string {
 export function defaultConfig(over: Partial<Config> = {}): Config {
   return {
     mode: "local", apiUrl: "http://api.test", httpTokens: [], allowedDirs: [], readonlyDirs: [], useClientRoots: true,
-    allowDestructive: false, partialMaxAgeMs: 3_600_000, timeoutMs: 120_000, retryMaxAttempts: 3, retryMaxWaitMs: 60_000,
+    partialMaxAgeMs: 3_600_000, timeoutMs: 120_000, retryMaxAttempts: 3, retryMaxWaitMs: 60_000,
     retryBudgetMs: 90_000, inlineTextMaxBytes: 65_536,
     limitsTtlMs: 300_000, includeDebug: false, allowedOrigins: [], allowedHosts: ["localhost", "127.0.0.1", "[::1]"],
     logLevel: "error", logPaths: false, ...over,

@@ -11,6 +11,11 @@ tags and releases follow on the owner's go-ahead.
 
 ## 1.3.0 — Unreleased
 
+- Add get_job_file(jobId, input|output), current-location metadata and Unicode/binary body blocks; no generic URI fetch or local save parameter. Surface distinct job state/storage/replay errors with redacted locations.
+- Collapse ifExists to error | replace everywhere; remove archive/delete helpers, error codes and the local operator gate. Pass explicit policy to API outputs; HTTPS follows signer/receiver policy.
+- Negotiate wait from MCP timeout and API maximum, expose separate input/output URI schemes in descriptions/limits (omit missing scheme arrays), retain list_allowed_folders even without path access, report polling timeout as job-not-ready and missing asynchronous response bytes as job-output-not-stored. Never replay a conversion POST.
+
+
 Pairs with API 1.3.0.
 
 - Move schema validation to Zod 4.6.7 and refresh body-parser/fast-uri locks to satisfy the existing production dependency-audit gate; retain structured success/error and validation regression coverage.
@@ -103,8 +108,7 @@ First version. Pairs with API 1.1.x (contract-tested against API 1.1.0).
   and `convert_batch`; resources for the profile schema, formats and limits. (#1)
 - stdio transport and stateless Streamable HTTP transport with a required inbound bearer token. (#1)
 - Allowed folders (read-write and read-only), with MCP client roots used when none are configured. (#1)
-- Atomic writes through a staging folder; `ifExists` (`error`, `archive`, and with
-  `SUBTITLE_MCP_ALLOW_DESTRUCTIVE` `replace`/`delete`). (#1)
+- Atomic writes through a staging folder and the original collision policies (superseded by error | replace). (#1)
 - All-or-nothing `convert_batch` into a new folder (decision D-44). (#1)
 - API version check at startup with an `mcp-api-version-mismatch` warning, retries for 429/503, CI and a
   distroless Dockerfile. (#1)

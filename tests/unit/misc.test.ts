@@ -64,7 +64,6 @@ describe("config", () => {
     const c = cfg([]);
     expect(c.mode).toBe("local");
     expect(c.timeoutMs).toBe(120000);
-    expect(c.allowDestructive).toBe(false);
   });
 
   it("--http needs a long enough token; flags override env", () => {
@@ -79,7 +78,6 @@ describe("config", () => {
     expect(err([], { SUBTITLE_API_URL: undefined })).toMatch(/required/);
     expect(err([], { SUBTITLE_API_URL: "ftp://x" })).toMatch(/http or https/);
     expect(err([], { SUBTITLE_MCP_TIMEOUT_MS: "abc" })).toMatch(/integer/);
-    expect(err([], { SUBTITLE_MCP_ALLOW_DESTRUCTIVE: "maybe" })).toMatch(/true or false/);
     expect(err([], { SUBTITLE_MCP_ALLOW_OVERWRITE: "true" })).toMatch(/unknown environment variable/);
     expect(err([], { SUBTITLE_API_KEY: "a", SUBTITLE_API_KEY_FILE: "/x" })).toMatch(/not both/);
     expect(err(["--hosted"])).toMatch(/needs --http/);

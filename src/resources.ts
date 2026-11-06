@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import type { Deps } from "./context.js";
 import { ToolFailure } from "./errors.js";
+import { refreshToolDescriptions } from "./tools/common.js";
 import { newCallId } from "./ids.js";
 import { newStats, type CallCtx } from "./api/client.js";
 
@@ -44,9 +45,10 @@ export function registerResources(server: McpServer, deps: Deps): void {
   server.registerResource(
     "limits",
     "subtitleedit://limits",
-    { title: "API limits", description: "Effective limits of the converter API (upload, JSON body, queue, timeouts).", mimeType: "application/json" },
+    { title: "API limits", description: "Effective limits of the converter API (upload, JSON body, queue, wait, timeouts, job retention and enabled URI schemes).", mimeType: "application/json" },
     async (uri, extra) => {
       const st = await deps.limits.get(ctx(extra));
+      refreshToolDescriptions(server);
       if (st.kind === "unsupported") throw new McpError(ErrorCode.InternalError, "limits endpoint not available on this API version", { source: "mcp", code: "not-supported" });
       if (st.kind === "unknown") throw new McpError(ErrorCode.InternalError, "the API limits could not be read (API unreachable or unauthorized)", { source: "mcp", code: "api-unreachable" });
       return { contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(st.limits.raw, null, 2) }] };

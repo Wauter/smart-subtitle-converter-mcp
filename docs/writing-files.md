@@ -12,8 +12,7 @@ Writes through a staging file in `<output-root>/.subtitle-mcp-staging/` and comm
 | Value | Behaviour |
 |---|---|
 | `error` (default) | Fail with `output-exists` |
-| `archive` | Rename the old file to `<name>.<UTC timestamp>.bak`, then write |
-| `replace`, `delete` | Only with `SUBTITLE_MCP_ALLOW_DESTRUCTIVE=true` |
+| `replace` | Explicit replacement through a complete staging file and rename; no separate operator gate |
 
 Nothing is ever suffixed (`_2`).
 
@@ -34,6 +33,8 @@ Documented and small:
 
 ## API destinations are separate
 
-Local `path`/`outputPath`/`outputDir` still use the rules above. API `input`/`output` locations are evaluated on the API server, with its own allowlists and permissions. API filesystem output refuses an existing file and defaults to direct writes (optional sibling staging); S3 uses single PUT and replaces an existing object; HTTPS uses PUT with the receiving system's semantics. The MCP's local destructive-write switch does not change these API behaviours. API `sidecar:true` writes `{output}.json` except for HTTPS, which warns and skips it.
+Local `path`/`outputPath`/`outputDir` still use the rules above. API `input`/`output` locations are evaluated on the API server, with its own allowlists and permissions. API filesystem and S3 output default to `ifExists:error`; explicit `replace` permits replacement. API filesystem replacement uses sibling staging; S3 default PUT is conditional. HTTPS follows the signer/receiver policy and has no claimed disk/S3 collision guarantee. API `sidecar:true` writes `{output}.json` except for HTTPS, which warns and skips it.
 
 A sidecar failure leaves the successfully written subtitle and is reported as a warning. For an asynchronous response without an API output, no file bytes are retained; the MCP never invents an empty local result.
+
+`ifExists` is error (default) | replace everywhere. A collision hint lists both choices; a prior job or attempt may already have written, or still be writing, that location. Inspect the result before choosing replacement. No conversion POST is automatically replayed.

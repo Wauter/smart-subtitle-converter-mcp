@@ -3,19 +3,18 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { realFsOps, SafeWriter, stagingName, utcStamp, sanitizeOutputName, STAGING_RE, STAGING_DIR, type FsOps } from "../../src/fs/write.js";
+import { realFsOps, SafeWriter, stagingName, sanitizeOutputName, STAGING_RE, STAGING_DIR, type FsOps } from "../../src/fs/write.js";
 import { classifyErrno, writeFailure } from "../../src/fs/writeErrors.js";
 import { ToolFailure } from "../../src/errors.js";
 import { silentLogger } from "../../src/log.js";
 
 let dir: string;
-const clock = () => new Date(Date.UTC(2026, 9, 17, 9, 30, 12));
 beforeEach(() => {
   dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "write-")));
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-const writer = (ops: Partial<FsOps> = {}, rnd?: (n: number) => Buffer) => new SafeWriter(silentLogger(), { ...realFsOps, ...ops }, clock, rnd);
+const writer = (ops: Partial<FsOps> = {}, rnd?: (n: number) => Buffer) => new SafeWriter(silentLogger(), { ...realFsOps, ...ops }, rnd);
 const leftovers = () => (fs.readdirSync(dir, { recursive: true }) as string[]).filter((n) => n.endsWith(".partial"));
 const errCode = async (p: Promise<unknown>) => {
   try {
@@ -40,7 +39,6 @@ describe("staging names", () => {
     expect(Buffer.byteLength(n)).toBeLessThanOrEqual(255);
     expect(n.startsWith("éé")).toBe(true);
   });
-  it("UTC archive stamp", () => expect(utcStamp(clock())).toBe("20261017-093012"));
   it("sanitises API names", () => {
     expect(sanitizeOutputName("a.vtt")).toBe("a.vtt");
     for (const bad of ["", ".", "..", "a/b.vtt", "a\\b.vtt", "a\0.vtt"]) expect(() => sanitizeOutputName(bad)).toThrow(ToolFailure);
@@ -59,47 +57,6 @@ describe("SafeWriter", () => {
     expect(await errCode(writer().write({ dir, name: "a.vtt", data, ifExists: "error" }))).toBe("output-exists");
     expect(fs.readFileSync(path.join(dir, "a.vtt"), "utf8")).toBe("old");
     expect(leftovers()).toEqual([]);
-  });
-  it("archive: renames the old file to <name>.<UTC>.bak", async () => {
-    fs.writeFileSync(path.join(dir, "a.vtt"), "old");
-    const r = await writer().write({ dir, name: "a.vtt", data, ifExists: "archive" });
-    expect(r.action).toBe("archived");
-    expect(r.archivedTo).toBe(path.join(dir, "a.vtt.20261017-093012.bak"));
-    expect(fs.readFileSync(r.archivedTo!, "utf8")).toBe("old");
-    expect(fs.readFileSync(path.join(dir, "a.vtt"), "utf8")).toBe("WEBVTT\n");
-  });
-  it("archive-exists when the .bak name is taken", async () => {
-    fs.writeFileSync(path.join(dir, "a.vtt"), "old");
-    fs.writeFileSync(path.join(dir, "a.vtt.20261017-093012.bak"), "older");
-    expect(await errCode(writer().write({ dir, name: "a.vtt", data, ifExists: "archive" }))).toBe("archive-exists");
-    expect(fs.readFileSync(path.join(dir, "a.vtt"), "utf8")).toBe("old");
-    expect(leftovers()).toEqual([]);
-  });
-  it("archive: a commit failure renames the .bak back", async () => {
-    fs.writeFileSync(path.join(dir, "a.vtt"), "old");
-    let n = 0;
-    const w = writer({
-      link: async (a, b) => {
-        // first link = archive move succeeds; second link = commit fails as if a file appeared
-        n++;
-        if (n === 2) {
-          const e: NodeJS.ErrnoException = new Error("boom");
-          e.code = "EIO";
-          throw e;
-        }
-        return realFsOps.link(a, b);
-      },
-    });
-    expect(await errCode(w.write({ dir, name: "a.vtt", data, ifExists: "archive" }))).toBe("io-error");
-    expect(fs.readFileSync(path.join(dir, "a.vtt"), "utf8")).toBe("old");
-    expect(fs.readdirSync(dir).filter((x) => x.endsWith(".bak"))).toEqual([]);
-    expect(leftovers()).toEqual([]);
-  });
-  it("delete then commit", async () => {
-    fs.writeFileSync(path.join(dir, "a.vtt"), "old");
-    const r = await writer().write({ dir, name: "a.vtt", data, ifExists: "delete" });
-    expect(r.action).toBe("deleted");
-    expect(fs.readFileSync(path.join(dir, "a.vtt"), "utf8")).toBe("WEBVTT\n");
   });
   it("replace is one rename over the target (never unlink first) and keeps an open reader's inode", async () => {
     const target = path.join(dir, "a.vtt");
@@ -134,17 +91,6 @@ describe("SafeWriter", () => {
     });
     expect(await errCode(w.write({ dir, name: "a.vtt", data, ifExists: "replace" }))).toBe("output-locked");
     expect(fs.readFileSync(path.join(dir, "a.vtt"), "utf8")).toBe("old");
-    expect(leftovers()).toEqual([]);
-  });
-  it.each(["error", "archive", "delete"] as const)("a file appearing between check and commit → output-exists (%s)", async (policy) => {
-    if (policy !== "error") fs.writeFileSync(path.join(dir, "a.vtt"), "old");
-    const w = writer({
-      link: async (a, b) => {
-        if (b.endsWith("a.vtt")) fs.writeFileSync(b, "racer");
-        return realFsOps.link(a, b);
-      },
-    });
-    expect(await errCode(w.write({ dir, name: "a.vtt", data, ifExists: policy }))).toBe("output-exists");
     expect(leftovers()).toEqual([]);
   });
   it("replace is exempt from the race by construction", async () => {
@@ -189,7 +135,7 @@ describe("SafeWriter", () => {
   it("never touches a source file (any policy), even via a symlink", async () => {
     const src = path.join(dir, "movie.vtt");
     fs.writeFileSync(src, "source");
-    for (const p of ["error", "archive", "delete", "replace"] as const) {
+    for (const p of ["error", "replace"] as const) {
       expect(await errCode(writer().write({ dir, name: "movie.vtt", data, ifExists: p, sources: new Set([src]) }))).toBe("source-overwrite-refused");
     }
     fs.symlinkSync(src, path.join(dir, "link.vtt"));
@@ -197,16 +143,6 @@ describe("SafeWriter", () => {
     expect(fs.readFileSync(src, "utf8")).toBe("source");
     expect(leftovers()).toEqual([]);
   });
-  it("symlink targets: archive renames the link itself, not its target", async () => {
-    const real = path.join(dir, "real.vtt");
-    fs.writeFileSync(real, "real");
-    fs.symlinkSync(real, path.join(dir, "a.vtt"));
-    const r = await writer().write({ dir, name: "a.vtt", data, ifExists: "archive" });
-    expect(fs.lstatSync(r.archivedTo!).isSymbolicLink()).toBe(true);
-    expect(fs.readFileSync(real, "utf8")).toBe("real");
-    expect(fs.lstatSync(path.join(dir, "a.vtt")).isSymbolicLink()).toBe(false);
-  });
-
   it("cancellation mid-write leaves no staging file", async () => {
     const ac = new AbortController();
     const w = writer({
@@ -325,36 +261,6 @@ describe("SafeWriter", () => {
     expect(err.toolError.detail).toContain(`Couldn't write ${path.join(dir, "ep05.stl")}`);
     expect(err.toolError.hint).toBeTruthy();
     expect(leftovers()).toEqual([]);
-  });
-  it("D-35: a failure after archiving restores the .bak (every class)", async () => {
-    fs.writeFileSync(path.join(dir, "a.vtt"), "old");
-    let n = 0;
-    const w = writer({
-      link: async (a, b) => {
-        if (++n === 2) {
-          const e: NodeJS.ErrnoException = new Error("full");
-          e.code = "ENOSPC";
-          throw e;
-        }
-        return realFsOps.link(a, b);
-      },
-    });
-    expect(await errCode(w.write({ dir, name: "a.vtt", data, ifExists: "archive" }))).toBe("disk-full");
-    expect(fs.readFileSync(path.join(dir, "a.vtt"), "utf8")).toBe("old");
-    expect(fs.readdirSync(dir).filter((x) => x.endsWith(".bak"))).toEqual([]);
-  });
-  it("archive/delete failures carry osError and name the class", async () => {
-    fs.writeFileSync(path.join(dir, "a.vtt"), "old");
-    const w = writer({
-      unlink: async () => {
-        const e: NodeJS.ErrnoException = new Error("perm");
-        e.code = "EACCES";
-        throw e;
-      },
-    });
-    const err = (await w.write({ dir, name: "a.vtt", data, ifExists: "delete" }).catch((e) => e)) as ToolFailure;
-    expect(err.toolError).toMatchObject({ code: "delete-failed", osError: { code: "EACCES" } });
-    expect(err.toolError.detail).toMatch(/permission denied/);
   });
 });
 

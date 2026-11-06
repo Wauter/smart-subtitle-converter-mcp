@@ -4,10 +4,10 @@ import nodePath from "node:path";
 import { randomBytes } from "node:crypto";
 import { mcpError, ToolFailure, type WarningT } from "../errors.js";
 import type { Logger } from "../log.js";
-import { className, classifyErrno, osErrorOf, WRITE_HINTS, writeFailure } from "./writeErrors.js";
+import { osErrorOf, WRITE_HINTS, writeFailure } from "./writeErrors.js";
 
-export type IfExists = "error" | "replace" | "archive" | "delete";
-export type WriteAction = "written" | "replaced" | "archived" | "deleted";
+export type IfExists = "error" | "replace";
+export type WriteAction = "written" | "replaced";
 
 /** Filesystem operations, injectable so tests can simulate EBUSY, missing hard-link support and races. */
 export interface FsOps {
@@ -48,7 +48,6 @@ export const openStaging = new Set<string>();
 /** D-38: the per-output-root staging folder. */
 export const STAGING_DIR = ".subtitle-mcp-staging";
 export const STAGING_RE = /^.+\.[0-9a-f]{6}\.partial$/;
-export const BAK_RE = /\.\d{8}-\d{6}\.bak$/;
 
 /** `<finalname>.<6 hex>.partial`, shortening <finalname> from the end to fit 255 bytes. */
 export function stagingName(finalName: string, hex: string): string {
@@ -56,11 +55,6 @@ export function stagingName(finalName: string, hex: string): string {
   let name = finalName;
   while (Buffer.byteLength(name) + fixed > 255 && name.length > 1) name = name.slice(0, -1);
   return `${name}.${hex}.partial`;
-}
-
-export function utcStamp(d: Date): string {
-  const p = (n: number, w = 2) => String(n).padStart(w, "0");
-  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}-${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`;
 }
 
 /** Keeps only a safe basename (§5.6.2). Throws api-protocol-error. */
@@ -90,7 +84,6 @@ export interface WriteRequest {
 export interface WriteResult {
   path: string;
   action: WriteAction;
-  archivedTo?: string;
   warnings: WarningT[];
 }
 
@@ -100,7 +93,6 @@ export class SafeWriter {
   constructor(
     private readonly log: Logger,
     private readonly ops: FsOps = realFsOps,
-    private readonly clock: () => Date = () => new Date(),
     private readonly rnd: (n: number) => Buffer = randomBytes,
     /** Resolves the output root of a destination folder (D-38). */
     public rootOf: (dir: string) => Promise<string | undefined> = async () => undefined,
@@ -108,10 +100,10 @@ export class SafeWriter {
 
   async write(req: WriteRequest): Promise<WriteResult> {
     const { dir, name, ifExists } = req;
+    if (ifExists !== "error" && ifExists !== "replace") throw mcpError("invalid-arguments", "Unknown ifExists policy.", "Valid ifExists values: error | replace.");
     const target = nodePath.join(dir, name);
     const warnings: WarningT[] = [];
     let staging: string | undefined;
-    let archivedTo: string | undefined;
     const aborted = () => {
       if (req.signal?.aborted) throw mcpError("cancelled", "The client cancelled the request.");
     };
@@ -132,37 +124,7 @@ export class SafeWriter {
         if (existing.isDirectory()) throw mcpError("output-exists", `A folder exists at the output path: ${target}`, "Choose another output folder.", { path: target });
         switch (ifExists) {
           case "error":
-            throw mcpError("output-exists", `Output already exists: ${target}`, "Ask the user whether to replace, archive or delete this file, or choose another output folder.", { path: target });
-          case "archive": {
-            const bak = `${target}.${utcStamp(this.clock())}.bak`;
-            if (await this.lstatOrNull(bak)) {
-              throw mcpError("archive-exists", `Archive name already taken: ${bak}`, "Try again in a second, or choose replace/delete or another folder.", { path: bak });
-            }
-            try {
-              await this.noClobberMove(target, bak);
-            } catch (e) {
-              if (e instanceof ToolFailure && e.toolError.code === "output-exists") throw mcpError("archive-exists", `Archive name already taken: ${bak}`, "Try again in a second, or choose replace/delete or another folder.", { path: bak });
-              if (e instanceof ToolFailure) throw e;
-              const cls = classifyErrno((e as NodeJS.ErrnoException).code, { existingTarget: true });
-              const f = writeFailure(e, target, { existingTarget: true, verb: "archive" });
-              throw mcpError("archive-failed", `${f.toolError.detail} (${className(cls)})`, WRITE_HINTS[cls], { path: target, osError: f.toolError.osError });
-            }
-            archivedTo = bak;
-            action = "archived";
-            this.log.info("archived", { from: this.log.p(target), to: this.log.p(bak) });
-            break;
-          }
-          case "delete":
-            try {
-              await this.ops.unlink(target);
-            } catch (e) {
-              const cls = classifyErrno((e as NodeJS.ErrnoException).code, { existingTarget: true });
-              const f = writeFailure(e, target, { existingTarget: true, verb: "delete" });
-              throw mcpError("delete-failed", `${f.toolError.detail} (${className(cls)})`, WRITE_HINTS[cls], { path: target, osError: f.toolError.osError });
-            }
-            action = "deleted";
-            this.log.info("deleted", { path: this.log.p(target) });
-            break;
+            throw mcpError("output-exists", `Output already exists: ${target}`, "Valid ifExists values: error | replace. Choose another path or explicitly replace; a previous job may have written or still be writing this location.", { path: target });
           case "replace":
             action = "replaced";
             break;
@@ -171,7 +133,7 @@ export class SafeWriter {
       aborted();
 
       // Step 4: commit.
-      if (action === "replaced") {
+      if (ifExists === "replace") {
         try {
           await this.ops.rename(staging, target);
         } catch (e) {
@@ -186,22 +148,10 @@ export class SafeWriter {
       }
       staging = undefined;
       await this.ops.fsyncDir(dir).catch(() => {});
-      return { path: target, action, ...(archivedTo ? { archivedTo } : {}), warnings };
+      return { path: target, action, warnings };
     } catch (err) {
       // Step 5: roll back.
       if (staging) await this.ops.unlink(staging).catch(() => {});
-      if (archivedTo) {
-        try {
-          await this.noClobberMove(archivedTo, target);
-          archivedTo = undefined;
-        } catch {
-          const w = { code: "mcp-archive-not-restored", message: `The previous file was kept at ${archivedTo}; restore it by hand.` };
-          if (err instanceof ToolFailure) {
-            err.toolError.detail = `${err.toolError.detail ?? ""} The previous file is at ${archivedTo}.`.trim();
-            throw new ToolFailure(err.toolError, [...err.warnings, w]);
-          }
-        }
-      }
       if (err instanceof ToolFailure) throw err;
       throw writeFailure(err, target);
     } finally {
@@ -291,10 +241,10 @@ export class SafeWriter {
       await this.ops.link(from, to);
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code ?? "";
-      if (code === "EEXIST") throw mcpError("output-exists", `Output ${appearedDetail}: ${to}`, "Ask the user whether to replace, archive or delete this file, or choose another output folder.", { path: to });
+      if (code === "EEXIST") throw mcpError("output-exists", `Output ${appearedDetail}: ${to}`, "Valid ifExists values: error | replace. Choose another path or explicitly replace; a previous job may have written or still be writing this location.", { path: to });
       if (code === "EXDEV") throw writeFailure(e, to, { forceCode: "cross-device" });
       if (!NO_LINK_CODES.has(code)) throw e;
-      if (await this.lstatOrNull(to)) throw mcpError("output-exists", `Output ${appearedDetail}: ${to}`, "Ask the user whether to replace, archive or delete this file, or choose another output folder.", { path: to });
+      if (await this.lstatOrNull(to)) throw mcpError("output-exists", `Output ${appearedDetail}: ${to}`, "Valid ifExists values: error | replace. Choose another path or explicitly replace; a previous job may have written or still be writing this location.", { path: to });
       await this.ops.rename(from, to);
       return;
     }

@@ -35,11 +35,22 @@ export interface ToolDef<S extends Record<string, z.ZodType>> {
   handler: (args: z.infer<z.ZodObject<S>>, call: Call) => Promise<ToolOutcome>;
 }
 
-/** Per server: tools whose description is rebuilt when the allowed folders change. */
+/** API schemes, deliberately separate from MCP-local folder roots. */
+export function apiStorageDescription(deps: Deps): string {
+  const state = deps.limits.peek(), l = state?.kind === "ok" ? state.limits : undefined;
+  if (!l?.inputSchemes || !l.outputSchemes) return "";
+  const schemes = l.enabledSchemes ?? [];
+  let text = ` API storage enabled: ${schemes.join(", ") || "none"}.`;
+  if (l?.inputSchemes && l.outputSchemes && l.inputSchemes.join(",") !== l.outputSchemes.join(","))
+    text += ` Input schemes: ${l.inputSchemes.join(", ") || "none"}; output schemes: ${l.outputSchemes.join(", ") || "none"}.`;
+  return text;
+}
+
+/** Per server: tools whose description is rebuilt when allowed folders or cached API schemes change. */
 const dynamicDescriptions = new WeakMap<McpServer, { tool: RegisteredTool; describe: () => string }[]>();
 
 /**
- * Rebuilds the folder-dependent tool descriptions from the current roots. When any changed (and the server is
+ * Rebuilds the folder/API-dependent tool descriptions from the current roots. When any changed (and the server is
  * connected), sends one notifications/tools/list_changed so clients fetch tools/list again. Returns whether any changed.
  */
 export function refreshToolDescriptions(server: McpServer, _deps?: Deps): boolean {
@@ -182,16 +193,6 @@ export function mutuallyExclusive(args: Record<string, unknown>, a: string, b: s
 export function requirePathsAllowed(deps: Deps, args: Record<string, unknown>, keys: string[]): void {
   if (deps.pathsInSchema) return;
   for (const k of keys) if (args[k] !== undefined) throw mcpError("invalid-arguments", `\`${k}\` is not available in this mode.`);
-}
-
-export function checkDestructive(deps: Deps, ifExists: string | undefined): void {
-  if ((ifExists === "replace" || ifExists === "delete") && !deps.cfg.allowDestructive) {
-    throw mcpError(
-      "destructive-not-allowed",
-      `ifExists "${ifExists}" is disabled on this server.`,
-      "The operator can enable it with SUBTITLE_MCP_ALLOW_DESTRUCTIVE=true; `archive` keeps the old file as a .bak and is always allowed.",
-    );
-  }
 }
 
 export async function getCaps(deps: Deps, call: Call): Promise<Caps> {

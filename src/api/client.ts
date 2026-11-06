@@ -32,6 +32,7 @@ export interface ApiRequest {
   /** Statuses returned to the caller instead of being mapped to an error (e.g. 404 for /v1/limits). */
   passStatuses?: number[];
   accept?: string;
+  responseBytes?: boolean;
   headers?: Record<string, string>;
 }
 
@@ -150,7 +151,7 @@ export class ApiClient {
             throw mcpError("api-protocol-error", `Unexpected ${contentType || "empty"} response from ${req.path}.`, "Check SUBTITLE_API_URL and the API version.", { requestId: echoed ?? rid, status: res.status });
         }
         const requestId = (parsed && typeof parsed === "object" && typeof (parsed as any).requestId === "string" ? (parsed as any).requestId : undefined) ?? echoed;
-        return { status: res.status, headers: res.headers, json: parsed, bytes: isJson ? undefined : buf, requestId, contentType };
+        return { status: res.status, headers: res.headers, json: parsed, bytes: req.responseBytes || !isJson ? buf : undefined, requestId, contentType };
       }
 
       const te = mapProblem(res.status, isJson ? parsed : undefined, {
@@ -160,7 +161,8 @@ export class ApiClient {
         headerRequestId: echoed ?? rid,
       });
       te.attempts = ctx.stats.attempts;
-      const retryable = res.status === 429 || res.status === 503 || (res.status === 504 && timeoutPhase(parsed) === "queue");
+      if (req.method === "POST" && req.path.startsWith("/v1/convert")) te.hint = `${te.hint ?? ""} This conversion POST was not replayed; inspect any known job or destination before resubmitting.`.trim();
+      const retryable = !(req.method === "POST" && req.path.startsWith("/v1/convert")) && (res.status === 429 || res.status === 503 || (res.status === 504 && timeoutPhase(parsed) === "queue"));
       if (retryable) {
         const ra = parseRetryAfter(res.headers.get("retry-after"));
         if (ra !== undefined) te.retryAfterSeconds = ra;

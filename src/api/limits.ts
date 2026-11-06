@@ -7,6 +7,11 @@ import { toOptInt } from "./coerce.js";
 import { featureMismatch } from "../probe.js";
 
 export interface Limits {
+  requestMaxWaitSeconds?: number;
+  requestWaitSeconds?: number;
+  inputSchemes?: string[];
+  outputSchemes?: string[];
+  enabledSchemes?: string[];
   maxUploadBytes?: number;
   bodyJson?: number;
   jsonMaxDecoded?: number;
@@ -26,7 +31,12 @@ export type LimitsState =
 export function normalizeLimits(raw: any): Limits {
   const mrb = raw?.maxRequestBodyBytes;
   const bodyJson = typeof mrb === "object" && mrb ? toOptInt(mrb.json) : undefined;
+  const schemes = (value: unknown): string[] | undefined => Array.isArray(value) ? value.filter((s: unknown): s is string => typeof s === "string" && ["file", "s3", "https"].includes(s)) : undefined;
+  const inputSchemes = schemes(raw?.storage?.inputSchemes), outputSchemes = schemes(raw?.storage?.outputSchemes);
   return {
+    requestWaitSeconds: toOptInt(raw?.requestWaitSeconds), inputSchemes, outputSchemes,
+    requestMaxWaitSeconds: toOptInt(raw?.requestMaxWaitSeconds),
+    enabledSchemes: inputSchemes || outputSchemes ? [...new Set([...(inputSchemes ?? []), ...(outputSchemes ?? [])])] : undefined,
     maxUploadBytes: toOptInt(raw?.maxUploadBytes),
     bodyJson,
     jsonMaxDecoded: toOptInt(raw?.json?.maxDecodedContentBytes),
@@ -43,6 +53,7 @@ export const FALLBACK_JSON_DECODED = 10_485_760;
 export const DEFAULT_UPLOAD = 10_485_760;
 
 export interface Caps {
+  requestMaxWaitSeconds?: number;
   limitsKnown: boolean;
   jsonDecoded: number;
   jsonBody: number;
@@ -55,6 +66,7 @@ export interface Caps {
 export function capsFrom(state: LimitsState, cfg: Pick<Config, "jsonMaxDecodedBytes" | "maxBytes">): Caps {
   const l = state.kind === "ok" ? state.limits : undefined;
   return {
+    requestMaxWaitSeconds: l?.requestMaxWaitSeconds,
     limitsKnown: !!l,
     jsonDecoded: l?.jsonMaxDecoded ?? cfg.jsonMaxDecodedBytes ?? FALLBACK_JSON_DECODED,
     jsonBody: l?.bodyJson ?? API_DEFAULT_JSON_BODY,

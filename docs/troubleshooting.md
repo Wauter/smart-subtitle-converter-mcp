@@ -31,8 +31,7 @@ If you did update and still see an older MCP version in the warning, the client 
 
 | Code | What to do |
 |---|---|
-| `output-exists` | Use `ifExists: "archive"`, or a different `outputPath` ([writing-files.md](writing-files.md)) |
-| `destructive-not-allowed` | `ifExists: replace/delete` needs `SUBTITLE_MCP_ALLOW_DESTRUCTIVE=true` |
+| `output-exists` | Choose `ifExists: "error"` or explicit `ifExists: "replace"`, or a different `outputPath` ([writing-files.md](writing-files.md)) |
 | `cross-device` | The destination is on another mount than its output root; configure that mount as its own output root |
 | `staging-unavailable` | The `.subtitle-mcp-staging/` folder in the output root can't be created or used; check permissions |
 | `path-not-found`, `path-too-long`, `disk-full`, `permission-denied`, `output-locked` | As named; the error carries `path` and `osError` |
@@ -55,9 +54,9 @@ port (`http://api:8080`). From a VM, `localhost` may not be your host. `401` fro
 
 - `storage-location-rejected`: configure the matching API allowlist; use a complete filename, not a trailing slash.
   MCP-local folder grants do not grant API filesystem access. API file storage currently requires Linux.
-- `job-gone`: the job record expired, was evicted, or its API process restarted. This does not mean the write failed.
-- `output-not-retained`: an asynchronous job had no API output. Polling cannot download file bytes; use an API
+- `job-not-found`: the job record expired, was evicted, or its API process restarted. This does not mean the write failed.
+- `job-output-not-stored`: an asynchronous job had no API output. Polling cannot download file bytes; use an API
   output URI next time. No empty local file was created.
-- `mcp-timeout` after acceptance: inspect the returned `jobId`; work can still be running. Do not blindly replay writes.
+- `job-not-ready` after acceptance: inspect the returned `jobId`; work can still be running. Do not blindly replay writes.
 - `sidecar-write-failed`: retain the successful subtitle and inspect warnings; only the sidecar failed.
 - `sidecar-skipped`: HTTPS PUT has no second signed URL for the sidecar, so none was attempted.

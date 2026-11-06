@@ -18,7 +18,6 @@ export interface DepsOptions {
   fetchImpl?: typeof fetch;
   auth?: UpstreamAuth;
   fsOps?: FsOps;
-  clock?: () => Date;
   features?: Features;
   limits?: LimitsCache;
   rnd?: () => number;
@@ -37,7 +36,7 @@ export function buildDeps(cfg: Config, o: DepsOptions = {}): Deps {
   // Local: client roots (read-write) may still arrive, so writes are possible unless only fixed read-only roots exist.
   const writable = cfg.mode === "local" ? (configured && !dynamicRoots ? anyWritable : true) : cfg.mode === "sidecar" && anyWritable;
   const guard = new PathGuard(provider);
-  const writer = new SafeWriter(log, o.fsOps, o.clock);
+  const writer = new SafeWriter(log, o.fsOps);
   writer.rootOf = (dir) => guard.outputRoot(dir);
   return {
     cfg,

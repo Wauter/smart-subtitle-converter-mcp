@@ -88,3 +88,5 @@ These are separate from MCP-local `path`/`outputPath`. The MCP surfaces `jobId` 
 whose retained results are metadata only. Use an API output location for work that may outlive the wait.
 See [tools](docs/tools.md#api-storage-and-job-ids), [configuration](docs/configuration.md#api-storage-and-asynchronous-jobs)
 and [writing files](docs/writing-files.md#api-destinations-are-separate). Submit one file per call.
+
+Use `get_job_file` with jobId and input/output to re-read API-stored files, not local uploads or response-only bytes. `ifExists` is error (default) | replace for local and API outputs; explicit replacement needs no extra gate. [Job file reference](docs/tools.md#re-reading-a-job-file).

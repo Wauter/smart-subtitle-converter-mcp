@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { z } from "zod";
 
 export const FieldError = z.object({ pointer: z.string(), message: z.string(), hint: z.string().nullish() });
@@ -33,6 +34,7 @@ export const ToolErrorSchema = z.object({
   detail: z.string().optional(),
   hint: z.string().optional(),
   requestId: z.string().optional(),
+  location: z.string().optional(),
   jobId: z.string().optional(),
   jobUrl: z.string().optional(),
   errors: z.array(FieldError).optional(),
@@ -130,6 +132,9 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
     ...(typeof b.title === "string" ? { title: b.title } : {}),
     ...(typeof b.detail === "string" ? { detail: b.detail } : {}),
   };
+  if (typeof b.location === "string") {
+    try { const u = b.location.startsWith("/") ? pathToFileURL(b.location) : new URL(b.location); u.username = ""; u.password = ""; u.search = ""; u.hash = ""; te.location = u.href; } catch { /* do not echo malformed locations */ }
+  }
   if (typeof b.id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(b.id)) {
     te.jobId = b.id;
     te.jobUrl = `/v1/jobs/${b.id}`;
@@ -192,6 +197,7 @@ export function errorText(e: ToolError): string {
   if (e.limit) s += `\nLimit ${e.limit.name}=${e.limit.value}, actual ${e.limit.actual}`;
   if (e.retryAfterSeconds !== undefined) s += `\nRetry after: ${e.retryAfterSeconds}s`;
   if (e.hint) s += `\nHint: ${e.hint}`;
+  if (e.location) s += `\nLocation: ${e.location}`;
   if (e.jobId) s += `\njobId: ${e.jobId}${e.jobUrl ? ` (${e.jobUrl})` : ""}`;
   if (e.requestId) s += `\nrequestId: ${e.requestId}`;
   return s;

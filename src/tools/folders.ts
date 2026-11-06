@@ -10,7 +10,7 @@ export function registerFoldersTool(server: McpServer, deps: Deps): void {
     name: "list_allowed_folders",
     title: "List allowed folders",
     description:
-      "List the folders this server may read and write right now, each with its mode (read-write or read-only) and source (`config`: SUBTITLE_MCP_ALLOWED_DIRS / SUBTITLE_MCP_READONLY_DIRS; `client-roots`: your MCP client's workspace roots). `state` says whether client roots are still expected (`waiting-for-roots`), unsupported or empty; when no folders are available, `hint` says what the user should configure. Use it before working with paths, or when a path is refused.",
+      "List the folders this server may read and write right now, each with its mode (read-write or read-only) and source (`config`: SUBTITLE_MCP_ALLOWED_DIRS / SUBTITLE_MCP_READONLY_DIRS; `client-roots`: your MCP client's workspace roots). `state` says whether client roots are still expected (`waiting-for-roots`), unsupported or empty; when no folders are available, `hint` says what the user should configure. Use it before working with local paths, or when a path is refused. This reports MCP-local folders only, never API STORAGE_FILE_ROOTS, S3 buckets or HTTPS hosts; use the API schemes from limits/descriptions for input/output URIs.",
     shape: {},
     output: {
       state: z.enum(["ready", "waiting-for-roots", "roots-unsupported", "roots-empty", "roots-failed", "none"]),

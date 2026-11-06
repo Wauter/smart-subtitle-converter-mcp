@@ -132,7 +132,7 @@ describe("allowed folders in tool descriptions", () => {
     for (const name of PATH_TOOLS) expect(tools.find((t) => t.name === name)!.description!.endsWith(sentence)).toBe(true);
     for (const t of tools.filter((t) => !PATH_TOOLS.includes(t.name))) expect(t.description).not.toContain("Allowed folders");
     expect(h.client.getInstructions()).toContain(sentence);
-    expect(h.client.getServerCapabilities()?.tools?.listChanged).toBe(false);
+    expect(h.client.getServerCapabilities()?.tools?.listChanged).toBe(true);
     await h.close();
   });
 
@@ -246,13 +246,13 @@ describe("configured folders combined with client roots (supersedes D-13)", () =
     await s.close();
   });
 
-  it("SUBTITLE_MCP_USE_CLIENT_ROOTS=false: configured only, roots/list never requested, static descriptions", async () => {
+  it("SUBTITLE_MCP_USE_CLIENT_ROOTS=false: configured only, roots/list never requested, API scheme descriptions may refresh", async () => {
     mswServer.use(...baseHandlers());
     const dir = tmpDir();
     const s = await stdioLike(await realpathRoots([dir], []), async () => [{ uri: pathToFileURL(tmpDir()).href }], { useClientRoots: false });
     await tick();
     expect(s.rootsCalls()).toBe(0);
-    expect(s.client.getServerCapabilities()?.tools?.listChanged).toBe(false);
+    expect(s.client.getServerCapabilities()?.tools?.listChanged).toBe(true);
     expect(s.client.getInstructions()).toContain(`Allowed folders: ${dir} (read-write).`);
     const r: any = await s.client.callTool({ name: "list_allowed_folders", arguments: {} });
     expect(r.structuredContent).toMatchObject({ state: "ready", clientRoots: "not-used" });
