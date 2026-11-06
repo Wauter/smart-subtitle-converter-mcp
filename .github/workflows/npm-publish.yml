@@ -1,13 +1,13 @@
 name: npm-publish
 
-# Publish the npm package from the selected ref (default: main).
-# Needs secrets.NPM_TOKEN (classic automation token with publish rights) or npm trusted
-# publishing configured for this repo. Does not move tags or rebuild the image.
+# Stage the npm package from the selected ref (default: main).
+# Needs secrets.NPM_TOKEN (a granular token with staging access). A maintainer
+# approves it on npmjs.com with 2FA. Does not move tags or rebuild the image.
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Git ref to publish (tag or SHA)
+        description: Git ref to stage (tag or SHA)
         required: true
         default: main
 
@@ -26,10 +26,12 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      - name: Install npm with staged publishing support
+        run: npm install -g npm@^11.15.0 && npm --version
       - name: Ref contains the renamed package
         run: test "$(node -p 'require("./package.json").name')" = smart-subtitle-converter-mcp
       - run: npm ci && npm run build
-      - name: npm publish
-        run: npm publish --provenance --access public
+      - name: Stage npm package for maintainer approval
+        run: npm stage publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

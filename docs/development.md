@@ -30,7 +30,11 @@ variable `CONTRACT_REQUIRED=true`.
 
 Version tags (`v*.*.*`) cut a release when the repo variable `PUBLISH_ENABLED` is `true`: multi-arch image to
 GHCR (`ghcr.io/wauter/smart-subtitle-converter-mcp`) and a GitHub Release. npm publishing is a separate,
-manual `npm-publish.yml` dispatch of `smart-subtitle-converter-mcp` (needs the `NPM_TOKEN` secret or npm trusted publishing). The image is marked
+manual `npm-publish.yml` dispatch of `smart-subtitle-converter-mcp`. Select the source ref to stage;
+the workflow runs `npm stage publish --access public` using a granular token with staging access in the
+`NPM_TOKEN` secret. It does not publish the staged version directly: a maintainer must review it in
+npmjs.com’s **Staged Packages** tab and approve it with 2FA. For a new package, npm may create a public
+`0.0.0-stage` placeholder while the actual version awaits approval. The image is marked
 public when created against a public repo (otherwise set public once in the package settings UI; the Packages API cannot change visibility). Docs-only commits do not need a version bump.
 
 ## Smoke checklist (Claude Desktop / Cursor, MCP Inspector)
