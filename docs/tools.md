@@ -32,6 +32,9 @@ and for local write failures `path` + `osError`. API error codes are documented 
 - `path-not-allowed` hints include the current allowed folders.
 - PAC and Unicode PAC (FPC) files that can't be told apart by name fail with `ambiguous-format`, with the
   candidates in `error.candidates`; pass `profile.source.format` (`pac` or `fpc`).
+- Files whose character set the API can't tell from their words fail with `ambiguous-encoding`. `error.probe` says
+  which: `pac-code-page` (pass `profile.formatOptions.pac.inputCodePage`) or `text-encoding` (pass
+  `profile.encoding.input`, or save the file as UTF-8). `error.candidates` lists what is still possible and may be empty.
 
 ## Warnings
 
@@ -42,7 +45,12 @@ Report every warning the tools return. Each has a `code` and `message`, and may 
 
 Codes include `characters-replaced`, `text-truncated`, `zero-length-cue`, `source-replacement-chars`,
 `verification-failed`, `frame-quantised`, `lossy-format` and `frame-rate-changed` (an EBU STL frame-rate code
-mismatch: timings move by less than one frame, with no cumulative drift). `mcp-api-version-mismatch` is added by
+mismatch: timings move by less than one frame, with no cumulative drift). Source and header checks:
+`overlapping-cues`, `long-cue` (`details.durations`), `programme-start-not-applied` (EBU STL start timecode,
+`details.timecode`; times are not shifted), `frame-rate-assumed` (`details.frameRate`), `encoding-guessed` and
+`format-defaults-applied` (header fields the writer filled in, such as an EBU title `No Title` or country `USA`, in
+`details.fields`; set the matching `formatOptions` for a real delivery). Storage writes may add
+`sidecar-delete-failed`. The MCP passes these through unchanged. `mcp-api-version-mismatch` is added by
 the MCP itself ([troubleshooting.md](troubleshooting.md#version-mismatch)).
 
 ### `characters-replaced` remedy

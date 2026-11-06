@@ -397,6 +397,13 @@ export function mapWarnings(ws: unknown): WarningT[] {
       if (Array.isArray(d.cues)) det.cues = ints(d.cues);
       if (d.distinctCodePoints != null) det.distinctCodePoints = toInt(d.distinctCodePoints);
       if (Array.isArray(d.codePoints)) det.codePoints = codePoints(d.codePoints);
+      if (Array.isArray(d.durations))
+        det.durations = d.durations.filter((x: any) => x && typeof x === "object").slice(0, 50).map((x: any) => ({ cue: int(x.cue), durationMs: Number(x.durationMs) || 0 }));
+      if (d.fields && typeof d.fields === "object" && !Array.isArray(d.fields))
+        det.fields = Object.fromEntries(Object.entries(d.fields).slice(0, 20).map(([k, v]) => [k.slice(0, 100), String(v).slice(0, 200)]));
+      if (typeof d.timecode === "string") det.timecode = d.timecode.slice(0, 20);
+      const fr = typeof d.frameRate === "number" ? d.frameRate : typeof d.frameRate === "string" ? Number(d.frameRate) : NaN;
+      if (Number.isFinite(fr)) det.frameRate = fr;
       const rm = mapRemedy(d.remedy);
       if (rm) det.remedy = rm;
       if (Object.keys(det).length) out.details = det;

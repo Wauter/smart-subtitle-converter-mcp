@@ -60,3 +60,14 @@ port (`http://api:8080`). From a VM, `localhost` may not be your host. `401` fro
 - `job-not-ready` after acceptance: inspect the returned `jobId`; work can still be running. Do not blindly replay writes.
 - `sidecar-write-failed`: retain the successful subtitle and inspect warnings; only the sidecar failed.
 - `sidecar-skipped`: HTTPS PUT has no second signed URL for the sidecar, so none was attempted.
+- `sidecar-delete-failed`: an output written without `sidecar` normally removes an older `{output}.json`; this time it
+  couldn't. The subtitle is fine; delete or ignore the stale sidecar, or write with `sidecar: true`.
+
+## Character sets
+
+- `ambiguous-encoding` with `probe: "pac-code-page"`: the PAC file's code page could not be decided from its words
+  (often a very short file). Pass `profile.formatOptions.pac.inputCodePage`, e.g. `greek`, from `error.candidates`
+  or the file's known language.
+- `ambiguous-encoding` with `probe: "text-encoding"`: a non-UTF-8 text file reads as words in more than one encoding.
+  Pass `profile.encoding.input`, or re-save the file as UTF-8.
+- `encoding-guessed` warning: the text was decoded by a heuristic; check the output text.

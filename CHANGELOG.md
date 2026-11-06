@@ -11,6 +11,7 @@ tags and releases follow on the owner's go-ahead.
 
 ## 1.3.0 — Unreleased
 
+- Pass through API `ambiguous-encoding` (with `candidates` and the new `error.probe`) with a hint naming `formatOptions.pac.inputCodePage` or `encoding.input`. Keep the new API warning details (`durations`, `fields`, `timecode`, `frameRate`) for `long-cue`, `format-defaults-applied`, `programme-start-not-applied` and `frame-rate-assumed`; refresh the OpenAPI snapshot and types.
 - Add get_job_file(jobId, input|output), current-location metadata and Unicode/binary body blocks; no generic URI fetch or local save parameter. Surface distinct job state/storage/replay errors with redacted locations.
 - Collapse ifExists to error | replace everywhere; remove archive/delete helpers, error codes and the local operator gate. Pass explicit policy to API outputs; HTTPS follows signer/receiver policy.
 - Negotiate wait from MCP timeout and API maximum, expose separate input/output URI schemes in descriptions/limits (omit missing scheme arrays), retain list_allowed_folders even without path access, report polling timeout as job-not-ready and missing asynchronous response bytes as job-output-not-stored. Never replay a conversion POST.

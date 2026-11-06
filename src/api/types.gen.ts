@@ -236,14 +236,14 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description RFC 7807 problem details with a stable `code` (docs/errors.md). Extra members may appear: `phase` (conversion-timeout: queue|running), `candidates` (ambiguous-format). */
+        /** @description RFC 7807 problem details with a stable `code` (docs/errors.md). Extra members may appear: `phase` (conversion-timeout: queue|running), `candidates` (ambiguous-format, ambiguous-encoding), `probe` (ambiguous-encoding: pac-code-page|text-encoding). */
         ApiProblem: {
             /** @description URL of the code's section in docs/errors.md. */
             type: string;
             title: string;
             status: number;
             /** @enum {string} */
-            code: "job-not-found" | "job-input-not-stored" | "job-output-not-stored" | "job-not-ready" | "job-file-gone" | "job-location-not-replayable" | "storage-location-rejected" | "storage-not-found" | "storage-io-failed" | "output-exists" | "invalid-request" | "invalid-profile" | "empty-input" | "unauthorized" | "not-found" | "preset-not-found" | "payload-too-large" | "unsupported-media-type" | "format-not-detected" | "format-not-supported" | "format-not-writable" | "format-option-invalid" | "invalid-binary-input" | "ambiguous-format" | "encoding-error" | "unsafe-xml" | "input-limits-exceeded" | "conversion-failed" | "rate-limited" | "queue-full" | "conversion-timeout" | "internal-error";
+            code: "job-not-found" | "job-input-not-stored" | "job-output-not-stored" | "job-not-ready" | "job-file-gone" | "job-location-not-replayable" | "storage-location-rejected" | "storage-not-found" | "storage-io-failed" | "output-exists" | "invalid-request" | "invalid-profile" | "empty-input" | "unauthorized" | "not-found" | "preset-not-found" | "payload-too-large" | "unsupported-media-type" | "format-not-detected" | "format-not-supported" | "format-not-writable" | "format-option-invalid" | "invalid-binary-input" | "ambiguous-format" | "ambiguous-encoding" | "encoding-error" | "unsafe-xml" | "input-limits-exceeded" | "conversion-failed" | "rate-limited" | "queue-full" | "conversion-timeout" | "internal-error";
             detail: string;
             /** @description What to do about it. */
             hint: string;
@@ -257,8 +257,13 @@ export interface components {
              * @enum {string}
              */
             phase?: "queue" | "running";
-            /** @description ambiguous-format only: the format ids the bytes match; set profile.source.format to one of them. */
+            /** @description ambiguous-format: the format ids the bytes match; set profile.source.format to one of them. ambiguous-encoding: the PAC code pages or text encodings that remain possible (may be empty); set formatOptions.pac.inputCodePage or encoding.input. */
             candidates?: string[];
+            /**
+             * @description ambiguous-encoding only: which probe could not decide.
+             * @enum {string}
+             */
+            probe?: "pac-code-page" | "text-encoding";
         };
         CodePointCount: {
             codePoint: string;
@@ -291,6 +296,12 @@ export interface components {
             warnings: components["schemas"]["Warning"][];
             profile: components["schemas"]["JsonObject"];
             id?: null | string;
+        };
+        CueDuration: {
+            /** Format: int32 */
+            cue: number | string;
+            /** Format: double */
+            durationMs: number | string;
         };
         CueList: {
             /** Format: int32 */
@@ -540,6 +551,13 @@ export interface components {
             distinctCodePoints?: null | number | string;
             codePoints?: null | components["schemas"]["CodePointCount"][];
             remedy?: null | components["schemas"]["RemedyInfo"];
+            durations?: null | components["schemas"]["CueDuration"][];
+            fields?: null | {
+                [key: string]: string;
+            };
+            timecode?: null | string;
+            /** Format: double */
+            frameRate?: null | number | string;
         };
     };
     responses: never;

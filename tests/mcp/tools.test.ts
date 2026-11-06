@@ -372,6 +372,40 @@ describe("convert_subtitle", () => {
     expect(r.content[0].text).toMatch(/profile\.source\.format \('pac' or 'fpc'\)/);
   });
 
+  it("ambiguous-encoding (PAC code page) becomes a ToolError with candidates, probe and an inputCodePage hint", async () => {
+    await setup();
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => problem(422, "ambiguous-encoding", { candidates: ["pac-latin", "pac-czech"], probe: "pac-code-page", errors: [{ pointer: "/formatOptions/pac/inputCodePage", message: "m" }] })));
+    const r = await callTool(h, "convert_subtitle", { content: "AAAA", contentEncoding: "base64", fileName: "a.pac", target: "srt" });
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent.error).toMatchObject({ code: "ambiguous-encoding", candidates: ["pac-latin", "pac-czech"], probe: "pac-code-page" });
+    expect(r.content[0].text).toMatch(/profile\.formatOptions\.pac\.inputCodePage/);
+    expect(r.content[0].text).toContain("\nCandidates: pac-latin, pac-czech\n");
+  });
+
+  it("follow-up source/header warnings pass through with their details (no MCP-only codes)", async () => {
+    await setup();
+    const warnings = [
+      { code: "overlapping-cues", message: "1 cue(s) overlap", count: 1, hint: "h", details: { cueCount: 1, cues: [2] } },
+      { code: "long-cue", message: "1 cue(s) over 30 s", count: 1, details: { cueCount: 1, cues: [3], durations: [{ cue: 3, durationMs: 40500 }] } },
+      { code: "programme-start-not-applied", message: "TCP 10:00:00:00", hint: "Set timing.offsetMs to -36000000.", details: { timecode: "10:00:00:00" } },
+      { code: "frame-rate-assumed", message: "Read at 23.976", hint: "Set source.fps.", details: { frameRate: 23.976 } },
+      { code: "format-defaults-applied", message: "filled in", count: 2, hint: "Set formatOptions.ebuStl.originalProgrammeTitle, countryOfOrigin", details: { fields: { originalProgrammeTitle: "No Title", countryOfOrigin: "USA" } } },
+      { code: "encoding-guessed", message: "guessed" },
+      { code: "sidecar-delete-failed", message: "stale sidecar kept" },
+    ];
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.stl", content: "AAAA", contentEncoding: "base64" }], { warnings }))));
+    const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "ebustl", outputDir: path.join(dir, "out") });
+    expect(r.isError).toBeFalsy();
+    const out = r.structuredContent.warnings.filter((w: { code: string }) => !w.code.startsWith("mcp-"));
+    expect(out.map((w: { code: string }) => w.code)).toEqual(warnings.map((w) => w.code));
+    expect(out[0].details).toEqual({ cueCount: 1, cues: [2] });
+    expect(out[1].details).toEqual(warnings[1].details);
+    expect(out[2].details).toEqual({ timecode: "10:00:00:00" });
+    expect(out[3].details).toEqual({ frameRate: 23.976 });
+    expect(out[4]).toMatchObject({ code: "format-defaults-applied", message: "filled in (count 2)", details: { fields: { originalProgrammeTitle: "No Title", countryOfOrigin: "USA" } } });
+    expect(r.content[0].text).toContain("format-defaults-applied: filled in (count 2) (hint: Set formatOptions.ebuStl.originalProgrammeTitle, countryOfOrigin)");
+  });
+
   it("D-38: staging happens in <root>/.subtitle-mcp-staging/, never in the output folder", async () => {
     await setup();
     mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "movie.vtt", content: Buffer.from("WEBVTT\n").toString("base64"), contentEncoding: "base64" }]))));

@@ -8,6 +8,14 @@ export const WarningDetails = z.object({
   cues: z.array(z.number().int()).optional(),
   distinctCodePoints: z.number().int().optional(),
   codePoints: z.array(z.object({ codePoint: z.string(), count: z.number().int() })).optional(),
+  /** long-cue: source cue number and duration (ms). */
+  durations: z.array(z.object({ cue: z.number().int(), durationMs: z.number() })).optional(),
+  /** format-defaults-applied: header field → value the writer filled in. */
+  fields: z.record(z.string(), z.string()).optional(),
+  /** programme-start-not-applied: the EBU STL TCP, HH:MM:SS:FF. */
+  timecode: z.string().optional(),
+  /** frame-rate-assumed: the rate a frame-based source was read at. */
+  frameRate: z.number().optional(),
   /** API 1.2.1, characters-replaced: the facts to choose a fix (option, allowed values, tested candidates). */
   remedy: z
     .object({
@@ -41,8 +49,10 @@ export const ToolErrorSchema = z.object({
   retryAfterSeconds: z.number().optional(),
   attempts: z.number().int().optional(),
   limit: z.object({ name: z.string(), value: z.number(), actual: z.number() }).optional(),
-  /** ambiguous-format: the format ids the bytes match. */
+  /** ambiguous-format: the format ids the bytes match; ambiguous-encoding: the code pages / encodings still possible. */
   candidates: z.array(z.string()).optional(),
+  /** ambiguous-encoding: which probe could not decide ("pac-code-page" | "text-encoding"). */
+  probe: z.string().optional(),
   phase: z.string().optional(),
   /** D-35: the caller-visible path a local failure is about. */
   path: z.string().optional(),
@@ -86,6 +96,8 @@ export const MCP_HINTS: Record<string, string> = {
   "encoding-error": "Set profile.encoding.input.",
   "ambiguous-format":
     "The file matches both PAC and Unicode PAC (FPC). Pass profile.source.format ('pac' or 'fpc'), or give the file its .pac or .fpc name.",
+  "ambiguous-encoding":
+    "The API could not tell the character set from the file's words. Pass the right one from candidates (or the file's known language) in profile.formatOptions.pac.inputCodePage (PAC) or profile.encoding.input (text), or save text as UTF-8.",
   "input-limits-exceeded": "Split the file.",
   "conversion-failed": "Try removing the named operation from the profile.",
   "rate-limited": "The API is rate limited; try again later.",
@@ -150,6 +162,7 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
   }
   if (Array.isArray(b.candidates)) te.candidates = b.candidates.map(String);
   if (typeof b.phase === "string") te.phase = b.phase;
+  if (typeof b.probe === "string") te.probe = b.probe;
   if (ctx.includeDebug && ctx.mode !== "hosted" && b.debug !== undefined) te.debug = b.debug;
 
   let mcpHint: string | undefined = MCP_HINTS[apiCode];
@@ -174,6 +187,12 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
     case "format-not-supported":
       mcpHint = "Pick a format from list_formats.";
       break;
+    case "ambiguous-encoding":
+      if (b.probe === "pac-code-page")
+        mcpHint = "Pass profile.formatOptions.pac.inputCodePage (one of candidates, or the code page for the file's language, e.g. 'greek').";
+      else if (b.probe === "text-encoding")
+        mcpHint = "Pass profile.encoding.input (one of candidates), or save the file as UTF-8.";
+      break;
     case "conversion-timeout":
       mcpHint =
         timeoutPhase(b) === "queue"
@@ -193,6 +212,7 @@ export function errorText(e: ToolError): string {
   let s = `${e.code}: ${e.detail ?? e.title ?? "error"}`;
   if (e.errors?.length) s += "\n" + e.errors.slice(0, 10).map((x) => `  ${x.pointer}: ${x.message}${x.hint ? ` (${x.hint})` : ""}`).join("\n");
   if (e.candidates?.length) s += `\nCandidates: ${e.candidates.join(", ")}`;
+  if (e.probe) s += `\nProbe: ${e.probe}`;
   if (e.osError) s += `\nOS error: ${e.osError.code}${e.osError.syscall ? ` (${e.osError.syscall})` : ""}`;
   if (e.limit) s += `\nLimit ${e.limit.name}=${e.limit.value}, actual ${e.limit.actual}`;
   if (e.retryAfterSeconds !== undefined) s += `\nRetry after: ${e.retryAfterSeconds}s`;
