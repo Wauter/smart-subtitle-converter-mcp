@@ -4,7 +4,7 @@ Start with `list_allowed_folders` (folders and their `state`) and the server's l
 the client's MCP log). Every error carries a `code`, a `hint` and a `source`:
 
 - `source: "api"`: the converter API raised it. Look it up on the API's
-  [errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) page (what happened, why, and what to do).
+  [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page (what happened, why, and what to do).
   This page does not repeat those codes.
 - `source: "mcp"`: this server raised it, about local folders, files, or talking to the API. They are explained
   below.
@@ -22,7 +22,7 @@ that `GET /v1/limits` exists and warns if it doesn't.
 
 If you did update and still see an older MCP version in the warning, the client is running a different copy:
 
-- Check which command the client starts (`claude mcp get subtitleedit` in Claude Code, the JSON config elsewhere).
+- Check which command the client starts (`claude mcp get smart-subtitle` in Claude Code, the JSON config elsewhere).
 - Built from source: rerun `npm ci && npm run build` after `git pull`.
 - Client in a VM or container: it runs the copy **inside** that environment. If you copied `dist/` there, copy it
   again after every update ([clients.md](clients.md#clients-in-a-vm-or-container)).
@@ -108,7 +108,7 @@ system failures.
   port (`http://api:8080`). From a VM, `localhost` may not be your host.
 
 Auth failures from the API are on that
-[errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) page; the MCP sends `SUBTITLE_API_KEY` (or `_FILE`).
+[errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page; the MCP sends `SUBTITLE_API_KEY` (or `_FILE`).
 
 **`mcp-timeout`**
 
@@ -147,7 +147,7 @@ Auth failures from the API are on that
 
 These apply when `convert_subtitle` uses API-side `input` / `output` locations, and to `get_job_file`.
 Storage, overwrite, sidecar and job codes from the API are on the
-[errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) page.
+[errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page.
 
 Cancelling an MCP call, or running out of wait time, does not cancel work the API has already accepted.
 If the MCP stops waiting it reports `job-not-ready` and keeps the `jobId`; the API job continues. Don't send
@@ -163,7 +163,7 @@ folder grants don't give the API access to its own storage.
 ## Character sets and formats
 
 API format and encoding errors and warnings are on the
-[errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) page.
+[errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page.
 
 **`mcp-ebu-size`** warning (from the MCP)
 

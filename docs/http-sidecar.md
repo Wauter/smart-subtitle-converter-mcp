@@ -2,8 +2,8 @@
 
 ## Transports
 
-- **stdio** (local mode): `npx subtitleedit-converter-mcp`, started by the MCP client ([clients.md](clients.md)).
-- **Streamable HTTP** (sidecar mode): `subtitleedit-converter-mcp --http 0.0.0.0:3000`, endpoint `/mcp`,
+- **stdio** (local mode): `npx smart-subtitle-converter-mcp`, started by the MCP client ([clients.md](clients.md)).
+- **Streamable HTTP** (sidecar mode): `smart-subtitle-converter-mcp --http 0.0.0.0:3000`, endpoint `/mcp`,
   stateless. Requires an inbound token: clients send `Authorization: Bearer <token>`. `GET /healthz` is the only
   unauthenticated path. Generate a token with:
 
@@ -26,13 +26,13 @@ The API and the MCP side by side on an internal network, with the MCP reachable 
 ```yaml
 services:
   api:
-    image: ghcr.io/wauter/subtitleedit-converter-api:X.Y.Z      # pinned, never latest
+    image: ghcr.io/wauter/smart-subtitle-converter-api:X.Y.Z      # pinned, never latest
     read_only: true
     tmpfs: [/tmp]
     networks: [internal]
     # API_KEYS / API_KEYS_FILE optional
   mcp:
-    image: ghcr.io/wauter/subtitleedit-converter-mcp:X.Y.Z      # same major.minor as the API
+    image: ghcr.io/wauter/smart-subtitle-converter-mcp:X.Y.Z      # same major.minor as the API
     read_only: true
     environment:
       SUBTITLE_API_URL: http://api:8080              # container port on the internal network (host port 8080 is not involved)

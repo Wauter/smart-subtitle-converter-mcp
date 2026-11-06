@@ -135,7 +135,7 @@ describe("streamable HTTP sidecar", () => {
     for (const h of variants) {
       const r = await rpc(init, h);
       expect(r.status).toBe(401);
-      expect(r.headers.get("www-authenticate")).toBe('Bearer realm="subtitleedit-converter-mcp"');
+      expect(r.headers.get("www-authenticate")).toBe('Bearer realm="smart-subtitle-converter-mcp"');
       expect(((await r.json()) as any).error.code).toBe(-32001);
     }
     expect(proc.stderr()).toMatch(/"msg":"auth-failed".*"reason":"missing"/);
@@ -147,7 +147,7 @@ describe("streamable HTTP sidecar", () => {
       const r = await rpc(init, { authorization: `Bearer ${t}` });
       expect(r.status).toBe(200);
       expect(r.headers.get("mcp-session-id")).toBeNull();
-      expect((await parse(r)).result.serverInfo.name).toBe("subtitleedit-converter-mcp");
+      expect((await parse(r)).result.serverInfo.name).toBe("smart-subtitle-converter-mcp");
     }
   });
 

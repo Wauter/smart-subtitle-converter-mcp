@@ -10,7 +10,7 @@ async function main(): Promise<void> {
     parsed = parseArgs(process.argv.slice(2), process.env);
   } catch (e) {
     if (e instanceof ConfigError) {
-      process.stderr.write(`subtitleedit-converter-mcp: ${e.message}\n\n${USAGE}\n`);
+      process.stderr.write(`smart-subtitle-converter-mcp: ${e.message}\n\n${USAGE}\n`);
       process.exit(2);
     }
     throw e;
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   try {
     roots = await realpathRoots(cfg.allowedDirs, cfg.readonlyDirs);
   } catch (e) {
-    process.stderr.write(`subtitleedit-converter-mcp: ${(e as Error).message}\n`);
+    process.stderr.write(`smart-subtitle-converter-mcp: ${(e as Error).message}\n`);
     process.exit(2);
   }
   log.info("starting", {
@@ -57,6 +57,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  process.stderr.write(`subtitleedit-converter-mcp: fatal: ${(e as Error)?.message ?? e}\n`);
+  process.stderr.write(`smart-subtitle-converter-mcp: fatal: ${(e as Error)?.message ?? e}\n`);
   process.exit(1);
 });

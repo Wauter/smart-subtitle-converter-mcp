@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# subtitleedit-converter-mcp: MCP server for the Subtitle Edit Converter API (spec §15.1).
+# smart-subtitle-converter-mcp: MCP server for the Smart Subtitle Converter API (spec §15.1).
 # Build: node:22-slim (npm ci, build). Runtime: distroless nodejs22, nonroot, no shell, read-only rootfs friendly.
 
 FROM node:22-slim AS build
@@ -15,9 +15,9 @@ RUN npm run build \
 FROM gcr.io/distroless/nodejs22-debian12:nonroot
 ARG VERSION=dev
 ARG REVISION=unknown
-LABEL org.opencontainers.image.title="subtitleedit-converter-mcp" \
-      org.opencontainers.image.description="MCP server for the Subtitle Edit Converter API (community wrapper around Subtitle Edit libse; not an official Subtitle Edit project)" \
-      org.opencontainers.image.source="https://github.com/Wauter/subtitleedit-converter-mcp" \
+LABEL org.opencontainers.image.title="smart-subtitle-converter-mcp" \
+      org.opencontainers.image.description="MCP server for the Smart Subtitle Converter API (community wrapper around Subtitle Edit libse; not an official Subtitle Edit project)" \
+      org.opencontainers.image.source="https://github.com/Wauter/smart-subtitle-converter-mcp" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"

@@ -11,7 +11,7 @@
     {
       "description": "The contract image is bumped deliberately together with the MCP version (D-37/D-43)",
       "matchDatasources": ["docker"],
-      "matchPackageNames": ["ghcr.io/wauter/subtitleedit-converter-api"],
+      "matchPackageNames": ["ghcr.io/wauter/smart-subtitle-converter-api"],
       "enabled": false
     },
     {

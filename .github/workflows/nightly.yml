@@ -16,7 +16,7 @@ jobs:
   edge:
     runs-on: ubuntu-latest
     env:
-      API_IMAGE: ghcr.io/wauter/subtitleedit-converter-api:edge
+      API_IMAGE: ghcr.io/wauter/smart-subtitle-converter-api:edge
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4

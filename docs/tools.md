@@ -1,6 +1,6 @@
 # Tools
 
-The server is a thin client over the [Subtitle Edit Converter API](https://github.com/Wauter/subtitleedit-converter-api);
+The server is a thin client over the [Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api);
 each tool maps to an API endpoint, except `list_allowed_folders`, which is local. The tool descriptions the client
 sees are the authoritative, live version of this page (they include the allowed folders in effect).
 
@@ -27,7 +27,7 @@ How files are written: [writing-files.md](writing-files.md).
 Errors come back as `isError: true` with a structured `error`: `source` (`api` or `mcp`), `code`, `detail`, `hint`,
 `requestId`, and where they apply `errors[]` (pointer, message, hint), `candidates` and `probe`, `jobId` /
 `jobUrl`, a redacted `location`, `limit`, `retryAfterSeconds`, and for local write failures `path` + `osError`.
-API codes are on the API's [errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) page
+API codes are on the API's [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page
 (what happened, why, what to do). MCP codes (`path-not-allowed`, `output-exists`, `cross-device`, …) are in
 [troubleshooting.md](troubleshooting.md). `path-not-allowed` hints include the current allowed folders.
 
@@ -35,7 +35,7 @@ API codes are on the API's [errors and warnings](https://github.com/Wauter/subti
 
 Report every warning the tools return. Each has a `code` and `message`, and may carry a `hint` (the setting
 that fixes it) and `details` (positions and settings, never cue text). What each API warning means, including
-`characters-replaced` remedy fields: the API's [errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) page.
+`characters-replaced` remedy fields: the API's [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page.
 
 The MCP passes API warnings through unchanged. It adds only `mcp-api-version-mismatch`
 ([troubleshooting.md](troubleshooting.md#version-mismatch)) and `mcp-ebu-size` (a local `.stl` larger than
@@ -45,7 +45,7 @@ the API's EBU STL limit).
 
 Binary outputs carry `outputs[].verification` (verdict, cue counts, timing shift, replaced characters). The
 summary shows one line per output. How to read the verdict and fields is on the same
-[errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) page.
+[errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page.
 
 A clean round trip proves the file is self-consistent through the converter's own reader, not that a given
 playout system accepts it.
@@ -77,7 +77,7 @@ Results include jobId, which, fileName, mediaType, decoded bytes, redacted locat
 where the body is in content[]. Unicode text is inline up to the normal text limit; larger text and binary
 are embedded resources. Subtitle text is not logged. Errors distinguish `job-not-ready`, `job-not-found`,
 `job-input-not-stored`, `job-output-not-stored`, `job-file-gone` and `job-location-not-replayable` (see the API's
-[errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) page); the last two
+[errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page); the last two
 include a redacted location. Input may be readable while output is pending. A failed job has no successful
 stored output. A missing job is not a failed conversion.
 

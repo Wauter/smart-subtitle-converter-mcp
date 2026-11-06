@@ -1,16 +1,16 @@
-# Subtitle Edit Converter MCP
+# Smart Subtitle Converter MCP
 
 **Let Claude and other AI agents convert subtitles with Subtitle Edit's engine, only inside the folders you allow.**
 
 > **Built on Subtitle Edit.** Conversions run in the
-> [Subtitle Edit Converter API](https://github.com/Wauter/subtitleedit-converter-api), which wraps `libse`, the
+> [Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api), which wraps `libse`, the
 > library behind [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit) by **Nikolaj Olsson** (MIT).
 > This is a community project, **not an official Subtitle Edit project**.
 >
 > **Status: alpha.** It works and is tested, but hasn't been through real-world use yet. Expect changes, and
-> please [report issues](https://github.com/Wauter/subtitleedit-converter-mcp/issues).
+> please [report issues](https://github.com/Wauter/smart-subtitle-converter-mcp/issues).
 
-This [Model Context Protocol](https://modelcontextprotocol.io) server gives AI agents the Subtitle Edit Converter
+This [Model Context Protocol](https://modelcontextprotocol.io) server gives AI agents the Smart Subtitle Converter
 API and adds what an agent working on your files needs: access only to folders you name, atomic single-file writes
 through staging, and structured errors and warnings the agent can act on. It does no conversion itself.
 
@@ -28,14 +28,14 @@ through staging, and structured errors and warnings the agent can act on. It doe
 
 ## Quick start (Claude Code)
 
-Start the API first (its [quick start](https://github.com/Wauter/subtitleedit-converter-api#quick-start) serves
+Start the API first (its [quick start](https://github.com/Wauter/smart-subtitle-converter-api#quick-start) serves
 `http://localhost:8080`), then:
 
 ```bash
 claude mcp add --transport stdio \
   --env SUBTITLE_API_URL=http://localhost:8080 \
   --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/Subtitles \
-  subtitleedit -- npx -y subtitleedit-converter-mcp
+  smart-subtitle -- npx -y smart-subtitle-converter-mcp
 ```
 
 Point `SUBTITLE_MCP_ALLOWED_DIRS` at the folder that holds your subtitles, then ask:
@@ -78,7 +78,7 @@ output while the API still has its record. See [tools](docs/tools.md#api-storage
 | [docs/clients.md](docs/clients.md) | Set it up in Claude Code, Claude Desktop, Cursor, Windows or a VM; build from source |
 | [docs/folders-and-roots.md](docs/folders-and-roots.md) | Understand which folders it may use |
 | [docs/tools.md](docs/tools.md) | See every tool's inputs, results, verification and warning fields |
-| [API errors and warnings](https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md) | Look up what an API error or warning means, why it happened and what to do |
+| [API errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) | Look up what an API error or warning means, why it happened and what to do |
 | [docs/writing-files.md](docs/writing-files.md) | Know how files are staged and committed, `ifExists`, race windows |
 | [docs/configuration.md](docs/configuration.md) | Look up every `SUBTITLE_MCP_*` variable and flag |
 | [docs/security.md](docs/security.md) | See allowed folders, writes, API keys and HTTP-mode safeguards |
@@ -94,6 +94,6 @@ server adds an `mcp-api-version-mismatch` warning.
 
 All subtitle format support comes from [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit) and its
 `libse` library by Nikolaj Olsson and contributors (MIT), through the
-[Subtitle Edit Converter API](https://github.com/Wauter/subtitleedit-converter-api). Thank you.
+[Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api). Thank you.
 
 This server is MIT licensed, see [LICENSE](LICENSE).
