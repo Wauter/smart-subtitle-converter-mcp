@@ -1,6 +1,6 @@
 name: nightly-contract
 
-# Nightly drift check against the API's private :edge image. Failures open (or update) an issue instead of
+# Nightly drift check against the API's :edge image. Failures open (or update) an issue instead of
 # blocking merges (spec §14). Publishes nothing.
 on:
   schedule:

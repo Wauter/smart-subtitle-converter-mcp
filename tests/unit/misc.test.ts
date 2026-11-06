@@ -145,10 +145,10 @@ describe("version check (D-37/D-43)", () => {
     expect(versionCompatible("1.1.0", "1.1.2")).toBe(true);
     expect(versionCompatible("1.2.0", "1.1.2")).toBe(false);
   });
-  it("package.json carries the shared 1.3 version line (pairs with API 1.3.x) and stays private", async () => {
+  it("package.json carries the shared 1.3 version line (pairs with API 1.3.x) and is publishable", async () => {
     const pkg = JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
     expect(pkg.version).toMatch(/^1\.3\.\d+$/);
-    expect(pkg.private).toBe(true);
+    expect(pkg.private).toBeUndefined();
   });
 });
 

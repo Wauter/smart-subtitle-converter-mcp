@@ -28,8 +28,10 @@ variable `CONTRACT_REQUIRED=true`.
 
 ## Publishing
 
-Every publish step (npm package, image) is gated behind the repo variable `PUBLISH_ENABLED` (default `false`).
-Tags and releases are cut only on the owner's go-ahead.
+Version tags (`v*.*.*`) cut a release when the repo variable `PUBLISH_ENABLED` is `true`: multi-arch image to
+GHCR (`ghcr.io/wauter/subtitleedit-converter-mcp`), a GitHub Release, and `npm publish` of
+`subtitleedit-converter-mcp` (needs the `NPM_TOKEN` secret or npm trusted publishing). The image is marked
+public after push. Docs-only commits do not need a version bump.
 
 ## Smoke checklist (Claude Desktop / Cursor, MCP Inspector)
 
