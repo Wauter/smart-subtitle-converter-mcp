@@ -33,6 +33,16 @@ export const WarningDetails = z.object({
     })
     .optional(),
 });
+/** ambiguous-encoding with probe text-encoding: one encoding that still reads as words, with a short decoded sample. */
+export const EncodingCandidate = z.object({
+  encoding: z.string(),
+  language: z.string().nullish(),
+  hits: z.number().int().optional(),
+  sample: z.string().optional(),
+});
+/** Strings (format ids, PAC code pages) or text-encoding objects. */
+export const Candidate = z.union([z.string(), EncodingCandidate]);
+export type CandidateT = z.infer<typeof Candidate>;
 export const Warning = z.object({ code: z.string(), message: z.string(), hint: z.string().optional(), details: WarningDetails.optional() });
 export const ToolErrorSchema = z.object({
   source: z.enum(["api", "mcp"]),
@@ -49,8 +59,11 @@ export const ToolErrorSchema = z.object({
   retryAfterSeconds: z.number().optional(),
   attempts: z.number().int().optional(),
   limit: z.object({ name: z.string(), value: z.number(), actual: z.number() }).optional(),
-  /** ambiguous-format: the format ids the bytes match; ambiguous-encoding: the code pages / encodings still possible. */
-  candidates: z.array(z.string()).optional(),
+  /**
+   * ambiguous-format: the format ids the bytes match (strings). ambiguous-encoding: PAC code page names (strings) for
+   * probe pac-code-page, or {encoding, language, hits, sample} objects for probe text-encoding.
+   */
+  candidates: z.array(Candidate).optional(),
   /** ambiguous-encoding: which probe could not decide ("pac-code-page" | "text-encoding"). */
   probe: z.string().optional(),
   phase: z.string().optional(),
@@ -160,7 +173,7 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
         ...(typeof e.hint === "string" ? { hint: e.hint } : {}),
       }));
   }
-  if (Array.isArray(b.candidates)) te.candidates = b.candidates.map(String);
+  if (Array.isArray(b.candidates)) te.candidates = mapCandidates(b.candidates);
   if (typeof b.phase === "string") te.phase = b.phase;
   if (typeof b.probe === "string") te.probe = b.probe;
   if (ctx.includeDebug && ctx.mode !== "hosted" && b.debug !== undefined) te.debug = b.debug;
@@ -207,11 +220,41 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
   return te;
 }
 
+/** Keeps strings and text-encoding objects structurally (bounded); drops anything else. */
+export function mapCandidates(v: unknown[]): CandidateT[] {
+  const out: CandidateT[] = [];
+  for (const c of v.slice(0, 50)) {
+    if (typeof c === "string" || typeof c === "number") out.push(String(c).slice(0, 100));
+    else if (c && typeof c === "object" && typeof (c as any).encoding === "string") {
+      const o = c as Record<string, unknown>;
+      const hits = typeof o.hits === "number" ? Math.trunc(o.hits) : typeof o.hits === "string" && /^\d+$/.test(o.hits) ? Number(o.hits) : undefined;
+      out.push({
+        encoding: (o.encoding as string).slice(0, 100),
+        ...(typeof o.language === "string" ? { language: o.language.slice(0, 50) } : o.language === null ? { language: null } : {}),
+        ...(hits !== undefined ? { hits } : {}),
+        ...(typeof o.sample === "string" ? { sample: o.sample.slice(0, 500) } : {}),
+      });
+    }
+  }
+  return out;
+}
+
+/** "windows-1256 (ar, 12 words): \"sample\"" for an object candidate; strings as they are. */
+export function candidateText(c: CandidateT): string {
+  if (typeof c === "string") return c;
+  const facts = [c.language, c.hits !== undefined ? `${c.hits} word${c.hits === 1 ? "" : "s"}` : undefined].filter(Boolean).join(", ");
+  return `${c.encoding}${facts ? ` (${facts})` : ""}${c.sample ? `: ${JSON.stringify(c.sample)}` : ""}`;
+}
+
 /** Text block for an error result: "<code>: <detail>\nHint: <hint>\nrequestId: <id>". */
 export function errorText(e: ToolError): string {
   let s = `${e.code}: ${e.detail ?? e.title ?? "error"}`;
   if (e.errors?.length) s += "\n" + e.errors.slice(0, 10).map((x) => `  ${x.pointer}: ${x.message}${x.hint ? ` (${x.hint})` : ""}`).join("\n");
-  if (e.candidates?.length) s += `\nCandidates: ${e.candidates.join(", ")}`;
+  if (e.candidates?.length) {
+    s += e.candidates.some((c) => typeof c !== "string")
+      ? `\nCandidates:\n${e.candidates.map((c) => `  - ${candidateText(c)}`).join("\n")}`
+      : `\nCandidates: ${e.candidates.join(", ")}`;
+  }
   if (e.probe) s += `\nProbe: ${e.probe}`;
   if (e.osError) s += `\nOS error: ${e.osError.code}${e.osError.syscall ? ` (${e.osError.syscall})` : ""}`;
   if (e.limit) s += `\nLimit ${e.limit.name}=${e.limit.value}, actual ${e.limit.actual}`;

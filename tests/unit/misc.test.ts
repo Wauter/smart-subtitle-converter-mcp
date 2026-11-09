@@ -152,3 +152,24 @@ describe("version check (D-37/D-43)", () => {
   });
 });
 
+
+describe("textView truncation", async () => {
+  const { textView, countSrtCues, locationBaseName } = await import("../../src/tools/textView.js");
+  it("never splits a UTF-8 sequence, even without any line break", () => {
+    const v = textView("ééééé", 5, false); // 2 bytes each
+    expect(v).toEqual({ text: "éé", truncated: true, returnedBytes: 4, totalBytes: 10 });
+  });
+  it("cuts SRT at a CRLF blank line and counts cues; falls back to a line when one cue exceeds the cap", () => {
+    const srt = "1\r\n00:00:01,000 --> 00:00:02,000\r\nA\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\nB\r\n";
+    expect(textView(srt, 60, true)).toMatchObject({ text: "1\r\n00:00:01,000 --> 00:00:02,000\r\nA\r\n\r\n", truncated: true, returnedCues: 1, totalCues: 2 });
+    expect(textView(srt, 20, true)).toMatchObject({ text: "1\r\n", truncated: true, returnedCues: 0 });
+    expect(textView(srt, 1000, true)).toMatchObject({ text: srt, truncated: false, returnedCues: 2, totalCues: 2 });
+    expect(countSrtCues("no cues")).toBe(0);
+  });
+  it("derives stored names from locations", () => {
+    expect(locationBaseName("s3://broadcast-delivery/qa-p6/test2-145152.srt")).toBe("test2-145152.srt");
+    expect(locationBaseName("https://h.example.com/out/a%20b.srt")).toBe("a b.srt");
+    expect(locationBaseName("/data/out/x.vtt")).toBe("x.vtt");
+    expect(locationBaseName("s3://bucket/")).toBeUndefined();
+  });
+});

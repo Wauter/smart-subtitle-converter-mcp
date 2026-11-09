@@ -11,6 +11,14 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
 
 ## Unreleased
 
+- `get_job_file` and inline `convert_subtitle` put the subtitle text in the structured result: `text` in `get_job_file` and in `outputs[].text`, also in the output schemas. Clients that show the model only `structuredContent` (such as Claude Code) now see the content. The text block stays as well.
+- `get_job_file` converts binary files (EBU STL, PAC, Cavena 890, …) to SRT through the API to show their text, inline only and without writing anything. The result has `convertedFrom` (the stored format id), `convertedTo: "srt"` and the conversion `warnings`. A failed conversion returns the normal error with its candidates, plus a hint to read the file with `convert_subtitle`. Text files are returned as stored, legacy encodings included. Base64 is no longer returned.
+- Text over `SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES` (default 64 KB) is cut instead of switching to an embedded resource. SRT is cut at the last whole cue and other text at the last full line, never inside a character. Text results carry `truncated`, `returnedBytes`, `totalBytes` and, for SRT, `returnedCues`/`totalCues`, and the summary says when the text was cut.
+- Removed `resourceUri` and `inline` from the structured results and schemas of both tools, and `contentEncoding` from `get_job_file` (its content is always text now). `get_job_file` no longer sends an embedded resource. Binary inline `convert_subtitle` results keep their embedded resource block, whose `uri` only labels the block.
+- `get_job_file` documents `jobId` and `which`; a missing or invalid argument says it is required or names the valid values, instead of zod's "Invalid option" (all tools).
+- Fix `ambiguous-encoding` `candidates` for text encodings: the API's `{encoding, language, hits, sample}` objects are passed through as objects instead of `"[object Object]"`, and the error text lists them one per line. The error schema accepts strings and these objects; OpenAPI snapshot and types refreshed.
+- Stored outputs report the stored object's name in `outputs[].fileName` (the last segment of `output`, e.g. `test2-145152.srt`) instead of the name generated from the source (`show.srt`). The API now does the same; the MCP derives it from `output` for older APIs too.
+
 - Keep npm publishing manual and make the existing GitHub Release step safe to rerun.
 
 - Rename the product to **Smart Subtitle Converter** and update repository, container image, npm package and CLI identifiers. The npm package is published as `smart-subtitle-converter-mcp`. Versions and existing release tags are unchanged.

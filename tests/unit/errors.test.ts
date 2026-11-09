@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { errorText, mapProblem, type MapContext } from "../../src/errors.js";
+import { errorText, mapProblem, ToolErrorSchema, type MapContext } from "../../src/errors.js";
 
 const ctx: MapContext = { mode: "local", includeDebug: false };
 const p = (status: number, code: string, extra: Record<string, unknown> = {}) => ({ type: "t", title: "T", status, code, detail: "d", hint: "API hint.", requestId: "rid", ...extra });
@@ -100,6 +100,14 @@ describe("problem mapping (§8.1)", () => {
     expect(errorText(empty)).not.toContain("Candidates:");
     const unknown = mapProblem(422, p(422, "ambiguous-encoding", {}), ctx);
     expect(unknown.hint).toMatch(/inputCodePage .*encoding\.input/);
+  });
+  it("ambiguous-encoding text-encoding: object candidates pass through structurally and read well", () => {
+    const te = mapProblem(422, p(422, "ambiguous-encoding", { probe: "text-encoding", candidates: [{ encoding: "windows-1256", language: "ar", hits: 12, sample: "مرحبا", extra: "x" }, { encoding: "windows-1252", language: null, hits: "1", sample: "Ã©" }, 42, { nope: true }] }), ctx);
+    expect(te.candidates).toEqual([{ encoding: "windows-1256", language: "ar", hits: 12, sample: "مرحبا" }, { encoding: "windows-1252", language: null, hits: 1, sample: "Ã©" }, "42"]);
+    expect(ToolErrorSchema.parse(te).candidates).toEqual(te.candidates);
+    const t = errorText(te);
+    expect(t).toContain('\nCandidates:\n  - windows-1256 (ar, 12 words): "مرحبا"\n  - windows-1252 (1 word): "Ã©"\n  - 42\n');
+    expect(t).not.toContain("[object Object]");
   });
   it("error text format", () => {
     expect(errorText({ source: "mcp", code: "x", detail: "d", hint: "h", requestId: "r" })).toBe("x: d\nHint: h\nrequestId: r");

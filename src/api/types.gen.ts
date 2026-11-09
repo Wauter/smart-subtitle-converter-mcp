@@ -257,8 +257,8 @@ export interface components {
              * @enum {string}
              */
             phase?: "queue" | "running";
-            /** @description ambiguous-format: the format ids the bytes match; set profile.source.format to one of them. ambiguous-encoding: the PAC code pages or text encodings that remain possible (may be empty); set formatOptions.pac.inputCodePage or encoding.input. */
-            candidates?: string[];
+            /** @description ambiguous-format: format ids (strings). ambiguous-encoding pac-code-page: code page names (strings). ambiguous-encoding text-encoding: objects {encoding, language, hits, sample}; set encoding.input or encoding.language, picking only from this list. */
+            candidates?: unknown[];
             /**
              * @description ambiguous-encoding only: which probe could not decide.
              * @enum {string}

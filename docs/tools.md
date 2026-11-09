@@ -12,10 +12,12 @@ sees are the authoritative, live version of this page (they include the allowed 
 | `validate_profile` | `POST /v1/profiles/validate` | Validate a profile (inline or `path`); pointer-level errors with hints |
 | `detect_format` | `POST /v1/detect` | Format, encoding and language of inline content, a local `path` or API `input`, plus `bom`, `lineEndings` and source `warnings` |
 | `convert_subtitle` | `POST /v1/convert/json` | Convert one file: exactly one content/path/input; result inline, local outputPath/outputDir or API output |
-| `get_job_file` | `GET /v1/jobs/{id}/input` or `/output` | Re-read the job's current stored input or single subtitle output |
+| `get_job_file` | `GET /v1/jobs/{id}/input` or `/output` (+ `POST /v1/convert/json` to SRT for binary files) | Re-read the job's current stored input or single subtitle output as text |
 | `list_allowed_folders` | – (local) | The folders in effect, with `mode`, `source` and `state` ([folders-and-roots.md](folders-and-roots.md)) |
 
-`list_allowed_folders` stays registered even when paths are unavailable (empty folders, state none). It covers MCP-local folders only, never API input/output URIs. Inline text outputs larger than `SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES` come back as an embedded resource.
+`list_allowed_folders` stays registered even when paths are unavailable (empty folders, state none). It covers MCP-local folders only, never API input/output URIs. Inline text results of `convert_subtitle` come back in `outputs[].text` (and as a text block); binary results are attached as an embedded resource the client can save, and that resource's `uri` only labels the block (it is not readable with `resources/read`).
+
+Text longer than `SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES` (UTF-8 bytes, default 65536) is cut, never inside a character: SRT at the last whole cue, other text at the last full line. Text results carry `truncated` (true when cut), `returnedBytes` and `totalBytes`, and for SRT `returnedCues` and `totalCues`; the summary says plainly when the text was cut. To keep a whole long file, write it with `outputPath`/`outputDir` or an API `output`.
 How files are written: [writing-files.md](writing-files.md).
 
 ## Resources
@@ -25,7 +27,7 @@ How files are written: [writing-files.md](writing-files.md).
 ## Errors
 
 Errors come back as `isError: true` with a structured `error`: `source` (`api` or `mcp`), `code`, `detail`, `hint`,
-`requestId`, and where they apply `errors[]` (pointer, message, hint), `candidates` and `probe`, `jobId` /
+`requestId`, and where they apply `errors[]` (pointer, message, hint), `candidates` and `probe` (strings for `ambiguous-format` and PAC code pages; `{encoding, language, hits, sample}` objects for `ambiguous-encoding` with probe `text-encoding`), `jobId` /
 `jobUrl`, a redacted `location`, `limit`, `retryAfterSeconds`, and for local write failures `path` + `osError`.
 API codes are on the API's [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page
 (what happened, why, what to do). MCP codes (`path-not-allowed`, `output-exists`, `cross-device`, …) are in
@@ -73,9 +75,16 @@ It uses the configured API key, not an owner/admin role. Job ids are unguessable
 current storage through current API allowlists/limits, without detection or conversion. Files can change or
 vanish; a signed HTTPS query is not retained, so that location cannot be replayed.
 
-Results include jobId, which, fileName, mediaType, decoded bytes, redacted location, contentEncoding and
-where the body is in content[]. Unicode text is inline up to the normal text limit; larger text and binary
-are embedded resources. Subtitle text is not logged. Errors distinguish `job-not-ready`, `job-not-found`,
+Results include jobId, which, fileName, mediaType, `bytes` (the stored file's size), the redacted location, `format`
+when the job recorded it, and the file content as text in `text` (also sent as a text block). Text files are returned
+as stored (UTF-8, UTF-16 or the recorded legacy encoding, decoded exactly). Binary files (EBU STL, PAC, Cavena 890, …)
+are converted to SRT through the API for reading, inline only (no output location, nothing written, the stored file
+is unchanged): the result then has `convertedFrom` (the stored format id), `convertedTo: "srt"` and the
+conversion's `warnings`, which say what the SRT view lost. If that conversion fails (for example `ambiguous-encoding`
+on a PAC file), the normal error comes back with its candidates, and the hint says how to read the file with
+`convert_subtitle` and the right setting. `text` follows the same size limit and `truncated` fields as inline
+conversion results. Base64 is never returned, and there is no embedded resource or `resourceUri`.
+A missing `jobId` or `which` is reported as required, with the valid values. Subtitle text is not logged. Errors distinguish `job-not-ready`, `job-not-found`,
 `job-input-not-stored`, `job-output-not-stored`, `job-file-gone` and `job-location-not-replayable` (see the API's
 [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page); the last two
 include a redacted location. Input may be readable while output is pending. A failed job has no successful

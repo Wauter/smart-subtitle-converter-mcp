@@ -9,6 +9,7 @@ import { mcpError, ToolFailure, type WarningT } from "../errors.js";
 import { sanitizeOutputName, type WriteResult } from "../fs/write.js";
 import { finishConversion } from "../api/jobs.js";
 import { toInt } from "../api/coerce.js";
+import { locationBaseName, textView, truncationText } from "./textView.js";
 import {
   apiStorageDescription, DetectedOutput, defineTool, ebuSizeWarning, exactlyOne, getCaps, loadProfile, loadSource, mapDetected, mapWarnings,
   mapVerification, mutuallyExclusive, requirePathsAllowed, refreshToolDescriptions, tooLarge, Verification, verificationText, Warning, warningText, withPartial,
@@ -29,8 +30,10 @@ export const ConvertOutput = {
       writtenTo: z.string().optional(),
       output: z.string().optional(),
       action: z.enum(["written", "replaced"]).optional(),
-      inline: z.enum(["text", "resource"]).optional(),
-      resourceUri: z.string().optional(),
+      text: z.string().optional().describe("Inline text results: the converted subtitle; may be truncated"),
+      truncated: z.boolean().optional().describe("With text: true when `text` was cut at the size limit"),
+      returnedBytes: z.number().int().optional(), totalBytes: z.number().int().optional(),
+      returnedCues: z.number().int().optional(), totalCues: z.number().int().optional(),
       verification: Verification.optional(),
     }),
   ),
@@ -70,7 +73,8 @@ export function describeConvert(deps: Deps): string {
     " Choose the result with `target` (a format id or alias from list_formats), a `preset` (from list_presets), and/or a `profile` (custom JSON, checked first with validate_profile); at least one is required. `profile` values are merged over the preset.";
   if (deps.pathsInSchema) {
     d += " With outputPath (exact file) or outputDir (API-generated basename), write a local result and return metadata. ifExists is error (default) | replace, for both local writes and API output. Explicit replace is sufficient. Choose another path if replacement is unwanted.";
-  } else d += " The converted subtitle is returned inline (binary targets as base64).";
+  } else d += " Without an output location, a text result is returned in `outputs[].text`, and a binary result is attached as an embedded resource (base64).";
+  d += ` Inline text over ${deps.cfg.inlineTextMaxBytes} bytes is cut at the last whole cue (SRT) or line: then \`truncated\` is true and \`returnedBytes\`/\`totalBytes\` (and \`returnedCues\`/\`totalCues\` for SRT) say how much was returned; use ${deps.pathsInSchema ? "outputPath/outputDir or " : ""}an API output to keep the whole file.`;
   d += " Server-side `output` stores the result via the API instead of returning bytes; `sidecar:true` requests output.json. It cannot be combined with local outputPath/outputDir. Jobs expose jobId and the MCP polls 202 responses. Cancelling this call does not cancel accepted API work. Filesystem and S3 reject an existing output by default; ifExists:replace allows replacement. Presigned HTTPS PUT follows whatever the signer/receiver allowed, not a filesystem/S3 lock. API locations are not governed by list_allowed_folders.";
   d +=
     " Note: EBU Tech 3264 has no 29.97 fps code, so a 29.97 fps EBU STL source is written with the STL30.01 code; the API flags such frame-rate code mismatches with the warning `frame-rate-changed`. Timings change by less than one frame (no cumulative drift); tell the user, and see the warning for the workaround. Always report `warnings` to the user: they flag lossy formats, replaced characters, truncated text, zero-length cues, frame quantisation and frame-rate changes; many carry a `hint` with the setting that fixes them (the API never switches code pages or character tables by itself) and `details` with cue numbers and code points. For `characters-replaced`, `details.remedy` lists the setting (`option`), its `allowedValues`, the value in effect and the `candidates` that keep the characters (for PAC tested by the converter); `suggested` is set only when exactly one fits. With several candidates, choose by the text's language (ask the user if unsure), or use `unicodeAlternative` (fpc)." +
@@ -230,17 +234,14 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
         outputs.push(m);
         continue;
       }
-      if (o.contentEncoding === "text" && o.text !== undefined && o.data.length <= deps.cfg.inlineTextMaxBytes) {
-        m.inline = "text";
-        blocks.push({ type: "text", text: o.text });
+      if (o.contentEncoding === "text" && o.text !== undefined) {
+        const view = textView(o.text, deps.cfg.inlineTextMaxBytes, o.formatId === "subrip");
+        Object.assign(m, view);
+        blocks.push({ type: "text", text: view.text });
       } else {
+        // Binary: an embedded resource the client may save. Its uri only labels the block (spec-required); it is not readable.
         const uri = `subtitleedit://outputs/${encodeURIComponent(result.requestId ?? call.requestId)}/${encodeURIComponent(o.fileName)}`;
-        m.inline = "resource";
-        m.resourceUri = uri;
-        blocks.push({
-          type: "resource",
-          resource: o.contentEncoding === "text" && o.text !== undefined ? { uri, mimeType: o.mediaType, text: o.text } : { uri, mimeType: o.mediaType, blob: o.data.toString("base64") },
-        } as ContentBlock);
+        blocks.push({ type: "resource", resource: { uri, mimeType: o.mediaType, blob: o.data.toString("base64") } } as ContentBlock);
       }
       outputs.push(m);
     }
@@ -261,8 +262,10 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
 }
 
 function meta(o: ApiOutput) {
+  // A stored output's real name is the last segment of its location, not the converter's generated name.
+  const stored = o.output ? locationBaseName(o.output) : undefined;
   return {
-    fileName: o.fileName, format: o.format, formatId: o.formatId, ...(o.kind ? { kind: o.kind } : {}), mediaType: o.mediaType, encoding: o.encoding,
+    fileName: stored || o.fileName, format: o.format, formatId: o.formatId, ...(o.kind ? { kind: o.kind } : {}), mediaType: o.mediaType, encoding: o.encoding,
     contentEncoding: o.contentEncoding, cues: o.cues, bytes: o.byteCount, ...(o.output ? { output: o.output } : {}), ...(o.verification ? { verification: o.verification } : {}),
   };
 }
@@ -297,7 +300,8 @@ function convertSummary(src: SourceInput, r: any, outputs: any[], warnings: Warn
     if (o.action === "replaced") s += ` Replaced ${o.writtenTo}.`;
     else s += ` Wrote ${o.writtenTo}.`;
   }
-  if (!toDisk && outputs.some((o) => o.inline === "resource")) s += deps.pathsInSchema ? " The result is attached as an embedded resource; use outputPath/outputDir to write it to disk instead." : " The result is attached as an embedded resource.";
+  for (const o of outputs) if (o.truncated) s += ` ${o.fileName}:${truncationText(o)}`;
+  if (!toDisk && outputs.some((o) => o.contentEncoding === "base64" && !o.output)) s += deps.pathsInSchema ? " The result is attached as an embedded resource; use outputPath/outputDir to write it to disk instead." : " The result is attached as an embedded resource.";
   for (const o of outputs) if (o.verification) s += ` Verification of ${o.fileName}: ${verificationText(o.verification)}.`;
   if (warnings.length) s += ` ${warnings.length} warning${warnings.length === 1 ? "" : "s"}: ${warnings.map(warningText).join("; ")}`;
   // §5.6.5: frame-rate-changed goes on its own line right after the first line, before everything else.

@@ -149,7 +149,8 @@ describe("convert_subtitle", () => {
     expect(r.isError).toBeFalsy();
     expect(r.content[0].text).toBe("Converted movie.srt (SubRip, utf-8, en) → movie.vtt (WebVTT, utf-8): 1 → 1 cues in 4 ms.");
     expect(r.content[1]).toEqual({ type: "text", text: "WEBVTT\n" });
-    expect(r.structuredContent.outputs[0]).toMatchObject({ inline: "text", cues: 1, bytes: 7 });
+    expect(r.structuredContent.outputs[0]).toMatchObject({ text: "WEBVTT\n", truncated: false, returnedBytes: 7, totalBytes: 7, cues: 1, bytes: 7 });
+    expect(r.structuredContent.outputs[0].inline).toBeUndefined();
     const c = convertCalls()[0];
     expect(c.body).toEqual({ content: Buffer.from(SRT).toString("base64"), contentEncoding: "base64", fileName: "movie.srt", target: "webvtt" });
     const TRANSPORT = ["accept-encoding", "accept-language", "connection", "content-length", "host", "sec-fetch-mode", "user-agent"];
@@ -160,19 +161,31 @@ describe("convert_subtitle", () => {
     expect(h.logs.join("\n")).not.toContain("upstream-key");
   });
 
-  it("large text and binary results are embedded resources", async () => {
-    await setup({ inlineTextMaxBytes: 4 });
+  it("large text is truncated into outputs[].text; binary results stay embedded resources without resourceUri", async () => {
+    await setup({ inlineTextMaxBytes: 40 });
+    const srt = "1\n00:00:01,000 --> 00:00:02,000\nHello\n\n2\n00:00:03,000 --> 00:00:04,000\nWorld\n";
     mswServer.use(
       http.post(`${API}/v1/convert/json`, () =>
-        HttpResponse.json(convertOk([{ fileName: "subtitle.vtt", content: "WEBVTT\n" }, { fileName: "subtitle.stl", content: Buffer.from([1, 2, 3]).toString("base64"), contentEncoding: "base64", formatId: "ebustl", kind: "binary" }])),
+        HttpResponse.json(convertOk([{ fileName: "subtitle.srt", content: srt, formatId: "subrip" }, { fileName: "subtitle.stl", content: Buffer.from([1, 2, 3]).toString("base64"), contentEncoding: "base64", formatId: "ebustl", kind: "binary" }])),
       ),
     );
     const r = await callTool(h, "convert_subtitle", { content: SRT, preset: "x" });
-    expect(r.content[1].type).toBe("resource");
-    expect(r.content[1].resource.text).toBe("WEBVTT\n");
-    expect(r.content[2].resource.blob).toBe("AQID");
-    expect(r.structuredContent.outputs[1].resourceUri).toMatch(/^subtitleedit:\/\/outputs\/.+\/subtitle\.stl$/);
-    expect(JSON.stringify(r.structuredContent)).not.toContain("AQID");
+    const [txt, bin] = r.structuredContent.outputs;
+    expect(txt).toMatchObject({ text: "1\n00:00:01,000 --> 00:00:02,000\nHello\n\n", truncated: true, returnedBytes: 39, totalBytes: Buffer.byteLength(srt), returnedCues: 1, totalCues: 2 });
+    expect(r.content[1]).toEqual({ type: "text", text: txt.text });
+    expect(r.content[2].resource.blob).toBe("AQID"); expect(r.content[2].resource.uri).toMatch(/^subtitleedit:\/\/outputs\/.+\/subtitle\.stl$/);
+    expect(bin.text).toBeUndefined(); expect(JSON.stringify(r.structuredContent)).not.toMatch(/AQID|resourceUri|"inline"/);
+    expect(r.content[0].text).toContain("subtitle.srt: TEXT TRUNCATED: returned the first 39 of");
+    expect(r.content[0].text).toContain("attached as an embedded resource");
+  });
+
+  it("stored outputs report the stored object's name, not the converter's generated name", async () => {
+    await setup();
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => { const b: any = convertOk([{ fileName: "show.srt", content: "x", formatId: "subrip" }]); delete b.outputs[0].content; b.outputs[0].output = "s3://broadcast-delivery/qa-p6/test2-145152.srt"; b.outputs[0].bytes = 271; return HttpResponse.json(b); }));
+    const r = await callTool(h, "convert_subtitle", { input: "s3://in/show.stl", output: "s3://broadcast-delivery/qa-p6/test2-145152.srt", target: "srt" });
+    expect(r.structuredContent.outputs[0]).toMatchObject({ fileName: "test2-145152.srt", output: "s3://broadcast-delivery/qa-p6/test2-145152.srt", bytes: 271 });
+    expect(r.structuredContent.outputs[0].text).toBeUndefined();
+    expect(r.content[0].text).toContain("→ test2-145152.srt (");
   });
 
   it("outputDir: writes the API's bytes verbatim via base64, resource_link, warnings passed through", async () => {

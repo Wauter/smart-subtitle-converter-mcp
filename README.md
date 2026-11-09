@@ -54,7 +54,7 @@ Claude Desktop, Cursor, Windows, a VM, or building from source: see [docs/client
 | `list_formats` | Formats with read/write and text/binary flags |
 | `list_presets` / `get_profile` | Built-in and mounted presets, raw and resolved |
 | `validate_profile` | Check a profile, with pointer-level errors and hints |
-| `get_job_file` | Re-read the stored input or output of an API job (storage-to-storage conversions) |
+| `get_job_file` | Re-read the stored input or output of an API job as text in `text` (binary formats shown as SRT) |
 | `list_allowed_folders` | The folders in effect right now, with mode and source |
 
 Inputs, results and warning fields: [docs/tools.md](docs/tools.md).

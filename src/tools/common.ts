@@ -109,7 +109,7 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
       let apiStatus: number | undefined;
       try {
         const parsed = strict.safeParse(rawArgs ?? {});
-        if (!parsed.success) throw mcpErrorFromZod(parsed.error);
+        if (!parsed.success) throw mcpErrorFromZod(parsed.error, def.shape, rawArgs);
         const out = await def.handler(parsed.data as any, call);
         Object.assign(call.log, out.logFields ?? {});
         const mm = mismatchWarning();
