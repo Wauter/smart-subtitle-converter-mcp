@@ -13,7 +13,7 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
 
 - Keep npm publishing manual and make the existing GitHub Release step safe to rerun.
 
-- Rename the product to **Smart Subtitle Converter** and update repository, container image, npm package and CLI identifiers (npm remains unpublished). Versions and existing release tags are unchanged.
+- Rename the product to **Smart Subtitle Converter** and update repository, container image, npm package and CLI identifiers. The npm package is published as `smart-subtitle-converter-mcp`. Versions and existing release tags are unchanged.
 
 - Public release: drop `package.json` `"private": true` and the CI publishing guard; document how tags publish.
 - Examples and `CONTRACT_API_URL` use the API's default host port `http://localhost:8080` (Compose publishes `127.0.0.1:8080:8080`); Docker-network URLs stay `http://api:8080`.
