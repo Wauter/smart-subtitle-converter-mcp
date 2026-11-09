@@ -74,6 +74,14 @@ describe("config", () => {
     expect(c.http).toEqual({ host: "0.0.0.0", port: 3001 });
     expect(c.apiUrl).toBe("http://other");
   });
+  it("preview page sizes: defaults, range, hard ceiling and the removed inline-text variable", () => {
+    expect(cfg([])).toMatchObject({ previewDefaultBytes: 65536, previewMaxBytes: 262144 });
+    expect(cfg([], { SUBTITLE_MCP_PREVIEW_MAX_BYTES: "8192" })).toMatchObject({ previewDefaultBytes: 8192, previewMaxBytes: 8192 });
+    expect(err([], { SUBTITLE_MCP_PREVIEW_MAX_BYTES: "2000000" })).toMatch(/at most 1048576/);
+    expect(err([], { SUBTITLE_MCP_PREVIEW_MAX_BYTES: "100" })).toMatch(/>= 4096/);
+    expect(err([], { SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES: "300000" })).toMatch(/must not exceed SUBTITLE_MCP_PREVIEW_MAX_BYTES/);
+    expect(err([], { SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES: "65536" })).toMatch(/was removed.*SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES/);
+  });
   it("rejects invalid values, unknown vars, both key sources and hosted", () => {
     expect(err([], { SUBTITLE_API_URL: undefined })).toMatch(/required/);
     expect(err([], { SUBTITLE_API_URL: "ftp://x" })).toMatch(/http or https/);
@@ -153,21 +161,10 @@ describe("version check (D-37/D-43)", () => {
 });
 
 
-describe("textView truncation", async () => {
-  const { textView, countSrtCues, locationBaseName } = await import("../../src/tools/textView.js");
-  it("never splits a UTF-8 sequence, even without any line break", () => {
-    const v = textView("ééééé", 5, false); // 2 bytes each
-    expect(v).toEqual({ text: "éé", truncated: true, returnedBytes: 4, totalBytes: 10 });
-  });
-  it("cuts SRT at a CRLF blank line and counts cues; falls back to a line when one cue exceeds the cap", () => {
-    const srt = "1\r\n00:00:01,000 --> 00:00:02,000\r\nA\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\nB\r\n";
-    expect(textView(srt, 60, true)).toMatchObject({ text: "1\r\n00:00:01,000 --> 00:00:02,000\r\nA\r\n\r\n", truncated: true, returnedCues: 1, totalCues: 2 });
-    expect(textView(srt, 20, true)).toMatchObject({ text: "1\r\n", truncated: true, returnedCues: 0 });
-    expect(textView(srt, 1000, true)).toMatchObject({ text: srt, truncated: false, returnedCues: 2, totalCues: 2 });
-    expect(countSrtCues("no cues")).toBe(0);
-  });
+describe("locationBaseName", async () => {
+  const { locationBaseName } = await import("../../src/tools/textPage.js");
   it("derives stored names from locations", () => {
-    expect(locationBaseName("s3://broadcast-delivery/qa-p6/test2-145152.srt")).toBe("test2-145152.srt");
+    expect(locationBaseName("s3://subs/qa/test2-145152.srt")).toBe("test2-145152.srt");
     expect(locationBaseName("https://h.example.com/out/a%20b.srt")).toBe("a b.srt");
     expect(locationBaseName("/data/out/x.vtt")).toBe("x.vtt");
     expect(locationBaseName("s3://bucket/")).toBeUndefined();

@@ -249,7 +249,9 @@ export function candidateText(c: CandidateT): string {
 /** Text block for an error result: "<code>: <detail>\nHint: <hint>\nrequestId: <id>". */
 export function errorText(e: ToolError): string {
   let s = `${e.code}: ${e.detail ?? e.title ?? "error"}`;
-  if (e.errors?.length) s += "\n" + e.errors.slice(0, 10).map((x) => `  ${x.pointer}: ${x.message}${x.hint ? ` (${x.hint})` : ""}`).join("\n");
+  // A single field error is already spelled out in detail ("Invalid arguments: /which: …"); don't repeat it.
+  const single = e.errors?.length === 1 && e.detail?.includes(`${e.errors[0].pointer}: ${e.errors[0].message}`);
+  if (e.errors?.length && !single) s += "\n" + e.errors.slice(0, 10).map((x) => `  ${x.pointer}: ${x.message}${x.hint ? ` (${x.hint})` : ""}`).join("\n");
   if (e.candidates?.length) {
     s += e.candidates.some((c) => typeof c !== "string")
       ? `\nCandidates:\n${e.candidates.map((c) => `  - ${candidateText(c)}`).join("\n")}`

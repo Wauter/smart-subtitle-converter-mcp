@@ -81,7 +81,7 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
       outputSchema: {
         ...Object.fromEntries(Object.entries(def.output).map(([key, value]) => [key, value.optional()])),
         error: ToolErrorSchema.optional(),
-        ...(def.output.warnings ? { warnings: z.union([def.output.warnings, z.array(Warning)]).optional() } : { warnings: z.array(Warning).optional() }),
+        warnings: errorWarnings(def.output.warnings),
       },
       annotations: { title: def.title, openWorldHint: false, ...def.annotations },
     },
@@ -164,6 +164,17 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
     list.push({ tool: registered, describe });
     dynamicDescriptions.set(server, list);
   }
+}
+
+/**
+ * Error results carry Warning[] in `warnings`. A success shape that already is Warning[] keeps its own schema (once,
+ * not listed twice); a different success shape (e.g. profile FieldError[]) is unioned with Warning[].
+ */
+function errorWarnings(success: z.ZodType | undefined): z.ZodType {
+  if (!success) return z.array(Warning).optional();
+  const base: any = success instanceof z.ZodOptional ? success.unwrap() : success;
+  if (base instanceof z.ZodArray && base.element === Warning) return success.optional();
+  return z.union([success, z.array(Warning)]).optional();
 }
 
 function internalFailure(err: unknown, deps: Deps): ToolFailure {

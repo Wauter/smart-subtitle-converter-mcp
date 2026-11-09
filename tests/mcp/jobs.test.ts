@@ -64,7 +64,7 @@ describe("API locations and jobs", () => {
   it("surfaces a synchronous job id without changing inline bytes", async () => {
     h = await harness(); mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.vtt", content: "WEBVTT\n" }], { id }))));
     const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
-    expect(r.structuredContent.jobId).toBe(id); expect(r.content[1].text).toBe("WEBVTT\n");
+    expect(r.structuredContent.jobId).toBe(id); expect(r.content[1].resource.text).toBe("WEBVTT\n");
   });
   it("passes detect input without inventing inline content", async () => {
     h = await harness(); mswServer.use(http.post(`${API}/v1/detect`, () => HttpResponse.json({ format: "SubRip", id: "subrip", encoding: "utf-8", encodingConfidence: "utf8-valid", paragraphs: 1 })));

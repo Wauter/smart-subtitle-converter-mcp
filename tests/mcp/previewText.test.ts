@@ -10,27 +10,28 @@ beforeAll(() => mswServer.listen({ onUnhandledFrame: "error" })); afterAll(() =>
 beforeEach(() => { recorded.length = 0; apiInfo.probedAt = Date.now(); mswServer.use(...baseHandlers(), http.get(endpoint, () => HttpResponse.json(job()))); });
 afterEach(async () => { await h?.close(); h = undefined; mswServer.resetHandlers(); });
 
-describe("get_job_file", () => {
-  it("reads input text into structuredContent.text (and a text block) with no detect/convert", async () => {
+describe("preview_text", () => {
+  it("reads input text into structuredContent.text once (no repeated text block), with no detect/convert", async () => {
     h = await harness(); await h.client.listTools();
     mswServer.use(http.get(`${endpoint}/input`, () => new HttpResponse(SRT, { headers: { "content-type": "application/x-subrip" } })));
-    const r = await callTool(h, "get_job_file", { jobId: id, which: "input" });
+    const r = await callTool(h, "preview_text", { jobId: id, which: "input" });
     expect(r.isError).toBeFalsy();
     expect(r.structuredContent).toEqual({ jobId: id, which: "input", fileName: "show.srt", mediaType: "application/x-subrip", bytes: Buffer.byteLength(SRT), location: "file:///data/in/show.srt",
-      text: SRT, truncated: false, returnedBytes: Buffer.byteLength(SRT), totalBytes: Buffer.byteLength(SRT), returnedCues: 1, totalCues: 1, warnings: [] });
-    expect(r.content[1]).toEqual({ type: "text", text: SRT }); expect(r.content[0].text).toContain("The content is in `text`");
+      text: SRT, unit: "cue", maxBytes: 65536, truncated: false, returnedBytes: Buffer.byteLength(SRT), totalBytes: Buffer.byteLength(SRT), fromCue: 1, toCue: 1, returnedCues: 1, totalCues: 1, warnings: [] });
+    expect(r.content).toHaveLength(1); expect(r.content[0].text).not.toContain("Hello");
+    expect(r.content[0].text).toContain("Showing all 1 cue"); expect(r.content[0].text).toContain("`text` field (sent once");
     expect(recorded.every(x => x.method === "GET")).toBe(true);
     expect(h.logs.join("\n")).not.toContain("Hello");
   });
   it("encodes literal file-path query/hash delimiters instead of treating them as URI secrets", async () => {
     h = await harness(); mswServer.use(http.get(endpoint, () => HttpResponse.json({ ...job(), input: "/data/in/show?literal#name.srt" })), http.get(`${endpoint}/input`, () => new HttpResponse("Hello", { headers: { "content-type": "text/plain" } })));
-    const r = await callTool(h, "get_job_file", { jobId: id, which: "input" });
+    const r = await callTool(h, "preview_text", { jobId: id, which: "input" });
     expect(r.structuredContent.location).toBe("file:///data/in/show%3Fliteral%23name.srt"); expect(r.structuredContent.fileName).toBe("show?literal#name.srt");
   });
   it("decodes a legacy-encoded text file as text, not base64", async () => {
     h = await harness(); const bytes = Buffer.from("1\n00:00:01,000 --> 00:00:02,000\ncaf\xe9\n", "latin1");
     mswServer.use(http.get(endpoint, () => HttpResponse.json({ ...job(), result: { detected: { kind: "text", encoding: "windows-1252", id: "subrip" } } })), http.get(`${endpoint}/input`, () => new HttpResponse(bytes)));
-    const r = await callTool(h, "get_job_file", { jobId: id, which: "input" });
+    const r = await callTool(h, "preview_text", { jobId: id, which: "input" });
     expect(r.structuredContent).toMatchObject({ text: "1\n00:00:01,000 --> 00:00:02,000\ncafé\n", format: "subrip", truncated: false });
     expect(r.structuredContent.convertedFrom).toBeUndefined(); expect(recorded.some(x => x.method === "POST")).toBe(false);
   });
@@ -44,20 +45,20 @@ describe("get_job_file", () => {
     h = await harness();
     mswServer.use(http.get(endpoint, () => HttpResponse.json(binaryJob())), http.get(`${endpoint}/${which}`, () => new HttpResponse(STL, { headers: { "content-type": "application/octet-stream" } })),
       http.post(`${API}/v1/convert/json`, () => srtResponse([{ code: "styling-dropped", message: "Colours are not kept in SRT", hint: "Use a richer target" }])));
-    const r = await callTool(h, "get_job_file", { jobId: id, which });
+    const r = await callTool(h, "preview_text", { jobId: id, which });
     expect(r.isError).toBeFalsy();
-    expect(r.structuredContent).toMatchObject({ fileName: "show.stl", bytes: STL.length, format: "ebustl", text: convertedSrt, truncated: false, totalCues: 2, returnedCues: 2, convertedFrom: "ebustl", convertedTo: "srt" });
+    expect(r.structuredContent).toMatchObject({ fileName: "show.stl", bytes: STL.length, format: "ebustl", text: convertedSrt, truncated: false, unit: "cue", totalCues: 2, returnedCues: 2, convertedFrom: "ebustl", convertedTo: "srt" });
     expect(r.structuredContent.warnings).toEqual([{ code: "styling-dropped", message: "Colours are not kept in SRT", hint: "Use a richer target" }]);
     const body = recorded.find(x => x.path === "/v1/convert/json")!.body;
     expect(body).toEqual({ content: STL.toString("base64"), contentEncoding: "base64", fileName: "show.stl", target: "srt", profile: { encoding: { output: "utf-8-no-bom" }, source: { format: "ebustl" } } });
     expect(body.output).toBeUndefined();
-    expect(r.content.map((c: any) => c.type)).toEqual(["text", "text"]); expect(r.content[1].text).toBe(convertedSrt);
+    expect(r.content).toHaveLength(1); expect(r.content[0].text).not.toContain("World");
     expect(JSON.stringify(r)).not.toContain(STL.toString("base64")); expect(JSON.stringify(r)).not.toMatch(/resourceUri|"inline"|subtitleedit:/);
-    expect(r.content[0].text).toMatch(/binary ebustl file, so its text is shown converted to SRT \(2 cues\); the stored file is unchanged.*styling-dropped/);
+    expect(r.content[0].text).toMatch(/binary ebustl file, so its text is shown converted to SRT; the stored file is unchanged\. Showing all 2 cues.*styling-dropped/);
   });
   it("treats NUL-containing bytes of unknown kind as binary", async () => {
     h = await harness(); mswServer.use(http.get(endpoint, () => HttpResponse.json({ ...job(), result: {} })), http.get(`${endpoint}/output`, () => new HttpResponse(Buffer.from([0, 255, 128, 50]))), http.post(`${API}/v1/convert/json`, () => srtResponse()));
-    const r = await callTool(h, "get_job_file", { jobId: id, which: "output" });
+    const r = await callTool(h, "preview_text", { jobId: id, which: "output" });
     expect(r.structuredContent).toMatchObject({ bytes: 4, convertedFrom: "ebustl", convertedTo: "srt", text: convertedSrt });
     expect(recorded.find(x => x.path === "/v1/convert/json")!.body.profile.source).toBeUndefined();
   });
@@ -65,7 +66,7 @@ describe("get_job_file", () => {
     h = await harness();
     mswServer.use(http.get(endpoint, () => HttpResponse.json(binaryJob({ outputs: [{ kind: "binary", formatId: "pacscreenelectronics" }], profile: { formatOptions: { pac: { codePage: "greek" } } } }))),
       http.get(`${endpoint}/output`, () => new HttpResponse(STL)), http.post(`${API}/v1/convert/json`, () => srtResponse()));
-    await callTool(h, "get_job_file", { jobId: id, which: "output" });
+    await callTool(h, "preview_text", { jobId: id, which: "output" });
     expect(recorded.find(x => x.path === "/v1/convert/json")!.body.profile).toEqual({ encoding: { output: "utf-8-no-bom" }, source: { format: "pacscreenelectronics" }, formatOptions: { pac: { inputCodePage: "greek" } } });
   });
   it("returns a failed conversion as the structured error with object candidates and a convert_subtitle hint", async () => {
@@ -73,60 +74,106 @@ describe("get_job_file", () => {
     const candidates = [{ encoding: "windows-1256", language: "ar", hits: 12, sample: "مرحبا" }, { encoding: "windows-1255", language: null, hits: 3, sample: "שלום" }];
     mswServer.use(http.get(endpoint, () => HttpResponse.json(binaryJob({ detected: { kind: "binary", id: "pacscreenelectronics" } }))), http.get(`${endpoint}/input`, () => new HttpResponse(STL)),
       http.post(`${API}/v1/convert/json`, () => problem(422, "ambiguous-encoding", { candidates, probe: "text-encoding" })));
-    const r = await callTool(h, "get_job_file", { jobId: id, which: "input" });
+    const r = await callTool(h, "preview_text", { jobId: id, which: "input" });
     expect(r.isError).toBe(true);
     expect(r.structuredContent.error).toMatchObject({ code: "ambiguous-encoding", candidates, probe: "text-encoding", jobId: id });
     expect(r.structuredContent.error.hint).toContain('call convert_subtitle with input "s3://subs/in/show.stl", target "srt"');
     expect(r.content[0].text).toContain('\nCandidates:\n  - windows-1256 (ar, 12 words): "مرحبا"\n  - windows-1255 (3 words): "שלום"');
     expect(r.content[0].text).not.toContain("[object Object]");
   });
-  it("truncates long SRT at the last whole cue, never mid-character, and says so", async () => {
-    h = await harness({ inlineTextMaxBytes: 179 }); // cue = 71 bytes; byte 179 falls inside a Devanagari character of cue 3
-    const cue = (n: number) => `${n}\n00:00:0${n},000 --> 00:00:0${n},500\nनमस्ते दुनिया\n\n`; // Devanagari: 3 bytes per char
-    const full = [1, 2, 3, 4, 5].map(cue).join("");
-    mswServer.use(http.get(`${endpoint}/output`, () => new HttpResponse(full, { headers: { "content-type": "application/x-subrip" } })),
-      http.get(endpoint, () => HttpResponse.json({ ...job(), output: "s3://subs/out/show.srt", result: { outputs: [{ encoding: "utf-8", formatId: "subrip" }] } })));
-    const r = await callTool(h, "get_job_file", { jobId: id, which: "output" });
-    const s = r.structuredContent;
-    expect(s.truncated).toBe(true); expect(s.totalBytes).toBe(Buffer.byteLength(full)); expect(s.returnedBytes).toBe(142);
-    expect(s.text).toBe(cue(1) + cue(2)); expect(s.returnedBytes).toBe(Buffer.byteLength(s.text)); expect(s).toMatchObject({ returnedCues: 2, totalCues: 5 });
-    expect(r.content[1].text).toBe(s.text);
-    expect(r.content[0].text).toContain(`TEXT TRUNCATED: returned the first ${s.returnedBytes} of ${s.totalBytes} bytes (cues 1–2 of 5)`);
+  const cueOf = (n: number, text: string) => `${n}\n00:00:${String(n % 60).padStart(2, "0")},000 --> 00:00:${String(n % 60).padStart(2, "0")},500\n${text}\n\n`;
+  const longSrt = (n: number, text = "नमस्ते दुनिया ".repeat(40)) => Array.from({ length: n }, (_, i) => cueOf(i + 1, text)).join("");
+  const serveOutput = (body: () => string | Buffer) => mswServer.use(
+    http.get(`${endpoint}/output`, () => new HttpResponse(body(), { headers: { "content-type": "application/x-subrip" } })),
+    http.get(endpoint, () => HttpResponse.json({ ...job(), output: "s3://subs/out/show.srt", result: { outputs: [{ encoding: "utf-8", formatId: "subrip" }] } })));
+
+  it("pages long SRT on whole cues with a next cursor until the last page; pages join to the full text", async () => {
+    h = await harness(); const full = longSrt(40); serveOutput(() => "\uFEFF" + full);
+    const pages: any[] = []; let cursor: string | undefined;
+    do {
+      const r = await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 8192, ...(cursor ? { cursor } : {}) });
+      expect(r.isError).toBeFalsy(); pages.push(r.structuredContent); cursor = r.structuredContent.next;
+      expect(r.structuredContent.returnedBytes).toBeLessThanOrEqual(8192);
+      expect(r.content).toHaveLength(1);
+    } while (cursor);
+    expect(pages.length).toBeGreaterThan(2);
+    expect(pages.map((p) => p.text).join("")).toBe(full);
+    expect(pages[0]).toMatchObject({ truncated: true, fromCue: 1, totalCues: 40, totalBytes: Buffer.byteLength(full), maxBytes: 8192 });
+    for (let i = 1; i < pages.length; i++) expect(pages[i].fromCue).toBe(pages[i - 1].toCue + 1);
+    expect(pages.at(-1)).toMatchObject({ truncated: false, toCue: 40 }); expect(pages.at(-1).next).toBeUndefined();
   });
-  it("truncates other text formats at the last full line", async () => {
-    h = await harness({ inlineTextMaxBytes: 16 }); const body = '{\n "subtitle": "Hello"\n}\n';
+  it("clamps maxBytes to the server range and uses the configured default", async () => {
+    h = await harness({ previewDefaultBytes: 5000, previewMaxBytes: 9000 }); serveOutput(() => longSrt(40));
+    expect((await callTool(h, "preview_text", { jobId: id, which: "output" })).structuredContent.maxBytes).toBe(5000);
+    expect((await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 1 })).structuredContent.maxBytes).toBe(4096);
+    const big = (await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 10_000_000 })).structuredContent;
+    expect(big.maxBytes).toBe(9000); expect(big.returnedBytes).toBeLessThanOrEqual(9000);
+    for (const maxBytes of [0, -5, 1.5, "4096"]) expect((await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes })).structuredContent.error.code).toBe("invalid-arguments");
+  });
+  it("returns a cue larger than maxBytes alone, and refuses one larger than the server maximum", async () => {
+    h = await harness({ previewMaxBytes: 8192 });
+    let body = cueOf(1, "a") + cueOf(2, "b".repeat(6000)) + cueOf(3, "c"); serveOutput(() => body);
+    const first = (await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 4096 })).structuredContent;
+    expect(first).toMatchObject({ fromCue: 1, toCue: 1, truncated: true });
+    const second = (await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 4096, cursor: first.next })).structuredContent;
+    expect(second).toMatchObject({ fromCue: 2, toCue: 2, returnedCues: 1, text: cueOf(2, "b".repeat(6000)) }); expect(second.returnedBytes).toBeGreaterThan(4096);
+    body = cueOf(1, "x".repeat(9000));
+    const e = (await callTool(h, "preview_text", { jobId: id, which: "output" })).structuredContent.error;
+    expect(e).toMatchObject({ code: "preview-cue-too-large", limit: { name: "SUBTITLE_MCP_PREVIEW_MAX_BYTES", value: 8192 } });
+  });
+  it("fails with preview-source-changed when the file changes between pages, and rejects foreign cursors", async () => {
+    h = await harness(); let body = longSrt(40); serveOutput(() => body);
+    const first = (await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 8192 })).structuredContent;
+    body = longSrt(40, "changed ".repeat(40));
+    const r = await callTool(h, "preview_text", { jobId: id, which: "output", cursor: first.next });
+    expect(r.structuredContent.error).toMatchObject({ code: "preview-source-changed", jobId: id }); expect(r.structuredContent.error.hint).toContain("without `cursor`");
+    const before = recorded.length;
+    expect((await callTool(h, "preview_text", { jobId: id, which: "output", cursor: "bm9wZQ" })).structuredContent.error.code).toBe("preview-cursor-invalid");
+    expect(recorded.length).toBe(before); // a malformed cursor fails before any API call
+    mswServer.use(http.get(`${endpoint}/input`, () => new HttpResponse(longSrt(40))));
+    expect((await callTool(h, "preview_text", { jobId: id, which: "input", cursor: first.next })).structuredContent.error.code).toBe("preview-cursor-invalid");
+  });
+  it("pages other text formats on whole lines", async () => {
+    h = await harness(); const body = Array.from({ length: 400 }, (_, i) => `{"line": ${i}, "text": "${"x".repeat(20)}"}\n`).join("");
     mswServer.use(http.get(`${endpoint}/output`, () => new HttpResponse(body, { headers: { "content-type": "application/json" } })));
-    const r = await callTool(h, "get_job_file", { jobId: id, which: "output" });
-    expect(r.structuredContent).toMatchObject({ text: "{\n", truncated: true, returnedBytes: 2, totalBytes: Buffer.byteLength(body), bytes: Buffer.byteLength(body) });
-    expect(r.structuredContent.totalCues).toBeUndefined(); expect(r.content).toHaveLength(2);
+    const r = (await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 4096 })).structuredContent;
+    expect(r).toMatchObject({ unit: "line", fromLine: 1, totalLines: 400, truncated: true }); expect(r.text.endsWith("\n")).toBe(true);
+    expect(r.totalCues).toBeUndefined(); expect(body.startsWith(r.text)).toBe(true);
   });
   it("says a missing jobId/which is required and lists the valid values", async () => {
     h = await harness();
-    const missing = (await callTool(h, "get_job_file", { jobId: id })).structuredContent.error;
+    const missing = (await callTool(h, "preview_text", { jobId: id })).structuredContent.error;
     expect(missing.code).toBe("invalid-arguments"); expect(missing.detail).toBe('Invalid arguments: /which: `which` is required (valid values: "input" | "output").');
-    const bad = (await callTool(h, "get_job_file", { jobId: id, which: "both" })).structuredContent.error;
+    const text = (await callTool(h, "preview_text", { jobId: id })).content[0].text;
+    expect(text.split("`which` is required")).toHaveLength(2); // said once, not repeated as a field line
+    const bad = (await callTool(h, "preview_text", { jobId: id, which: "both" })).structuredContent.error;
     expect(bad.detail).toBe('Invalid arguments: /which: `which` must be one of the valid values: "input" | "output"; got "both".');
-    const none = (await callTool(h, "get_job_file", {})).structuredContent.error;
+    const none = (await callTool(h, "preview_text", {})).structuredContent.error;
     expect(none.errors[0].message).toBe("`jobId` is required (Job id (`jobId`) returned by convert_subtitle).");
-    const tools = (await h.client.listTools()).tools; const t = tools.find(x => x.name === "get_job_file")!;
+    const tools = (await h.client.listTools()).tools; const t = tools.find(x => x.name === "preview_text")!;
     expect((t.inputSchema.properties!.which as any).description).toContain("input | output"); expect(t.inputSchema.required).toEqual(["jobId", "which"]);
-    expect(t.description).toContain("returned as text in `text`"); expect(JSON.stringify(t.outputSchema)).not.toContain("resourceUri");
+    expect(t.description).toContain("not the file"); expect(JSON.stringify(t.outputSchema)).not.toContain("resourceUri");
+    expect(Object.keys(t.inputSchema.properties!)).toEqual(["jobId", "which", "maxBytes", "cursor"]);
+    expect(tools.some(x => x.name === "get_job_file")).toBe(false);
+    const props = (t.outputSchema as any).properties;
+    for (const [k, v] of Object.entries<any>(props)) if (!["error"].includes(k)) expect(v.description ?? v.anyOf?.[0]?.description, k).toBeTruthy();
+    expect(props.warnings.anyOf).toBeUndefined(); expect(props.warnings.type).toBe("array");
   });
   it.each(["job-not-ready", "job-not-found", "job-input-not-stored", "job-output-not-stored", "job-file-gone", "job-location-not-replayable"])("passes through %s with job id, hint, and redacted location", async (code) => {
     h = await harness(); await h.client.listTools(); let gets = 0;
     const status = ["job-not-found", "job-file-gone"].includes(code) ? 404 : 409;
     const problem = () => HttpResponse.json({ code, status, detail: "Job file unavailable", hint: "Inspect the original result; do not blindly resubmit.", ...(["job-file-gone", "job-location-not-replayable"].includes(code) ? { location: "https://user:secret@mam.example.com/show.srt?signature=hidden" } : {}) }, { status });
     mswServer.use(http.get(endpoint, () => code === "job-not-found" ? problem() : HttpResponse.json(job())), http.get(`${endpoint}/output`, () => { gets++; return problem(); }));
-    const r = await callTool(h, "get_job_file", { jobId: id, which: "output" });
+    const r = await callTool(h, "preview_text", { jobId: id, which: "output" });
     expect(r.isError).toBe(true); expect(r.structuredContent.error).toMatchObject({ code, jobId: id }); expect(r.structuredContent.error.hint).toContain("original result");
     expect(gets).toBe(code === "job-not-found" ? 0 : 1);
     expect(JSON.stringify(r)).not.toMatch(/signature|hidden|user:secret/);
     if (["job-file-gone", "job-location-not-replayable"].includes(code)) expect(r.structuredContent.error.location).toBe("https://mam.example.com/show.srt");
   });
-  it("only accepts jobId and input/output; no URI, sidecar/both or save path", async () => {
+  it("only accepts jobId, input/output, maxBytes and cursor; no URI, sidecar/both or save path", async () => {
     h = await harness();
-    for (const args of [{ jobId: "../etc", which: "input" }, { jobId: id, which: "sidecar" }, { jobId: id, which: "both" }, { jobId: id, which: "output", outputPath: "/tmp/file" }, { jobId: id, which: "input", saveTo: "/tmp/file" }, { jobId: id, which: "input", input: "https://example.com" }]) {
-      expect((await callTool(h, "get_job_file", args)).structuredContent.error.code).toBe("invalid-arguments");
+    for (const args of [{ jobId: "../etc", which: "input" }, { jobId: id, which: "sidecar" }, { jobId: id, which: "both" }, { jobId: id, which: "output", outputPath: "/tmp/file" }, { jobId: id, which: "input", saveTo: "/tmp/file" }, { jobId: id, which: "input", input: "https://example.com" }, { jobId: id, which: "input", location: "s3://subs/in/a.srt" }, { jobId: id, which: "input", cursor: "has spaces!" }]) {
+      expect((await callTool(h, "preview_text", args)).structuredContent.error.code).toBe("invalid-arguments");
     }
     expect(recorded).toHaveLength(0);
   });

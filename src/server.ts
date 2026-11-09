@@ -5,7 +5,7 @@ import { registerFoldersTool } from "./tools/folders.js";
 import { registerMetadataTools } from "./tools/metadata.js";
 import { registerInspectTools } from "./tools/inspect.js";
 import { registerConvertTool } from "./tools/convert.js";
-import { registerJobFileTool } from "./tools/jobFile.js";
+import { registerPreviewTextTool } from "./tools/previewText.js";
 import { registerResources } from "./resources.js";
 
 /**
@@ -35,7 +35,7 @@ export function createServer(deps: Deps): McpServer {
   registerMetadataTools(server, deps);
   registerInspectTools(server, deps);
   registerConvertTool(server, deps);
-  registerJobFileTool(server, deps);
+  registerPreviewTextTool(server, deps);
   registerFoldersTool(server, deps);
   registerResources(server, deps);
   // Tool descriptions change with client roots and cached API storage schemes; clients may refresh tools/list.

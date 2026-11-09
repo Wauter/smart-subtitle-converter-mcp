@@ -142,15 +142,16 @@ describe("convert_subtitle", () => {
     if (dir) fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it("inline text result; path input is sent as base64 with fileName; only allowed headers upstream", async () => {
+  it("inline text result is the whole file as a text resource; path input is sent as base64 with fileName; only allowed headers upstream", async () => {
     await setup({ apiKey: "upstream-key" });
     mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "movie.vtt", content: "WEBVTT\n" }]))));
     const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "webvtt" });
     expect(r.isError).toBeFalsy();
-    expect(r.content[0].text).toBe("Converted movie.srt (SubRip, utf-8, en) → movie.vtt (WebVTT, utf-8): 1 → 1 cues in 4 ms.");
-    expect(r.content[1]).toEqual({ type: "text", text: "WEBVTT\n" });
-    expect(r.structuredContent.outputs[0]).toMatchObject({ text: "WEBVTT\n", truncated: false, returnedBytes: 7, totalBytes: 7, cues: 1, bytes: 7 });
-    expect(r.structuredContent.outputs[0].inline).toBeUndefined();
+    expect(r.content[0].text).toBe("Converted movie.srt (SubRip, utf-8, en) → movie.vtt (WebVTT, utf-8): 1 → 1 cues in 4 ms. The whole converted file is attached as an embedded resource; use outputPath/outputDir to write it to disk instead.");
+    expect(r.content[1]).toMatchObject({ type: "resource", resource: { mimeType: "text/vtt", text: "WEBVTT\n" } });
+    expect(r.content).toHaveLength(2);
+    expect(r.structuredContent.outputs[0]).toMatchObject({ attached: true, cues: 1, bytes: 7 });
+    expect(r.structuredContent.outputs[0].text).toBeUndefined(); expect(r.structuredContent.outputs[0].inline).toBeUndefined();
     const c = convertCalls()[0];
     expect(c.body).toEqual({ content: Buffer.from(SRT).toString("base64"), contentEncoding: "base64", fileName: "movie.srt", target: "webvtt" });
     const TRANSPORT = ["accept-encoding", "accept-language", "connection", "content-length", "host", "sec-fetch-mode", "user-agent"];
@@ -161,22 +162,41 @@ describe("convert_subtitle", () => {
     expect(h.logs.join("\n")).not.toContain("upstream-key");
   });
 
-  it("large text is truncated into outputs[].text; binary results stay embedded resources without resourceUri", async () => {
-    await setup({ inlineTextMaxBytes: 40 });
-    const srt = "1\n00:00:01,000 --> 00:00:02,000\nHello\n\n2\n00:00:03,000 --> 00:00:04,000\nWorld\n";
+  it("returns every inline result whole as an embedded resource (text and binary), with jobId and a preview_text hint", async () => {
+    await setup();
+    const srt = Array.from({ length: 3000 }, (_, i) => `${i + 1}\n00:00:01,000 --> 00:00:02,000\nHello world, line ${i + 1}\n\n`).join(""); // > 64 KB: never cut
     mswServer.use(
       http.post(`${API}/v1/convert/json`, () =>
-        HttpResponse.json(convertOk([{ fileName: "subtitle.srt", content: srt, formatId: "subrip" }, { fileName: "subtitle.stl", content: Buffer.from([1, 2, 3]).toString("base64"), contentEncoding: "base64", formatId: "ebustl", kind: "binary" }])),
-      ),
+        HttpResponse.json({ id: "job123", ...convertOk([{ fileName: "subtitle.srt", content: srt, formatId: "subrip" }, { fileName: "subtitle.stl", content: Buffer.from([1, 2, 3]).toString("base64"), contentEncoding: "base64", formatId: "ebustl", kind: "binary" }]) })),
     );
     const r = await callTool(h, "convert_subtitle", { content: SRT, preset: "x" });
+    expect(Buffer.byteLength(srt)).toBeGreaterThan(65536);
     const [txt, bin] = r.structuredContent.outputs;
-    expect(txt).toMatchObject({ text: "1\n00:00:01,000 --> 00:00:02,000\nHello\n\n", truncated: true, returnedBytes: 39, totalBytes: Buffer.byteLength(srt), returnedCues: 1, totalCues: 2 });
-    expect(r.content[1]).toEqual({ type: "text", text: txt.text });
+    expect(r.content[1].resource).toMatchObject({ mimeType: "text/vtt", text: srt }); expect(r.content[1].resource.uri).toMatch(/^subtitleedit:\/\/outputs\/.+\/subtitle\.srt$/);
     expect(r.content[2].resource.blob).toBe("AQID"); expect(r.content[2].resource.uri).toMatch(/^subtitleedit:\/\/outputs\/.+\/subtitle\.stl$/);
-    expect(bin.text).toBeUndefined(); expect(JSON.stringify(r.structuredContent)).not.toMatch(/AQID|resourceUri|"inline"/);
-    expect(r.content[0].text).toContain("subtitle.srt: TEXT TRUNCATED: returned the first 39 of");
-    expect(r.content[0].text).toContain("attached as an embedded resource");
+    expect(txt).toMatchObject({ attached: true, bytes: Buffer.byteLength(srt) }); expect(bin).toMatchObject({ attached: true, kind: "binary" });
+    for (const o of [txt, bin]) for (const k of ["text", "truncated", "preview", "resourceUri", "inline"]) expect(o[k]).toBeUndefined();
+    expect(JSON.stringify(r.structuredContent)).not.toMatch(/AQID|Hello world/);
+    expect(r.structuredContent.jobId).toBe("job123");
+    expect(r.structuredContent.hint).toContain("preview_text cannot read this output"); expect(r.structuredContent.hint).toContain('which:"output"');
+    expect(r.content[0].text).toContain("whole converted file is attached as an embedded resource");
+    expect(r.content[0].text).not.toMatch(/TRUNCATED|Hello world/);
+  });
+
+  it("hints preview_text on the stored output, and on the stored input for inline results from an API input", async () => {
+    await setup();
+    mswServer.use(http.post(`${API}/v1/convert/json`, async ({ request }) => {
+      const body: any = await request.json();
+      const b: any = { id: "job9", ...convertOk([{ fileName: "show.stl", content: "AQID", contentEncoding: "base64", formatId: "ebustl", kind: "binary" }]) };
+      if (body.output) { delete b.outputs[0].content; b.outputs[0].output = body.output; }
+      return HttpResponse.json(b);
+    }));
+    const stored = await callTool(h, "convert_subtitle", { input: "s3://subs/in/show.srt", output: "s3://subs/out/show.stl", target: "ebustl" });
+    expect(stored.structuredContent.hint).toBe('Read the converted text with preview_text {jobId:"job9", which:"output"}.');
+    expect(stored.structuredContent.outputs[0].attached).toBeUndefined(); expect(stored.content).toHaveLength(1);
+    const inline = await callTool(h, "convert_subtitle", { input: "s3://subs/in/show.srt", target: "ebustl" });
+    expect(inline.structuredContent.hint).toContain('preview_text {jobId:"job9", which:"input"}');
+    expect(inline.content[1].resource.blob).toBe("AQID");
   });
 
   it("stored outputs report the stored object's name, not the converter's generated name", async () => {
@@ -446,7 +466,7 @@ describe("modes, annotations, resources", () => {
     mswServer.use(...baseHandlers());
     const h = await harness();
     const { tools } = await h.client.listTools();
-    expect(tools.map((t) => t.name)).toEqual(["list_formats", "list_presets", "get_profile", "validate_profile", "detect_format", "convert_subtitle", "get_job_file", "list_allowed_folders"]);
+    expect(tools.map((t) => t.name)).toEqual(["list_formats", "list_presets", "get_profile", "validate_profile", "detect_format", "convert_subtitle", "preview_text", "list_allowed_folders"]);
     const conv = tools.find((t) => t.name === "convert_subtitle")!;
     expect(Object.keys(conv.inputSchema.properties!)).toContain("outputDir");
     expect(conv.inputSchema.additionalProperties).toBe(false);

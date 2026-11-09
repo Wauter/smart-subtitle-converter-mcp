@@ -136,14 +136,14 @@ describe.skipIf(!URL_)("contract: real API", () => {
       expect(job.status).toBe("succeeded"); expect(job.result.outputs[0].content).toBeUndefined();
       expect((await h.client.listTools()).tools.some((t) => t.name === "convert_batch")).toBe(false);
     });
-    it("get_job_file explains response-only jobs and forgotten ids", async () => {
+    it("preview_text explains response-only jobs and forgotten ids", async () => {
       const result = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
       for (const which of ["input", "output"] as const) {
-        const missing = await callTool(h, "get_job_file", { jobId: result.structuredContent.jobId, which });
+        const missing = await callTool(h, "preview_text", { jobId: result.structuredContent.jobId, which });
         expect(missing.structuredContent.error.code).toBe(which === "input" ? "job-input-not-stored" : "job-output-not-stored");
         expect(missing.structuredContent.error.jobId).toBe(result.structuredContent.jobId);
       }
-      const unknown = await callTool(h, "get_job_file", { jobId: "00000000000000000000000000000000", which: "output" });
+      const unknown = await callTool(h, "preview_text", { jobId: "00000000000000000000000000000000", which: "output" });
       expect(unknown.structuredContent.error.code).toBe("job-not-found");
     });
     it("Prefer wait=0 returns 202 and a retrievable terminal job", async () => {
@@ -168,17 +168,17 @@ describe.skipIf(!URL_)("contract: real API", () => {
         expect(r.isError).toBeFalsy(); expect(r.structuredContent.outputs[0].output).toBe(output);
         expect(fs.readFileSync(output, "utf8")).toContain("WEBVTT"); expect(fs.existsSync(output + ".json")).toBe(true);
         for (const which of ["input", "output"] as const) {
-          const file = await callTool(h, "get_job_file", { jobId: r.structuredContent.jobId, which });
+          const file = await callTool(h, "preview_text", { jobId: r.structuredContent.jobId, which });
           expect(file.isError).toBeFalsy(); expect(file.structuredContent.which).toBe(which);
           expect(file.structuredContent.bytes).toBe(fs.statSync(which === "input" ? source : output).size);
-          expect(file.content[1].text).toContain(which === "input" ? "Hello" : "WEBVTT");
+          expect(file.structuredContent.text).toContain(which === "input" ? "Hello" : "WEBVTT");
         }
         const collision = await callTool(h, "convert_subtitle", { input: source, output, target: "vtt" });
         expect(collision.structuredContent.error.code).toBe("output-exists"); expect(collision.structuredContent.error.hint).toContain("error | replace");
         const replaced = await callTool(h, "convert_subtitle", { input: source, output, sidecar: true, target: "vtt", ifExists: "replace" });
         expect(replaced.isError).toBeFalsy();
         fs.unlinkSync(output);
-        const gone = await callTool(h, "get_job_file", { jobId: r.structuredContent.jobId, which: "output" });
+        const gone = await callTool(h, "preview_text", { jobId: r.structuredContent.jobId, which: "output" });
         expect(gone.structuredContent.error.code).toBe("job-file-gone"); expect(gone.structuredContent.error.location).toBe(new URL(`file://${output}`).href);
 
       } finally { for (const f of [source, output, output + ".json"]) fs.rmSync(f, { force: true }); }

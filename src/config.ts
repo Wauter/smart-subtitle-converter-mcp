@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { LogLevel } from "./log.js";
 import type { Mode } from "./errors.js";
+import { PREVIEW_HARD_CEILING_BYTES, PREVIEW_MIN_BYTES } from "./tools/textPage.js";
 
 export class ConfigError extends Error {}
 
@@ -22,7 +23,10 @@ export interface Config {
   retryMaxAttempts: number;
   retryMaxWaitMs: number;
   retryBudgetMs: number;
-  inlineTextMaxBytes: number;
+  /** preview_text page size when the call gives no maxBytes (UTF-8 bytes). */
+  previewDefaultBytes: number;
+  /** Largest preview_text page (and largest single cue) returned, in UTF-8 bytes. */
+  previewMaxBytes: number;
   jsonMaxDecodedBytes?: number;
   limitsTtlMs: number;
   includeDebug: boolean;
@@ -37,7 +41,7 @@ const KNOWN_ENV = new Set([
   "SUBTITLE_MCP_HTTP", "SUBTITLE_MCP_HOSTED", "SUBTITLE_MCP_ALLOWED_DIRS", "SUBTITLE_MCP_READONLY_DIRS",
   "SUBTITLE_MCP_USE_CLIENT_ROOTS", "SUBTITLE_MCP_PARTIAL_MAX_AGE_MS", "SUBTITLE_MCP_MAX_BYTES",
   "SUBTITLE_MCP_TIMEOUT_MS", "SUBTITLE_MCP_RETRY_MAX_ATTEMPTS", "SUBTITLE_MCP_RETRY_MAX_WAIT_MS", "SUBTITLE_MCP_RETRY_BUDGET_MS",
-  "SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES",
+  "SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES", "SUBTITLE_MCP_PREVIEW_MAX_BYTES",
   "SUBTITLE_MCP_JSON_MAX_DECODED_BYTES", "SUBTITLE_MCP_LIMITS_TTL_MS",
   "SUBTITLE_MCP_INCLUDE_DEBUG", "SUBTITLE_MCP_ALLOWED_ORIGINS", "SUBTITLE_MCP_ALLOWED_HOSTS", "SUBTITLE_MCP_LOG_LEVEL",
   "SUBTITLE_MCP_LOG_PATHS",
@@ -157,6 +161,8 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv, opts: { checkF
   }
 
   for (const k of Object.keys(env)) {
+    if (k === "SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES")
+      throw new ConfigError("SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES was removed: convert_subtitle returns the whole file again, and preview_text pages its text. Remove it; to change the preview page size use SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES / SUBTITLE_MCP_PREVIEW_MAX_BYTES");
     if (k.startsWith("SUBTITLE_MCP_") && !KNOWN_ENV.has(k)) throw new ConfigError(`unknown environment variable ${k}`);
   }
 
@@ -197,6 +203,11 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv, opts: { checkF
     throw new ConfigError("hosted mode needs a hosted auth provider (OAuth), which v1 does not ship; run without --hosted");
   }
 
+  const previewMaxBytes = int("SUBTITLE_MCP_PREVIEW_MAX_BYTES", env.SUBTITLE_MCP_PREVIEW_MAX_BYTES, 262_144, PREVIEW_MIN_BYTES)!;
+  if (previewMaxBytes > PREVIEW_HARD_CEILING_BYTES) throw new ConfigError(`SUBTITLE_MCP_PREVIEW_MAX_BYTES: must be at most ${PREVIEW_HARD_CEILING_BYTES} (hard ceiling), got ${previewMaxBytes}`);
+  const previewDefaultBytes = int("SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES", env.SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES, Math.min(65_536, previewMaxBytes), PREVIEW_MIN_BYTES)!;
+  if (previewDefaultBytes > previewMaxBytes) throw new ConfigError(`SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES (${previewDefaultBytes}) must not exceed SUBTITLE_MCP_PREVIEW_MAX_BYTES (${previewMaxBytes})`);
+
   const allowedHosts = env.SUBTITLE_MCP_ALLOWED_HOSTS ? list(env.SUBTITLE_MCP_ALLOWED_HOSTS) : ["localhost", "127.0.0.1", "[::1]"];
   if (http && !["0.0.0.0", "::", ""].includes(http.host) && !allowedHosts.includes(http.host)) allowedHosts.push(http.host.includes(":") ? `[${http.host}]` : http.host);
 
@@ -217,7 +228,8 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv, opts: { checkF
     retryMaxAttempts: int("SUBTITLE_MCP_RETRY_MAX_ATTEMPTS", env.SUBTITLE_MCP_RETRY_MAX_ATTEMPTS, 3)!,
     retryMaxWaitMs: int("SUBTITLE_MCP_RETRY_MAX_WAIT_MS", env.SUBTITLE_MCP_RETRY_MAX_WAIT_MS, 60_000)!,
     retryBudgetMs: int("SUBTITLE_MCP_RETRY_BUDGET_MS", env.SUBTITLE_MCP_RETRY_BUDGET_MS, 90_000)!,
-    inlineTextMaxBytes: int("SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES", env.SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES, 65_536)!,
+    previewDefaultBytes,
+    previewMaxBytes,
     jsonMaxDecodedBytes: int("SUBTITLE_MCP_JSON_MAX_DECODED_BYTES", env.SUBTITLE_MCP_JSON_MAX_DECODED_BYTES, undefined, 1),
     limitsTtlMs: int("SUBTITLE_MCP_LIMITS_TTL_MS", env.SUBTITLE_MCP_LIMITS_TTL_MS, 300_000)!,
     includeDebug: bool("SUBTITLE_MCP_INCLUDE_DEBUG", env.SUBTITLE_MCP_INCLUDE_DEBUG, false),
@@ -246,7 +258,7 @@ export function defaultConfig(over: Partial<Config> = {}): Config {
   return {
     mode: "local", apiUrl: "http://api.test", httpTokens: [], allowedDirs: [], readonlyDirs: [], useClientRoots: true,
     partialMaxAgeMs: 3_600_000, timeoutMs: 120_000, retryMaxAttempts: 3, retryMaxWaitMs: 60_000,
-    retryBudgetMs: 90_000, inlineTextMaxBytes: 65_536,
+    retryBudgetMs: 90_000, previewDefaultBytes: 65_536, previewMaxBytes: 262_144,
     limitsTtlMs: 300_000, includeDebug: false, allowedOrigins: [], allowedHosts: ["localhost", "127.0.0.1", "[::1]"],
     logLevel: "error", logPaths: false, ...over,
   };
