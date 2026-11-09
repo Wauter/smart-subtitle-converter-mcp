@@ -10,7 +10,7 @@ the client's MCP log). Every error carries a `code`, a `hint` and a `source`:
   below.
 
 Warnings from the API are passed through unchanged; they are on that same page. The MCP adds only
-`mcp-api-version-mismatch` and `mcp-ebu-size`.
+`mcp-api-version-mismatch`, `mcp-ebu-size` and `max-bytes-clamped`.
 
 ## Version mismatch
 
@@ -170,16 +170,32 @@ folder grants don't give the API access to its own storage.
 
 **`preview-cursor-invalid`**
 
-- **What:** The `cursor` isn't one `preview_text` returned, or it was returned for another job or `which`.
+- **What:** The `cursor` isn't one `preview_text` returned (empty, altered, too long, or pointing somewhere this
+  file's pages never start), or it was returned for another job or `which`.
 - **What to do:** Pass the `next` value from the previous page unchanged, with the same `jobId` and `which`, or
   start again without `cursor`.
 
 **`preview-cue-too-large`**
 
-- **What:** A single cue (or line) is larger than the largest page this server returns.
-- **Why:** Pages never split a cue, so one cue over `SUBTITLE_MCP_PREVIEW_MAX_BYTES` can't be shown.
-- **What to do:** Convert the file with `convert_subtitle` to a file and read that instead, or ask the operator to
-  raise `SUBTITLE_MCP_PREVIEW_MAX_BYTES` ([configuration.md](configuration.md)).
+- **What:** A single cue (or line) is larger than `SUBTITLE_MCP_PREVIEW_MAX_BYTES`, the largest page this server
+  returns. The text from that cue on can't be previewed.
+- **Why:** Pages never split a cue.
+- **What to do:** The file is already stored: read it directly at the `location` in the error. Or ask the operator
+  to raise `SUBTITLE_MCP_PREVIEW_MAX_BYTES` (up to 1048576) and restart the server
+  ([configuration.md](configuration.md)).
+
+**`max-bytes-clamped`** warning (from the MCP)
+
+- **What:** The `maxBytes` you asked `preview_text` for was outside the allowed range, so pages use the nearest
+  allowed size. `details.fields` has the `requested` and `applied` values.
+- **What to do:** Nothing; the page is valid. Ask for a size in range next time to avoid the warning.
+
+**`job-output-not-stored`** and **`job-input-not-stored`** from `preview_text`
+
+These come from the API; the MCP rewords them for the common case. An inline `convert_subtitle` result (no
+output location) is attached to the convert result and stored nowhere, so there is no output to preview: save the
+attached file and read it locally, or convert again with an API `output`. A source sent as `content` or a local
+`path` has no stored input either.
 
 ## Character sets and formats
 

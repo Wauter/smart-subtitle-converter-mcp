@@ -239,6 +239,43 @@ export interface SourceInput {
   ext?: string;
 }
 
+/** API input scheme for logs: s3 | file | https (a bare absolute path is file). */
+export function inputScheme(input: string): string {
+  if (input.startsWith("/")) return "file";
+  const m = /^([a-z][a-z0-9+.-]*):/i.exec(input);
+  return m ? m[1].toLowerCase() : "unknown";
+}
+
+/** An API input without credentials, query or fragment (presigned HTTPS signatures never reach logs or text). */
+export function redactInput(input: string): string {
+  if (input.startsWith("/")) return input;
+  try { const u = new URL(input); u.username = ""; u.password = ""; u.search = ""; u.hash = ""; return u.href; } catch { return "[invalid uri]"; }
+}
+
+/** Last path segment of an API input, or undefined. */
+function inputBaseName(input: string): string | undefined {
+  const p = input.startsWith("/") ? input : (() => { try { return new URL(input).pathname; } catch { return ""; } })();
+  const last = p.split("/").pop();
+  if (!last) return undefined;
+  try { return decodeURIComponent(last); } catch { return last; }
+}
+
+/** Log fields for the source: `source` is path | inline | s3 | file | https (the API input's scheme). */
+export function logSource(deps: Deps, call: Call, src: SourceInput): void {
+  call.log.source = src.input !== undefined ? inputScheme(src.input) : src.callerPath ? "path" : "inline";
+  const name = src.input !== undefined ? inputBaseName(src.input) : src.fileName;
+  const ext = src.ext ?? (name && /\.[^./]+$/.exec(name)?.[0].toLowerCase());
+  if (ext) call.log.inputExt = ext;
+  if (src.input !== undefined) call.log.inputHash = deps.log.p(redactInput(src.input));
+  else if (src.callerPath) call.log.inputHash = deps.log.p(src.callerPath);
+  else if (src.fileName) call.log.inputHash = deps.log.p(src.fileName);
+}
+
+/** Human name of the source for summaries: the file name, else the API input's last segment, else "content". */
+export function sourceLabel(src: SourceInput): string {
+  return src.fileName ?? (src.input !== undefined ? inputBaseName(src.input) ?? redactInput(src.input) : undefined) ?? "content";
+}
+
 /** §4.2: path → base64 of raw bytes with fileName=basename; inline content validated. */
 export async function loadSource(deps: Deps, args: { content?: string; contentEncoding?: "text" | "base64"; path?: string; fileName?: string; input?: string }, caps: Caps): Promise<SourceInput> {
   if (args.input !== undefined) {

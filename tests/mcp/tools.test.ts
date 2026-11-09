@@ -148,12 +148,13 @@ describe("convert_subtitle", () => {
     const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "webvtt" });
     expect(r.isError).toBeFalsy();
     expect(r.content[0].text).toBe("Converted movie.srt (SubRip, utf-8, en) → movie.vtt (WebVTT, utf-8): 1 → 1 cues in 4 ms. The whole converted file is attached as an embedded resource; use outputPath/outputDir to write it to disk instead.");
-    expect(r.content[1]).toMatchObject({ type: "resource", resource: { mimeType: "text/vtt", text: "WEBVTT\n" } });
+    // This mock answers in text form, which (like the real API) has no BOM; utf-8 means with BOM, so it is restored.
+    expect(r.content[1]).toMatchObject({ type: "resource", resource: { mimeType: "text/vtt", text: "\uFEFFWEBVTT\n" } });
     expect(r.content).toHaveLength(2);
-    expect(r.structuredContent.outputs[0]).toMatchObject({ attached: true, cues: 1, bytes: 7 });
+    expect(r.structuredContent.outputs[0]).toMatchObject({ attached: true, contentEncoding: "text", cues: 1, bytes: 10 });
     expect(r.structuredContent.outputs[0].text).toBeUndefined(); expect(r.structuredContent.outputs[0].inline).toBeUndefined();
     const c = convertCalls()[0];
-    expect(c.body).toEqual({ content: Buffer.from(SRT).toString("base64"), contentEncoding: "base64", fileName: "movie.srt", target: "webvtt" });
+    expect(c.body).toEqual({ content: Buffer.from(SRT).toString("base64"), contentEncoding: "base64", fileName: "movie.srt", target: "webvtt", responseEncoding: "base64" });
     const TRANSPORT = ["accept-encoding", "accept-language", "connection", "content-length", "host", "sec-fetch-mode", "user-agent"];
     expect(Object.keys(c.headers).filter((k) => !TRANSPORT.includes(k)).sort()).toEqual(["accept", "authorization", "content-type", "prefer", "x-request-id"]);
     expect(c.headers.authorization).toBe("Bearer upstream-key");
@@ -172,15 +173,45 @@ describe("convert_subtitle", () => {
     const r = await callTool(h, "convert_subtitle", { content: SRT, preset: "x" });
     expect(Buffer.byteLength(srt)).toBeGreaterThan(65536);
     const [txt, bin] = r.structuredContent.outputs;
-    expect(r.content[1].resource).toMatchObject({ mimeType: "text/vtt", text: srt }); expect(r.content[1].resource.uri).toMatch(/^subtitleedit:\/\/outputs\/.+\/subtitle\.srt$/);
+    expect(r.content[1].resource).toMatchObject({ mimeType: "text/vtt", text: "\uFEFF" + srt }); expect(r.content[1].resource.uri).toMatch(/^subtitleedit:\/\/outputs\/.+\/subtitle\.srt$/);
     expect(r.content[2].resource.blob).toBe("AQID"); expect(r.content[2].resource.uri).toMatch(/^subtitleedit:\/\/outputs\/.+\/subtitle\.stl$/);
-    expect(txt).toMatchObject({ attached: true, bytes: Buffer.byteLength(srt) }); expect(bin).toMatchObject({ attached: true, kind: "binary" });
+    expect(txt).toMatchObject({ attached: true, bytes: Buffer.byteLength(srt) + 3 }); expect(bin).toMatchObject({ attached: true, kind: "binary" });
     for (const o of [txt, bin]) for (const k of ["text", "truncated", "preview", "resourceUri", "inline"]) expect(o[k]).toBeUndefined();
     expect(JSON.stringify(r.structuredContent)).not.toMatch(/AQID|Hello world/);
     expect(r.structuredContent.jobId).toBe("job123");
     expect(r.structuredContent.hint).toBe("The whole file is in the attached embedded resource; save it to disk and read it locally if you need the text. To preview it with preview_text instead, convert with an API `output` location.");
     expect(r.content[0].text).toContain("whole converted file is attached as an embedded resource");
     expect(r.content[0].text).not.toMatch(/TRUNCATED|Hello world/);
+  });
+
+  it("inline text resources are byte-identical to the stored deliverable: BOM kept, bytes match, UTF-16 as a blob", async () => {
+    await setup();
+    const srt = "1\n00:00:01,000 --> 00:00:02,000\nCafé ünïcode\n";
+    const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(srt)]); // what the API stores for encoding utf-8
+    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(srt, "utf16le")]);
+    let stored: Buffer | undefined;
+    mswServer.use(http.post(`${API}/v1/convert/json`, async ({ request }) => {
+      const body: any = await request.json();
+      const outs = [
+        { fileName: "a.srt", content: bom.toString("base64"), contentEncoding: "base64", formatId: "subrip", encoding: "utf-8", bytes: bom.length },
+        { fileName: "b.srt", content: Buffer.from(srt).toString("base64"), contentEncoding: "base64", formatId: "subrip", encoding: "utf-8-no-bom", bytes: Buffer.byteLength(srt) },
+        { fileName: "c.srt", content: utf16.toString("base64"), contentEncoding: "base64", formatId: "subrip", encoding: "utf-16", bytes: utf16.length },
+      ];
+      if (body.output) { stored = bom; return HttpResponse.json({ id: "j", ...convertOk([{ ...outs[0], content: undefined as any, output: body.output } as any]) }); }
+      expect(body.responseEncoding).toBe("base64");
+      return HttpResponse.json({ id: "j", ...convertOk(outs as any) });
+    }));
+    const r = await callTool(h, "convert_subtitle", { content: SRT, target: "srt" });
+    const [a, b, c] = r.content.slice(1).map((x: any) => x.resource);
+    const st = await callTool(h, "convert_subtitle", { content: SRT, target: "srt", output: "s3://subs/out/a.srt" });
+    expect(st.isError).toBeFalsy();
+    expect(Buffer.from(a.text, "utf8").equals(stored!)).toBe(true); // same bytes as the stored-output equivalent
+    expect(r.structuredContent.outputs[0]).toMatchObject({ contentEncoding: "text", bytes: stored!.length });
+    expect(b.text).toBe(srt); expect(r.structuredContent.outputs[1].bytes).toBe(Buffer.byteLength(srt));
+    expect(c.text).toBeUndefined(); expect(Buffer.from(c.blob, "base64").equals(utf16)).toBe(true);
+    expect(r.structuredContent.outputs[2]).toMatchObject({ contentEncoding: "base64", bytes: utf16.length });
+    const forced = await callTool(h, "convert_subtitle", { content: SRT, target: "srt", responseEncoding: "base64" });
+    expect(Buffer.from(forced.content[1].resource.blob, "base64").equals(bom)).toBe(true);
   });
 
   it("hints preview_text on the stored output, and on the stored input for inline results from an API input", async () => {

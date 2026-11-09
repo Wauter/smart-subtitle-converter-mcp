@@ -99,10 +99,17 @@ describe("cursor", () => {
     const c = decodeCursor(encodeCursor({ k: hashKey("job:abc:input"), h: fingerprint(data), u: "cue", f: 1 }));
     expect(code(() => checkCursor(c, key, fingerprint(data), s))).toBe("preview-cursor-invalid");
   });
-  it("reports a changed file as preview-source-changed", () => {
+  it("reports a fingerprint mismatch (and only that) as preview-source-changed", () => {
     const c = { k: key, h: fingerprint(data), u: "cue" as const, f: 1 };
     expect(code(() => checkCursor(c, key, fingerprint(Buffer.from("changed")), s))).toBe("preview-source-changed");
-    expect(code(() => checkCursor({ ...c, f: 3 }, key, fingerprint(data), s))).toBe("preview-source-changed");
-    expect(code(() => checkCursor({ ...c, u: "line" }, key, fingerprint(data), s))).toBe("preview-source-changed");
+  });
+  it("treats a forged past-end index or switched unit as preview-cursor-invalid", () => {
+    const c = { k: key, h: fingerprint(data), u: "cue" as const, f: 1 };
+    expect(code(() => checkCursor({ ...c, f: 3 }, key, fingerprint(data), s))).toBe("preview-cursor-invalid");
+    expect(code(() => checkCursor({ ...c, u: "line" }, key, fingerprint(data), s))).toBe("preview-cursor-invalid");
+  });
+  it("rejects empty, too long and wrongly-charactered cursors as preview-cursor-invalid", () => {
+    const good = encodeCursor({ k: key, h: fingerprint(data), u: "cue", f: 1 });
+    for (const bad of ["", "a b", good + "+", good + "=", "x".repeat(513), good.slice(0, -3)]) expect(code(() => decodeCursor(bad)), bad.slice(0, 20)).toBe("preview-cursor-invalid");
   });
 });

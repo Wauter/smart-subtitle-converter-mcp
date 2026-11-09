@@ -5,16 +5,17 @@ import type { Call, Deps } from "../context.js";
 import { ToolFailure, mcpError, type WarningT } from "../errors.js";
 import { defineTool, getCaps, inputCap, mapWarnings, tooLarge, Warning, warningText } from "./common.js";
 import { sanitizeOutputName } from "../fs/write.js";
+import { withSuffix } from "../ids.js";
 import { finishConversion } from "../api/jobs.js";
 import type { Caps } from "../api/limits.js";
-import { checkCursor, clampPageBytes, decodeCursor, encodeCursor, fingerprint, hashKey, locationBaseName, pageText, PREVIEW_MIN_BYTES, segment, stripBom, takePage } from "./textPage.js";
+import { checkCursor, clampPageBytes, decodeCursor, encodeCursor, fingerprint, hashKey, locationBaseName, pageText, PREVIEW_HARD_CEILING_BYTES, PREVIEW_MIN_BYTES, segment, sourceChanged, stripBom, takePage } from "./textPage.js";
 
 export function describePreviewText(deps: Deps): string {
   const c = deps.cfg;
   return "Read the subtitle text of a convert_subtitle job's stored input or output, to check spelling, language and timing. This is a read-only text preview for you, not the file: it never returns bytes to save. Give `jobId` and `which` (input | output); files are reachable only by job id, never by URI." +
     " Text formats are returned as stored. Binary formats (EBU STL, PAC, Cavena 890, …) are converted to SRT for reading: `convertedFrom` is the stored format id, `convertedTo` is 'srt', and `warnings` say what the SRT view lost or changed; the stored file is never modified." +
-    ` The text is paged and the result's \`text\` holds one page. SRT and WebVTT pages always end on a whole cue, other text on a whole line. \`maxBytes\` sets the page size in UTF-8 bytes (default ${c.previewDefaultBytes}, clamped to ${PREVIEW_MIN_BYTES}..${c.previewMaxBytes}); only a single cue larger than maxBytes is returned alone over it.` +
-    " When `truncated` is true, more text follows: call again with the same jobId and which and `cursor` set to `next` (you may change maxBytes between pages). `fromCue`/`toCue` (or `fromLine`/`toLine`), `totalCues` (or `totalLines`), `returnedBytes` and `totalBytes` say where you are; tell the user when you only read part of a file. If the stored file changes between pages the call fails with `preview-source-changed`: start again without cursor." +
+    ` The text is paged and the result's \`text\` holds one page. SRT and WebVTT pages always end on a whole cue, other text on a whole line. \`maxBytes\` sets the page size in UTF-8 bytes (default ${c.previewDefaultBytes}, clamped to ${PREVIEW_MIN_BYTES}..${c.previewMaxBytes}, with a max-bytes-clamped warning); only a single cue larger than maxBytes is returned alone over it.` +
+    " When `truncated` is true, more text follows: call again with the same jobId and which and `cursor` set to `next` (you may change maxBytes between pages). `fromCue`/`toCue` (or `fromLine`/`toLine`), `totalCues` (or `totalLines`), `returnedBytes` and `totalBytes` say where you are; tell the user when you only read part of a file. If the stored file changes between pages the call fails with `preview-source-changed`, and a cursor that wasn't returned for this jobId and which fails with `preview-cursor-invalid`: start again without cursor." +
     " Each call re-reads current storage (not a cached copy); files may change or disappear. Local path uploads and inline content have no stored input, and a conversion without an API `output` has no stored output. Any valid API key knowing the unguessable job id can read it. Query-redacted HTTPS locations cannot be replayed.";
 }
 
@@ -45,7 +46,7 @@ export const PreviewTextOutput = {
   totalLines: count.optional().describe("unit line: number of lines in the whole text"),
   convertedFrom: z.string().optional().describe("Set when a binary file was converted to SRT for reading: the stored format id"),
   convertedTo: z.literal("srt").optional().describe("Set with convertedFrom: the text is SRT"),
-  warnings: z.array(Warning).describe("Warnings from the SRT conversion of a binary file (what the SRT view lost), else empty"),
+  warnings: z.array(Warning).describe("max-bytes-clamped when the requested maxBytes was out of range, and warnings from the SRT conversion of a binary file (what the SRT view lost)"),
   requestId: z.string().optional().describe("API request id of the last API call, for support"),
 };
 
@@ -57,7 +58,8 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
       jobId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).describe("Job id (`jobId`) returned by convert_subtitle"),
       which: z.enum(["input", "output"]).describe("input | output: the job's stored source or its stored result"),
       maxBytes: z.number().int().positive().optional().describe(`Page size in UTF-8 bytes (default ${deps.cfg.previewDefaultBytes}, clamped to ${PREVIEW_MIN_BYTES}..${deps.cfg.previewMaxBytes})`),
-      cursor: z.string().max(512).regex(/^[A-Za-z0-9_-]+$/).optional().describe("`next` from the previous page, unchanged, to read the following page; omit for the first page"),
+      // Validated by decodeCursor, so every malformed cursor is preview-cursor-invalid rather than invalid-arguments.
+      cursor: z.string().optional().describe("`next` from the previous page, unchanged, to read the following page; omit for the first page"),
     },
     output: PreviewTextOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -67,11 +69,18 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
         // Decode first: a malformed cursor fails before any API call.
         const cursor = a.cursor !== undefined ? decodeCursor(a.cursor) : undefined;
         const maxBytes = clampPageBytes(a.maxBytes, deps.cfg.previewDefaultBytes, deps.cfg.previewMaxBytes);
+        const clampWarning: WarningT[] = a.maxBytes !== undefined && a.maxBytes !== maxBytes ? [{
+          code: "max-bytes-clamped",
+          message: `maxBytes ${a.maxBytes} is outside the allowed range ${PREVIEW_MIN_BYTES}..${deps.cfg.previewMaxBytes}; pages use ${maxBytes} bytes.`,
+          hint: a.maxBytes > maxBytes ? "The server maximum is SUBTITLE_MCP_PREVIEW_MAX_BYTES; the operator can raise it (up to 1048576)." : `Ask for at least ${PREVIEW_MIN_BYTES} bytes.`,
+          details: { fields: { requested: String(a.maxBytes), applied: String(maxBytes) } },
+        }] : [];
         const caps = await getCaps(deps, call);
         const meta = await deps.api.request({ method: "GET", path: jobPath, kind: "metadata" }, call);
         const job: any = meta.json;
         if (job?.id !== a.jobId) throw mcpError("api-protocol-error", "The job metadata id does not match the requested id.");
-        const response = await deps.api.request({ method: "GET", path: `${jobPath}/${a.which}`, kind: "conversion", accept: "application/octet-stream", responseBytes: true }, call);
+        // Each distinct request gets its own correlation id: base id for the job metadata, `.f` for the file.
+        const response = await deps.api.request({ method: "GET", path: `${jobPath}/${a.which}`, kind: "conversion", accept: "application/octet-stream", responseBytes: true }, { ...call, requestId: withSuffix(call.requestId, ".f") });
         const data = response.bytes;
         if (!data) throw mcpError("api-protocol-error", "The job file response contains no byte body.");
         const cap = inputCap(caps);
@@ -86,8 +95,7 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
         const key = hashKey(`job:${a.jobId}:${a.which}`);
         const fp = fingerprint(data);
         // Checked again after segmenting; failing here first avoids a needless SRT conversion.
-        if (cursor && cursor.k === key && cursor.h !== fp)
-          throw mcpError("preview-source-changed", "The file changed since the previous page was read, so the cursor no longer points into the same text.", "Call preview_text again without `cursor` to start from the first page.");
+        if (cursor && cursor.k === key && cursor.h !== fp) throw sourceChanged();
 
         let text = decodeText(data, known);
         let warnings: WarningT[] = [];
@@ -103,8 +111,10 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
         if (cursor) checkCursor(cursor, key, fp, seg);
         const page = takePage(seg, cursor?.f ?? 0, maxBytes);
         if (page.returnedBytes > deps.cfg.previewMaxBytes)
-          throw mcpError("preview-cue-too-large", `${seg.unit === "cue" ? "Cue" : "Line"} ${page.start + 1} alone is ${page.returnedBytes} UTF-8 bytes, more than the largest page this server returns (${deps.cfg.previewMaxBytes}).`,
-            "This file cannot be previewed past this point. Convert it with convert_subtitle to a file instead, or ask the operator to raise SUBTITLE_MCP_PREVIEW_MAX_BYTES.", { limit: { name: "SUBTITLE_MCP_PREVIEW_MAX_BYTES", value: deps.cfg.previewMaxBytes, actual: page.returnedBytes } });
+          throw mcpError("preview-cue-too-large", `${seg.unit === "cue" ? "Cue" : "Line"} ${page.start + 1} alone is ${page.returnedBytes} UTF-8 bytes, more than SUBTITLE_MCP_PREVIEW_MAX_BYTES (${deps.cfg.previewMaxBytes}), the largest page this server returns; pages never split a ${seg.unit}, so the text from here on can't be previewed.`,
+            // The file is already stored (preview_text only reads stored files): point at it, don't suggest converting.
+            `The operator can raise SUBTITLE_MCP_PREVIEW_MAX_BYTES (up to ${PREVIEW_HARD_CEILING_BYTES}) and restart the MCP server, or read the stored file directly at ${location}.`,
+            { limit: { name: "SUBTITLE_MCP_PREVIEW_MAX_BYTES", value: deps.cfg.previewMaxBytes, actual: page.returnedBytes }, location });
         const total = seg.parts.length, n = page.end - page.start;
         const U = seg.unit === "cue" ? "Cue" : "Line";
         const pos = total === 0 ? { [`returned${U}s`]: 0, [`total${U}s`]: 0 } : { [`from${U}`]: page.start + 1, [`to${U}`]: page.end, [`returned${U}s`]: n, [`total${U}s`]: total };
@@ -113,20 +123,36 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
           text: page.text, unit: seg.unit, maxBytes, truncated: page.more,
           ...(page.more ? { next: encodeCursor({ k: key, h: fp, u: seg.unit, f: page.end }) } : {}),
           returnedBytes: page.returnedBytes, totalBytes: seg.totalBytes, ...pos,
-          ...(convertedFrom ? { convertedFrom, convertedTo: "srt" } : {}), warnings, ...(requestId ? { requestId } : {}),
+          ...(convertedFrom ? { convertedFrom, convertedTo: "srt" } : {}), warnings: [...clampWarning, ...warnings], ...(requestId ? { requestId } : {}),
         };
         let summary = `Preview of ${a.which} for job ${a.jobId}: ${fileName}, ${data.length} bytes (${mediaType}).`;
         if (convertedFrom) summary += ` It is a binary ${convertedFrom} file, so its text is shown converted to SRT; the stored file is unchanged.`;
         summary += pageText({ unit: seg.unit, from: page.start + 1, to: page.end, total, returnedBytes: page.returnedBytes, totalBytes: seg.totalBytes, truncated: page.more });
         summary += " The text is in the structured result's `text` field (sent once, not repeated here). Current storage contents, not an archived copy.";
+        if (clampWarning.length) summary += ` Warning max-bytes-clamped: ${clampWarning[0].message}`;
         if (warnings.length) summary += ` ${warnings.length} conversion warning${warnings.length === 1 ? "" : "s"}: ${warnings.map(warningText).join("; ")}`;
         return { structured, summary, logFields: { unit: seg.unit, pageBytes: page.returnedBytes, paged: Boolean(cursor) || page.more } };
       } catch (e) {
-        if (e instanceof ToolFailure) { e.toolError.jobId = a.jobId; e.toolError.jobUrl = jobPath; }
+        if (e instanceof ToolFailure) { e.toolError.jobId = a.jobId; e.toolError.jobUrl = jobPath; explainNotStored(e, a.jobId); }
         throw e;
       }
     },
   });
+}
+
+/** Plain wording for the API's 409 job-*-not-stored, naming the inline (attached) case, which is the usual cause. */
+function explainNotStored(e: ToolFailure, jobId: string): void {
+  const te = e.toolError;
+  if (te.source !== "api") return;
+  if (te.code === "job-output-not-stored") {
+    te.title = "Job output not stored";
+    te.detail = `Job ${jobId} has no stored output to preview. It was converted without an API \`output\` location, so the converted file was returned in the convert_subtitle result (attached as an embedded resource) and not stored anywhere; or the conversion did not succeed.`;
+    te.hint = `If you have the attached file, save it to disk and read it locally. To preview the result with preview_text, convert again with an API \`output\` location, then call preview_text with the new jobId and which "output".`;
+  } else if (te.code === "job-input-not-stored") {
+    te.title = "Job input not stored";
+    te.detail = `Job ${jobId} has no stored input to preview: its source was sent inline (\`content\` or a local \`path\`), not read from an API \`input\` location.`;
+    te.hint = "Read the original local file instead, or convert from an API `input` location to make the source previewable.";
+  }
 }
 
 const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
@@ -157,10 +183,11 @@ async function convertToSrt(deps: Deps, call: Call, caps: Caps, f: { data: Buffe
   const n = Buffer.byteLength(json);
   if (n > caps.jsonBody) throw tooLarge("The SRT conversion request for this binary file", { name: "maxRequestBodyBytes.json", value: caps.jsonBody }, n);
   const started = Date.now();
+  const srtCall = { ...call, requestId: withSuffix(call.requestId, ".s") };
   let res;
   try {
-    res = await deps.api.request({ method: "POST", path: "/v1/convert/json", kind: "conversion", headers: { Prefer: `wait=${Math.max(0, Math.min(caps.requestMaxWaitSeconds ?? 60, Math.floor(deps.cfg.timeoutMs / 1000)))}` }, raw: { body: json, contentType: "application/json" } }, call);
-    res = await finishConversion(deps.api, res, call, deps.cfg, started);
+    res = await deps.api.request({ method: "POST", path: "/v1/convert/json", kind: "conversion", headers: { Prefer: `wait=${Math.max(0, Math.min(caps.requestMaxWaitSeconds ?? 60, Math.floor(deps.cfg.timeoutMs / 1000)))}` }, raw: { body: json, contentType: "application/json" } }, srtCall);
+    res = await finishConversion(deps.api, res, srtCall, deps.cfg, started);
   } catch (e) {
     if (e instanceof ToolFailure && e.toolError.source === "api" && e.toolError.status === 422) {
       const how = `preview_text converts binary files to SRT to show their text and takes no profile settings. To read it with a setting from this hint, call convert_subtitle with input "${f.location}", target "srt" and that profile setting, and no output (nothing is written).`;

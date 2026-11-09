@@ -20,10 +20,18 @@ sees are the authoritative, live version of this page (they include the allowed 
 ## Inline convert results
 
 Without an output location (`outputPath`/`outputDir` or an API `output`), `convert_subtitle` attaches the whole
-converted file to its result as an embedded resource, for text and binary targets alike: text formats as `text`,
-binary formats (EBU STL, PAC, …) as base64 `blob`, with the format's `mimeType`. The file is never cut. The
-resource is the deliverable, for the client to save; its `uri` only labels the block and is not readable with
-`resources/read`.
+converted file to its result as an embedded resource, for text and binary targets alike, with the format's
+`mimeType`. The file is never cut, and it is byte-identical to what the same conversion would store with an API
+`output`:
+
+- UTF-8 text (`encoding` `utf-8`, which has a byte order mark, or `utf-8-no-bom`) comes as `text`. With `utf-8` the
+  text starts with U+FEFF, so writing it out as UTF-8 reproduces the BOM.
+- Binary formats (EBU STL, PAC, …) and text in other encodings (UTF-16, legacy code pages) come as a base64
+  `blob` of the exact bytes. `responseEncoding: "base64"` sends UTF-8 text as a `blob` too.
+
+`outputs[].contentEncoding` says which (`text` or `base64`), and `outputs[].bytes` is the size of the file the
+resource holds. The resource is the deliverable, for the client to save; its `uri` only labels the block and is
+not readable with `resources/read`.
 
 The structured result describes the file but doesn't repeat its content: `outputs[]` has `fileName`, `format`,
 `formatId`, `kind`, `mediaType`, `encoding`, `cues`, `bytes` and `attached: true`, plus `verification` for
@@ -76,8 +84,8 @@ that fixes it) and `details` (positions and settings, never cue text). What each
 `characters-replaced` remedy fields: the API's [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page.
 
 The MCP passes API warnings through unchanged. It adds only `mcp-api-version-mismatch`
-([troubleshooting.md](troubleshooting.md#version-mismatch)) and `mcp-ebu-size` (a local `.stl` larger than
-the API's EBU STL limit).
+([troubleshooting.md](troubleshooting.md#version-mismatch)), `mcp-ebu-size` (a local `.stl` larger than
+the API's EBU STL limit) and `max-bytes-clamped` (a `preview_text` page size out of range).
 
 ## Verification
 
@@ -111,7 +119,7 @@ Arguments:
 |---|---|---|
 | `jobId` | yes | The `jobId` from `convert_subtitle` |
 | `which` | yes | `input` (the stored source) or `output` (the single stored subtitle result, never a sidecar) |
-| `maxBytes` | no | Page size in UTF-8 bytes. Defaults to `SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES` (65536); values below 4096 are raised to 4096 and values above `SUBTITLE_MCP_PREVIEW_MAX_BYTES` (262144) are lowered to it. The value in effect comes back as `maxBytes` |
+| `maxBytes` | no | Page size in UTF-8 bytes. Defaults to `SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES` (65536); values below 4096 are raised to 4096 and values above `SUBTITLE_MCP_PREVIEW_MAX_BYTES` (262144) are lowered to it, with a `max-bytes-clamped` warning (`details.fields.requested` and `applied`). The value in effect comes back as `maxBytes` |
 | `cursor` | no | The `next` value from the previous page, unchanged. Omit it for the first page |
 
 Files are reached by job id only. There is no URI or local save-path argument. Local path uploads and inline
@@ -129,7 +137,8 @@ The text is split into whole units: cues for SRT and WebVTT (a WebVTT header or 
 next cue), lines for everything else. A page is the longest run of whole units that fits in `maxBytes`. Pages
 always end on a whole cue and never split a character. Only a single cue larger than `maxBytes` makes a page go
 over it, and that cue is then returned alone. A cue larger than `SUBTITLE_MCP_PREVIEW_MAX_BYTES` can't be
-previewed (`preview-cue-too-large`). Joining all pages gives back the whole text exactly.
+previewed (`preview-cue-too-large`, which names the stored file's location), and nor can the text after it.
+Joining all pages gives back the whole text exactly.
 
 Byte counts are UTF-8 bytes of the text without a byte order mark, so `totalBytes` can be a few bytes smaller
 than `bytes`, the stored file's size. For a binary file they count the SRT text, not the stored bytes.
@@ -140,8 +149,9 @@ and `which` and `cursor: next`; `maxBytes` may change between pages. The last pa
 
 Paging is stateless: there is nothing to close or expire on the server. Each call reads the stored file again, and
 the cursor carries a fingerprint (a SHA-256 hash) of the stored bytes. If the file changed between pages, the call
-fails with `preview-source-changed`, and you start again without `cursor`. A cursor used with another job or
-`which` fails with `preview-cursor-invalid`. Every page re-reads the whole file (and converts a binary file
+fails with `preview-source-changed`, and you start again without `cursor`. Any other cursor problem is
+`preview-cursor-invalid`: a value that isn't one `preview_text` returned (empty, altered, too long), or a cursor
+used with another job or `which`. Every page re-reads the whole file (and converts a binary file
 again), so prefer larger pages for long files when your context allows.
 
 ### Result
@@ -156,7 +166,8 @@ again), so prefer larger pages for long files when your context allows.
 | `fromCue`, `toCue`, `returnedCues`, `totalCues` | With `unit: "cue"`: 1-based position of this page and the cue counts |
 | `fromLine`, `toLine`, `returnedLines`, `totalLines` | With `unit: "line"`: the same in lines |
 | `jobId`, `which`, `fileName`, `mediaType`, `bytes`, `location`, `format` | The stored file: name, media type, size, redacted location and recorded format id |
-| `convertedFrom`, `convertedTo`, `warnings` | Set for binary files converted to SRT |
+| `convertedFrom`, `convertedTo` | Set for binary files converted to SRT |
+| `warnings` | `max-bytes-clamped` when `maxBytes` was out of range, and what the SRT conversion of a binary file lost |
 
 The text is sent once, in the structured result's `text`. The content block is a one-line summary of the page
 (which cues, how many bytes, whether more follows), without the text. Subtitle text is not logged.

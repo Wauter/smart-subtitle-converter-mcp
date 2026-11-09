@@ -80,14 +80,17 @@ describe.skipIf(!URL_)("contract: real API", () => {
     it("SRT→VTT inline and to disk byte-exact vs direct API output", async () => {
       const inline = await callTool(h, "convert_subtitle", { content: SRT, fileName: "a.srt", target: "webvtt" });
       expect(inline.isError).toBeFalsy();
-      expect(inline.content.find((c: any) => c.type === "resource" && c.resource.text?.startsWith("WEBVTT"))).toBeTruthy();
+      const res = inline.content.find((c: any) => c.type === "resource")?.resource;
+      expect(res?.text?.replace(/^\uFEFF/, "")).toMatch(/^WEBVTT/);
       expect(inline.structuredContent.outputs[0].attached).toBe(true);
+      expect(Buffer.byteLength(res.text, "utf8")).toBe(inline.structuredContent.outputs[0].bytes);
       const src = put("single/a.srt");
       const out = path.join(dir, "single", "a.vtt");
       const disk = await callTool(h, "convert_subtitle", { path: src, target: "webvtt", outputPath: out });
       expect(disk.structuredContent.outputs[0]).toMatchObject({ writtenTo: out, action: "written" });
       const ref = await direct({ content: Buffer.from(SRT).toString("base64"), contentEncoding: "base64", fileName: "a.srt", target: "webvtt", responseEncoding: "base64" });
       expect(fs.readFileSync(out).equals(Buffer.from(ref.outputs[0].content, "base64"))).toBe(true);
+      expect(Buffer.from(res.text, "utf8").equals(Buffer.from(ref.outputs[0].content, "base64"))).toBe(true); // inline resource = stored/written bytes, BOM included
       expect(fs.readdirSync(path.dirname(out)).filter((n) => n.endsWith(".partial"))).toEqual([]);
     });
     it("target.additional: multiple-outputs with outputPath, success with outputDir", async () => {

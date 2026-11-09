@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Deps } from "../context.js";
 import { mcpError } from "../errors.js";
 import { readFileChecked } from "../fs/guard.js";
-import { apiStorageDescription, DetectedOutput, defineTool, ebuSizeWarning, exactlyOne, fieldErrors, FieldError, getCaps, loadSource, refreshToolDescriptions, mapDetected, mapWarnings, requirePathsAllowed, Warning, warningText } from "./common.js";
+import { apiStorageDescription, DetectedOutput, defineTool, logSource, ebuSizeWarning, exactlyOne, fieldErrors, FieldError, getCaps, loadSource, refreshToolDescriptions, mapDetected, mapWarnings, requirePathsAllowed, Warning, warningText } from "./common.js";
 
 const RO = { readOnlyHint: true, idempotentHint: true } as const;
 
@@ -73,9 +73,7 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
       const caps = await getCaps(deps, call);
       refreshToolDescriptions(server);
       const src = await loadSource(deps, a, caps);
-      call.log.source = src.callerPath ? "path" : "inline";
-      if (src.ext) call.log.inputExt = src.ext;
-      if (src.callerPath) call.log.inputHash = deps.log.p(src.callerPath);
+      logSource(deps, call, src);
       const body: Record<string, unknown> = src.input !== undefined ? { input: src.input } : { content: src.content, contentEncoding: src.contentEncoding };
       if (src.fileName) body.fileName = src.fileName;
       if (a.encoding) body.encoding = a.encoding;

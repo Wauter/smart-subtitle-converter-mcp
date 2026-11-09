@@ -11,7 +11,7 @@ import { finishConversion } from "../api/jobs.js";
 import { toInt } from "../api/coerce.js";
 import { locationBaseName } from "./textPage.js";
 import {
-  apiStorageDescription, DetectedOutput, defineTool, ebuSizeWarning, exactlyOne, getCaps, loadProfile, loadSource, mapDetected, mapWarnings,
+  apiStorageDescription, DetectedOutput, logSource, sourceLabel, defineTool, ebuSizeWarning, exactlyOne, getCaps, loadProfile, loadSource, mapDetected, mapWarnings,
   mapVerification, mutuallyExclusive, requirePathsAllowed, refreshToolDescriptions, tooLarge, Verification, verificationText, Warning, warningText, withPartial,
   type SourceInput, type VerificationT,
 } from "./common.js";
@@ -43,7 +43,7 @@ export const ConvertOutput = {
   attempts: z.number().int(),
 };
 
-interface ApiOutput {
+export interface ApiOutput {
   fileName: string;
   format: string;
   formatId: string;
@@ -105,7 +105,7 @@ export function registerConvertTool(server: McpServer, deps: Deps): void {
           outputDir: z.string().optional().describe("Absolute folder; files are named by the converter"),
         }
       : {}),
-    responseEncoding: z.enum(["text", "base64"]).optional().describe("Inline results only: force base64 for text targets"),
+    responseEncoding: z.enum(["text", "base64"]).optional().describe("Inline results only: base64 attaches text targets as a base64 blob instead of text (text is the default where it can be byte-exact)"),
     includeEffectiveProfile: z.boolean().default(false).describe("Return the merged profile the API applied"),
   };
 
@@ -151,9 +151,7 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
 
   const caps = await getCaps(deps, call);
   const src = await loadSource(deps, a, caps);
-  call.log.source = src.callerPath ? "path" : "inline";
-  if (src.ext) call.log.inputExt = src.ext;
-  call.log.inputHash = deps.log.p(src.callerPath ?? src.fileName ?? "inline");
+  logSource(deps, call, src);
   const profile = await loadProfile(deps, a, caps);
   const warnings: WarningT[] = ebuSizeWarning(src, caps);
 
@@ -166,7 +164,9 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
     if (a.preset !== undefined) body.preset = a.preset;
     if (a.target !== undefined) body.target = a.target;
     if (profile !== undefined) body.profile = profile;
-    const respEnc = toDisk ? "base64" : a.responseEncoding;
+    // Local writes and inline results ask for base64: the API's text form drops the BOM (and re-encodes UTF-16),
+    // so only the raw bytes let the attached or written file be identical to the stored deliverable.
+    const respEnc = toDisk || a.output === undefined ? "base64" : a.responseEncoding;
     if (respEnc) body.responseEncoding = respEnc;
     const json = JSON.stringify(body);
     const n = Buffer.byteLength(json);
@@ -235,11 +235,14 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
       // The whole file as an embedded resource the client may save: text formats as text, binary as base64.
       // Its uri only labels the block (spec-required); it is not readable with resources/read.
       const uri = `subtitleedit://outputs/${encodeURIComponent(result.requestId ?? call.requestId)}/${encodeURIComponent(o.fileName)}`;
+      const text = a.responseEncoding === "base64" ? undefined : resourceText(o);
       blocks.push({
         type: "resource",
-        resource: o.contentEncoding === "text" && o.text !== undefined ? { uri, mimeType: o.mediaType, text: o.text } : { uri, mimeType: o.mediaType, blob: o.data.toString("base64") },
+        resource: text !== undefined ? { uri, mimeType: o.mediaType, text } : { uri, mimeType: o.mediaType, blob: o.data.toString("base64") },
       } as ContentBlock);
       m.attached = true;
+      m.contentEncoding = text !== undefined ? "text" : "base64";
+      m.bytes = text !== undefined ? Buffer.byteLength(text, "utf8") : o.data.length;
       outputs.push(m);
     }
   }
@@ -258,6 +261,22 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
   };
   call.log.actions = countActions(written);
   return { structured, summary: convertSummary(src, result, outputs, warnings, deps, toDisk), blocks };
+}
+
+/**
+ * Text for an embedded text resource whose UTF-8 encoding is byte-identical to the deliverable (BOM kept as a
+ * leading U+FEFF), or undefined when only a base64 blob can be exact (binary formats, UTF-16/32, legacy code pages).
+ */
+export function resourceText(o: ApiOutput): string | undefined {
+  if (o.kind === "binary") return undefined;
+  const enc = o.encoding.toLowerCase();
+  if (enc !== "utf-8" && enc !== "utf-8-no-bom" && enc !== "utf8") return undefined;
+  if (o.contentEncoding === "text") {
+    // An API that still returned text: its text form has no BOM, so restore the one the encoding writes.
+    const t = o.text ?? "";
+    return enc === "utf-8-no-bom" || t.startsWith("\uFEFF") ? t : "\uFEFF" + t;
+  }
+  try { return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(o.data); } catch { return undefined; }
 }
 
 /** Short, plain guidance on reading the converted text with preview_text; only what will actually work for this job. */
@@ -301,7 +320,7 @@ export function countActions(ws: { action: string }[]) {
 
 function convertSummary(src: SourceInput, r: any, outputs: any[], warnings: WarningT[], deps: Deps, toDisk: boolean): string {
   const d = r.detected;
-  const from = `${src.fileName ?? "content"}${d ? ` (${d.format}, ${d.encoding}${d.language ? `, ${d.language}` : ""})` : ""}`;
+  const from = `${sourceLabel(src)}${d ? ` (${d.format}, ${d.encoding}${d.language ? `, ${d.language}` : ""})` : ""}`;
   const to = outputs.map((o) => `${o.fileName} (${o.format}, ${o.encoding})`).join(", ");
   let s = `Converted ${from} → ${to}: ${r.stats.paragraphsIn} → ${r.stats.paragraphsOut} cues${r.stats.elapsedMs !== undefined ? ` in ${r.stats.elapsedMs} ms` : ""}.`;
   for (const o of outputs) {

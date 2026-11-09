@@ -114,19 +114,34 @@ export function encodeCursor(c: Cursor): string {
 
 const RESTART = "Call preview_text again without `cursor` to start from the first page.";
 
+/** Longest cursor accepted; real ones are about 100 characters. */
+export const CURSOR_MAX_CHARS = 512;
+
+/** Any cursor that is not exactly what preview_text issued (empty, wrong characters, too long, bad JSON) is preview-cursor-invalid. */
 export function decodeCursor(cursor: string): Cursor {
   let o: any;
-  try { o = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")); } catch { o = undefined; }
+  if (cursor.length > 0 && cursor.length <= CURSOR_MAX_CHARS && /^[A-Za-z0-9_-]+$/.test(cursor)) {
+    try { o = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")); } catch { o = undefined; }
+  }
   if (!o || o.v !== 1 || typeof o.k !== "string" || typeof o.h !== "string" || (o.u !== "cue" && o.u !== "line") || !Number.isSafeInteger(o.f) || o.f < 1)
     throw mcpError("preview-cursor-invalid", "`cursor` is not a cursor returned by preview_text.", `Pass the \`next\` value from the previous page unchanged. ${RESTART}`);
   return { k: o.k, h: o.h, u: o.u, f: o.f };
 }
 
-/** Checks a decoded cursor against the current source; throws preview-cursor-invalid or preview-source-changed. */
+/** The stored bytes differ from the ones the (well-formed, matching) cursor was issued for. */
+export function sourceChanged() {
+  return mcpError("preview-source-changed", "The file changed since the previous page was read, so the cursor no longer points into the same text.", RESTART);
+}
+
+/**
+ * Checks a decoded cursor against the current source. preview-source-changed is only for a fingerprint mismatch;
+ * a cursor for another file, or one whose unit or position can't have been issued for these bytes, is preview-cursor-invalid.
+ */
 export function checkCursor(c: Cursor, key: string, fp: string, s: Segments): void {
   if (c.k !== key) throw mcpError("preview-cursor-invalid", "`cursor` belongs to a different file (another job id, `which` or location).", `Use a cursor only with the arguments it was returned for. ${RESTART}`);
-  if (c.h !== fp || c.u !== s.unit || c.f >= s.parts.length)
-    throw mcpError("preview-source-changed", "The file changed since the previous page was read, so the cursor no longer points into the same text.", RESTART);
+  if (c.h !== fp) throw sourceChanged();
+  if (c.u !== s.unit || c.f >= s.parts.length)
+    throw mcpError("preview-cursor-invalid", "`cursor` does not point into this file's text (its unit or position was not issued by preview_text for these bytes).", `Pass the \`next\` value from the previous page unchanged. ${RESTART}`);
 }
 
 /** One summary sentence for a partial page, e.g. "Showing cues 1–402 of 5020 (65431 of 812004 bytes)." */

@@ -104,10 +104,16 @@ describe("preview_text", () => {
   });
   it("clamps maxBytes to the server range and uses the configured default", async () => {
     h = await harness({ previewDefaultBytes: 5000, previewMaxBytes: 9000 }); serveOutput(() => longSrt(40));
-    expect((await callTool(h, "preview_text", { jobId: id, which: "output" })).structuredContent.maxBytes).toBe(5000);
-    expect((await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 1 })).structuredContent.maxBytes).toBe(4096);
-    const big = (await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 10_000_000 })).structuredContent;
+    const def = (await callTool(h, "preview_text", { jobId: id, which: "output" })).structuredContent;
+    expect(def.maxBytes).toBe(5000); expect(def.warnings).toEqual([]);
+    expect((await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 6000 })).structuredContent.warnings).toEqual([]);
+    const small = await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 1 });
+    expect(small.structuredContent.maxBytes).toBe(4096);
+    expect(small.structuredContent.warnings).toEqual([expect.objectContaining({ code: "max-bytes-clamped", details: { fields: { requested: "1", applied: "4096" } } })]);
+    expect(small.content[0].text).toContain("Warning max-bytes-clamped: maxBytes 1 is outside the allowed range 4096..9000; pages use 4096 bytes.");
+    const bigR = await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 10_000_000 }); const big = bigR.structuredContent;
     expect(big.maxBytes).toBe(9000); expect(big.returnedBytes).toBeLessThanOrEqual(9000);
+    expect(big.warnings[0]).toMatchObject({ code: "max-bytes-clamped", details: { fields: { requested: "10000000", applied: "9000" } } }); expect(big.warnings[0].hint).toContain("SUBTITLE_MCP_PREVIEW_MAX_BYTES");
     for (const maxBytes of [0, -5, 1.5, "4096"]) expect((await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes })).structuredContent.error.code).toBe("invalid-arguments");
   });
   it("returns a cue larger than maxBytes alone, and refuses one larger than the server maximum", async () => {
@@ -119,7 +125,10 @@ describe("preview_text", () => {
     expect(second).toMatchObject({ fromCue: 2, toCue: 2, returnedCues: 1, text: cueOf(2, "b".repeat(6000)) }); expect(second.returnedBytes).toBeGreaterThan(4096);
     body = cueOf(1, "x".repeat(9000));
     const e = (await callTool(h, "preview_text", { jobId: id, which: "output" })).structuredContent.error;
-    expect(e).toMatchObject({ code: "preview-cue-too-large", limit: { name: "SUBTITLE_MCP_PREVIEW_MAX_BYTES", value: 8192 } });
+    expect(e).toMatchObject({ code: "preview-cue-too-large", limit: { name: "SUBTITLE_MCP_PREVIEW_MAX_BYTES", value: 8192 }, location: "s3://subs/out/show.srt" });
+    expect(e.detail).toContain("more than SUBTITLE_MCP_PREVIEW_MAX_BYTES (8192)");
+    expect(e.hint).toContain("raise SUBTITLE_MCP_PREVIEW_MAX_BYTES (up to 1048576)"); expect(e.hint).toContain("read the stored file directly at s3://subs/out/show.srt");
+    expect(e.hint).not.toMatch(/convert/i);
   });
   it("fails with preview-source-changed when the file changes between pages, and rejects foreign cursors", async () => {
     h = await harness(); let body = longSrt(40); serveOutput(() => body);
@@ -132,6 +141,15 @@ describe("preview_text", () => {
     expect(recorded.length).toBe(before); // a malformed cursor fails before any API call
     mswServer.use(http.get(`${endpoint}/input`, () => new HttpResponse(longSrt(40))));
     expect((await callTool(h, "preview_text", { jobId: id, which: "input", cursor: first.next })).structuredContent.error.code).toBe("preview-cursor-invalid");
+  });
+  it("counts attempts per request, not per call, and gives each request its own id (no duplicate requestId)", async () => {
+    h = await harness(); const ids: string[] = [];
+    mswServer.use(http.get(endpoint, ({ request }) => { ids.push(request.headers.get("x-request-id")!); return HttpResponse.json(job()); }),
+      http.get(`${endpoint}/input`, ({ request }) => { ids.push(request.headers.get("x-request-id")!); return new HttpResponse(SRT); }));
+    const r = await callTool(h, "preview_text", { jobId: id, which: "input" });
+    expect(r.isError).toBeFalsy(); expect(ids).toHaveLength(2); expect(new Set(ids).size).toBe(2); expect(ids[1]).toBe(`${ids[0]}.f`);
+    const line = h.logs.map((l) => JSON.parse(l)).find((l: any) => l.tool === "preview_text");
+    expect(line.attempts).toBe(1); expect(line.requestIds).toEqual(ids);
   });
   it("pages other text formats on whole lines", async () => {
     h = await harness(); const body = Array.from({ length: 400 }, (_, i) => `{"line": ${i}, "text": "${"x".repeat(20)}"}\n`).join("");
@@ -165,16 +183,23 @@ describe("preview_text", () => {
     const problem = () => HttpResponse.json({ code, status, detail: "Job file unavailable", hint: "Inspect the original result; do not blindly resubmit.", ...(["job-file-gone", "job-location-not-replayable"].includes(code) ? { location: "https://user:secret@mam.example.com/show.srt?signature=hidden" } : {}) }, { status });
     mswServer.use(http.get(endpoint, () => code === "job-not-found" ? problem() : HttpResponse.json(job())), http.get(`${endpoint}/output`, () => { gets++; return problem(); }));
     const r = await callTool(h, "preview_text", { jobId: id, which: "output" });
-    expect(r.isError).toBe(true); expect(r.structuredContent.error).toMatchObject({ code, jobId: id }); expect(r.structuredContent.error.hint).toContain("original result");
+    expect(r.isError).toBe(true); expect(r.structuredContent.error).toMatchObject({ code, jobId: id });
+    if (code === "job-output-not-stored") {
+      expect(r.structuredContent.error.title).toBe("Job output not stored");
+      expect(r.structuredContent.error.detail).toContain("attached as an embedded resource"); expect(r.structuredContent.error.hint).toContain("save it to disk");
+    } else if (code === "job-input-not-stored") expect(r.structuredContent.error.detail).toContain("sent inline");
+    else expect(r.structuredContent.error.hint).toContain("original result");
     expect(gets).toBe(code === "job-not-found" ? 0 : 1);
     expect(JSON.stringify(r)).not.toMatch(/signature|hidden|user:secret/);
     if (["job-file-gone", "job-location-not-replayable"].includes(code)) expect(r.structuredContent.error.location).toBe("https://mam.example.com/show.srt");
   });
   it("only accepts jobId, input/output, maxBytes and cursor; no URI, sidecar/both or save path", async () => {
     h = await harness();
-    for (const args of [{ jobId: "../etc", which: "input" }, { jobId: id, which: "sidecar" }, { jobId: id, which: "both" }, { jobId: id, which: "output", outputPath: "/tmp/file" }, { jobId: id, which: "input", saveTo: "/tmp/file" }, { jobId: id, which: "input", input: "https://example.com" }, { jobId: id, which: "input", location: "s3://subs/in/a.srt" }, { jobId: id, which: "input", cursor: "has spaces!" }]) {
+    for (const args of [{ jobId: "../etc", which: "input" }, { jobId: id, which: "sidecar" }, { jobId: id, which: "both" }, { jobId: id, which: "output", outputPath: "/tmp/file" }, { jobId: id, which: "input", saveTo: "/tmp/file" }, { jobId: id, which: "input", input: "https://example.com" }, { jobId: id, which: "input", location: "s3://subs/in/a.srt" }]) {
       expect((await callTool(h, "preview_text", args)).structuredContent.error.code).toBe("invalid-arguments");
     }
+    expect(recorded).toHaveLength(0);
+    for (const cursor of ["", "has spaces!", "x".repeat(600)]) expect((await callTool(h, "preview_text", { jobId: id, which: "input", cursor })).structuredContent.error.code).toBe("preview-cursor-invalid");
     expect(recorded).toHaveLength(0);
   });
   it("passes replace to API destinations without a separate gate and rejects obsolete policies", async () => {
