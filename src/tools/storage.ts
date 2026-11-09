@@ -118,7 +118,7 @@ async function listLocal(deps: Deps, location: string, prefix: string, after: st
       if (st.isSymbolicLink()) {
         // Same rule as path inputs: a symlink counts only when its target stays inside an allowed folder.
         const real = await fs.realpath(full);
-        if (!(await deps.guard.allows(real))) continue;
+        if (!(await deps.guard.allowsRead(real))) continue;
         st = await fs.stat(real);
       }
     } catch { continue; } // vanished or dangling

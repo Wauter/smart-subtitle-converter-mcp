@@ -81,11 +81,15 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
     handler: async (a: any, call) => {
       const byJob = a.location === undefined;
       if (listing) {
+        // Same shape as a schema error (errors[] pointer + hint), so the model sees which argument to fix.
+        const bad = (pointer: string, message: string, hint: string) =>
+          mcpError("invalid-arguments", `Invalid arguments: ${pointer}: ${message}`, hint, { errors: [{ pointer, message }] });
         if (a.location !== undefined && (a.jobId !== undefined || a.which !== undefined))
-          throw mcpError("invalid-arguments", "Give either `location`, or `jobId` and `which`, not both.", "location reads a file directly; jobId with which reads a convert_subtitle job's stored file.");
+          throw bad(a.jobId !== undefined ? "/jobId" : "/which", "Give either `location`, or `jobId` and `which`, not both.", "location reads a file directly; jobId with which reads a convert_subtitle job's stored file.");
         if (byJob && a.jobId === undefined)
-          throw mcpError("invalid-arguments", "`location`, or `jobId` with `which`, is required.", "Pass a file location from list_files, or the jobId from convert_subtitle with which input | output.");
-        if (byJob && a.which === undefined) throw mcpError("invalid-arguments", "`which` is required with `jobId` (input | output).");
+          throw bad("/location", "`location`, or `jobId` with `which`, is required.", "Pass a file location from list_files, or the jobId from convert_subtitle with which input | output.");
+        if (byJob && a.which === undefined)
+          throw bad("/which", '`which` is required (valid values: "input" | "output").', "Fix the arguments as described and call again.");
       }
       const jobPath = byJob ? `/v1/jobs/${a.jobId}` : undefined;
       try {

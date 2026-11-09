@@ -1,9 +1,16 @@
 import type { Root, RootsSnapshot } from "./guard.js";
+import { isHiddenPath } from "./hidden.js";
 
 export const CONFIGURE =
   "set SUBTITLE_MCP_ALLOWED_DIRS (read-write folders) and/or SUBTITLE_MCP_READONLY_DIRS (read-only folders) in this MCP server's configuration";
 
-const list = (roots: Root[]) => roots.map((r) => `${r.path} (${r.writable ? "read-write" : "read-only"})`).join(", ");
+/** Hidden allowed folders (see hidden.ts) are never named: nothing in them can be read or listed. */
+const visible = (roots: Root[]) => roots.filter((r) => !isHiddenPath(r.path));
+const hiddenNote = (roots: Root[]) => {
+  const n = roots.length - visible(roots).length;
+  return n ? ` ${n} more allowed folder${n === 1 ? " is" : "s are"} hidden (a path component starts with '.'), so not shown: files there can be written but never read or listed.` : "";
+};
+const list = (roots: Root[]) => visible(roots).map((r) => `${r.path} (${r.writable ? "read-write" : "read-only"})`).join(", ");
 
 /**
  * The one sentence every path-taking tool description (and path-not-allowed hints) use to name the allowed
@@ -11,7 +18,7 @@ const list = (roots: Root[]) => roots.map((r) => `${r.path} (${r.writable ? "rea
  */
 export function allowedFoldersText(s: RootsSnapshot): string {
   if (s.roots.length)
-    return `Allowed folders: ${list(s.roots)}.` + (s.pending ? " More may follow from your MCP client's workspace roots (not received yet)." : "");
+    return `Allowed folders: ${list(s.roots) || "none readable"}.` + hiddenNote(s.roots) + (s.pending ? " More may follow from your MCP client's workspace roots (not received yet)." : "");
   if (s.pending)
     return `Allowed folders: none yet. This server uses the folders your MCP client shares (workspace roots) and hasn't received any; if none arrive, file paths stay disabled, so ask the user to ${CONFIGURE}. Until then, pass inline content.`;
   return `Allowed folders: none, so file paths are disabled${s.reason ? ` (${s.reason})` : ""}. Ask the user to ${CONFIGURE}. Until then, pass inline content.`;
@@ -26,7 +33,7 @@ export function instructionsFoldersText(s: RootsSnapshot): string {
   const configured = s.roots.filter((r) => r.source !== "client");
   return (
     "Allowed folders come from this server's configuration (SUBTITLE_MCP_ALLOWED_DIRS read-write, SUBTITLE_MCP_READONLY_DIRS read-only) and/or your MCP client's workspace roots" +
-    (configured.length ? `; configured: ${list(configured)}` : "") +
+    (visible(configured).length ? `; configured: ${list(configured)}` : "") +
     ". The current list is in each path tool's description and in list_allowed_folders; only if those show none, ask the user to " +
     CONFIGURE +
     "."
@@ -44,7 +51,8 @@ export function foldersReport(s: RootsSnapshot) {
   else if (s.client === "empty") state = "roots-empty";
   else if (s.client === "failed") state = "roots-failed";
   else state = "none";
-  const folders = s.roots.map((r) => ({ path: r.path, mode: r.writable ? ("read-write" as const) : ("read-only" as const), source: r.source === "client" ? ("client-roots" as const) : ("config" as const) }));
+  const hiddenFolders = s.roots.length - visible(s.roots).length;
+  const folders = visible(s.roots).map((r) => ({ path: r.path, mode: r.writable ? ("read-write" as const) : ("read-only" as const), source: r.source === "client" ? ("client-roots" as const) : ("config" as const) }));
   const hint =
     state === "ready"
       ? undefined
@@ -55,6 +63,7 @@ export function foldersReport(s: RootsSnapshot) {
     state,
     folders,
     clientRoots: s.client ?? ("not-used" as const),
+    ...(hiddenFolders ? { hiddenFolders } : {}),
     ...(s.roots.length === 0 && s.reason ? { reason: s.reason } : {}),
     ...(hint ? { hint } : {}),
     summary: allowedFoldersText(s),

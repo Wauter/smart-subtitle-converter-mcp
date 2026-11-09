@@ -72,6 +72,17 @@ describe.skipIf(!URL_ || !STORE)("contract: browse and read by location", () => 
     const b = await callTool(h, "preview_text", { location: stl.location });
     expect(b.structuredContent).toMatchObject({ source: "remote", convertedTo: "srt" });
     expect(b.structuredContent.text).toContain("QA long programme cue 20");
+    // Hidden files (QA p9): writable, but never listed or read back by location or as a conversion input; encoded NUL is a 422.
+    const hidden = `.qa-browse-${run}-hidden.srt`;
+    expect((await callTool(h, "convert_subtitle", { content: longSrt(3), fileName: "src.srt", target: "srt", output: `${STORE}/${hidden}` })).isError).toBeFalsy();
+    const all = await callTool(h, "list_files", { location: `file://${STORE}/` });
+    expect(JSON.stringify(all.structuredContent)).not.toContain(hidden);
+    for (const location of [`file://${STORE}/${hidden}`, `file://${STORE}/%2E${hidden.slice(1)}`]) {
+      const r = await callTool(h, "preview_text", { location });
+      expect(r.structuredContent.error).toMatchObject({ status: 422, code: "storage-location-rejected" });
+    }
+    expect((await callTool(h, "convert_subtitle", { input: `${STORE}/${hidden}`, target: "webvtt" })).structuredContent.error).toMatchObject({ status: 422, code: "storage-location-rejected" });
+    expect((await callTool(h, "preview_text", { location: `${srt.location}%00.txt` })).structuredContent.error).toMatchObject({ status: 422, code: "storage-location-rejected" });
     expect((await callTool(h, "list_files", { location: "file:///etc/" })).structuredContent.error.code).toBe("storage-location-rejected");
     expect((await callTool(h, "preview_text", { location: "file:///etc/passwd" })).structuredContent.error.code).toBe("storage-location-rejected");
   });

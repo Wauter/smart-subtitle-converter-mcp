@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { mcpError, ToolFailure } from "../errors.js";
 import type { Logger } from "../log.js";
 import { allowedFoldersText } from "./folders.js";
+import { isHiddenPath } from "./hidden.js";
 
 export interface Root {
   path: string; // realpath
@@ -91,6 +92,8 @@ function fsErr(e: unknown, callerPath: string, what: "file" | "dir"): ToolFailur
   return mcpError(what === "file" ? "path-not-found" : "not-a-directory", `Cannot access ${callerPath} (${code ?? "error"})`);
 }
 
+export { isHiddenPath } from "./hidden.js";
+
 const STAGING_SEGMENT = ".subtitle-mcp-staging";
 function rejectStaging(resolved: string, callerPath: string): void {
   if (resolved.split(/[\\/]/).includes(STAGING_SEGMENT)) {
@@ -109,6 +112,13 @@ export class PathGuard {
   /** path-not-allowed whose hint names the allowed folders in effect now. */
   notAllowed(detail: string, advice = "Use a path inside an allowed folder (symlinks must stay inside too)."): ToolFailure {
     return mcpError("path-not-allowed", detail, `${advice} ${allowedFoldersText(this.roots.snapshot())}`);
+  }
+
+  private hidden(callerPath: string): ToolFailure {
+    return this.notAllowed(`Hidden files and folders can't be read or listed: ${callerPath}`, "Names starting with '.' (and everything inside a folder whose name starts with '.') are never read or listed; use a file or folder without a leading dot.");
+  }
+  private rejectHidden(p: string, callerPath: string): void {
+    if (isHiddenPath(p, this.opts.platform)) throw this.hidden(callerPath);
   }
 
   /** checkPathSyntax, with the allowed folders added to the hint. */
@@ -139,6 +149,7 @@ export class PathGuard {
   async resolveInputFile(p: string): Promise<{ real: string; root: Root; size: number }> {
     const roots = await this.active();
     const resolved = this.syntax(p);
+    this.rejectHidden(resolved, p);
     let real: string;
     try {
       real = await fs.realpath(resolved);
@@ -149,6 +160,7 @@ export class PathGuard {
     }
     const root = findRoot(roots, real, this.opts);
     if (!root) throw this.notAllowed(`Path is outside the allowed folders: ${p}`);
+    this.rejectHidden(real, p);
     const st = await fs.stat(real).catch((e) => {
       throw fsErr(e, p, "file");
     });
@@ -161,6 +173,7 @@ export class PathGuard {
     const roots = await this.active();
     const resolved = this.syntax(p);
     rejectStaging(resolved, p);
+    this.rejectHidden(resolved, p);
     let real: string;
     try {
       real = await fs.realpath(resolved);
@@ -170,6 +183,7 @@ export class PathGuard {
     }
     const root = findRoot(roots, real, this.opts);
     if (!root) throw this.notAllowed(`Path is outside the allowed folders: ${p}`);
+    this.rejectHidden(real, p);
     const st = await fs.stat(real);
     if (!st.isDirectory()) throw mcpError("not-a-directory", `Not a directory: ${p}`);
     return { real, root };
@@ -186,6 +200,11 @@ export class PathGuard {
   async allows(real: string): Promise<boolean> {
     const r = await this.roots.get();
     return !!findRoot(r.roots, real, this.opts);
+  }
+
+  /** May a symlink found while listing be shown: its target is inside an allowed root and not hidden. */
+  async allowsRead(real: string): Promise<boolean> {
+    return !isHiddenPath(real, this.opts.platform) && (await this.allows(real));
   }
 
   /**
