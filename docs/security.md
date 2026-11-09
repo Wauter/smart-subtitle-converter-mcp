@@ -25,6 +25,11 @@ the API's [security notes](https://github.com/Wauter/smart-subtitle-converter-ap
   `SUBTITLE_MCP_USE_CLIENT_ROOTS` is not `false`; a configured read-only folder stays read-only. Don't rely on
   that feature — name your folders in the settings. Details: [folders-and-roots.md](folders-and-roots.md).
 - `list_allowed_folders` shows what is in effect. Path errors use `path-not-allowed` and include the current list.
+- Hidden files and folders (any path component starting with `.`, including inside a hidden allowed folder) are
+  never read or listed, by any tool, with browsing on or off. The check runs on the requested path before any
+  filesystem call and again on its real path, so symbolic links can't alias a hidden target, and hidden allowed
+  folders are not named in descriptions, hints or `list_allowed_folders`. Writes are unchanged. Details:
+  [tools.md](tools.md#hidden-files-and-folders).
 
 ## Writing files
 

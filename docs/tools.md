@@ -49,6 +49,29 @@ location. Locations never contain credentials, query strings or presigned parts.
 Local folders (the `folders` list) are paths on the MCP's machine. API locations are paths on the API's machine or
 in its buckets, even when they look alike. In a sidecar deployment the two are usually different filesystems.
 
+### Hidden files and folders
+
+Hidden files and folders are never read or listed, by any tool, with browsing on or off. A path is hidden when any
+of its components starts with `.`: a dotfile (`.env`), anything inside a dot-named folder at any depth
+(`.git/config`), and everything in an allowed folder that is itself hidden or inside a hidden folder
+(`/home/me/.subtitles`). Dots inside names are fine: `show.en.v2.srt` and `v1.2/ep.srt` are ordinary files.
+
+- **Local (this MCP server):** applies to `preview_text {location}`, `list_files`, and the `path` and `profilePath`
+  of `convert_subtitle`, `detect_format` and `validate_profile`. The requested path is checked before any filesystem
+  call, and its real path is checked again, so a symbolic link to a hidden file or folder is refused too. The answer
+  is `path-not-allowed` whether the hidden file exists or not. Plain paths are taken literally: `%2Eenv` is a file
+  named `%2Eenv`, not `.env`.
+- **API locations:** the API applies the same rule to `file://` and `s3://` locations (percent-decoded first, so
+  `%2Eenv` is `.env`), for reads, listings, conversion inputs and job file reads, and answers
+  `storage-location-rejected`.
+- **Hidden allowed folders** aren't named in `list_allowed_folders`, tool descriptions or error hints;
+  `list_allowed_folders` reports how many there are as `hiddenFolders`. The API leaves hidden roots and prefixes out
+  of its locations.
+- **Writes** keep their rules: `outputPath` / `outputDir` (and an API `output`) may still name a dot-named file or a
+  hidden allowed folder, but nothing reads the result back.
+- **Limits:** the rule is name-based on every platform. Windows hidden or system attributes and macOS `UF_HIDDEN`
+  aren't consulted.
+
 ### `list_files`
 
 | Argument | Required | Description |
@@ -63,8 +86,9 @@ truncated, `next`. Each item has `name` (folders end in `/`), `location` (pass i
 
 A page has up to 200 items, in name order (local folders and the API filesystem sort by UTF-8 bytes; S3 uses the
 bucket's key order). There is no total count, no sorting by date and no offsets. Hidden entries (names starting with
-`.`) and special files are skipped. Local symbolic links are listed only when their target stays inside the allowed
-folders; the API skips symbolic links.
+`.`) and special files are skipped, and a hidden folder can't be listed ([hidden files](#hidden-files-and-folders)).
+Local symbolic links are listed only when their target stays inside the allowed folders and isn't hidden; the API
+skips symbolic links.
 
 Paging is stateless and there is no snapshot. A file that exists for the whole walk and isn't renamed appears
 exactly once. A file added or removed during the walk may or may not appear. A cursor belongs to one location,

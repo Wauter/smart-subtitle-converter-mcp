@@ -223,6 +223,13 @@ attached file and read it locally, or convert again with an API `output`. A sour
 - **What:** The `list_files` `cursor` is altered, or belongs to another location, prefix or side (local or API).
 - **What to do:** Pass `next` unchanged with the same `location` and `prefix`, or start again without `cursor`.
 
+**Hidden files: `path-not-allowed` or `storage-location-rejected` for a dotfile or dot-named folder**
+
+- **What:** The path, or one of its folders, starts with `.` (also through a symbolic link, or because the allowed
+  folder itself is hidden). Hidden files are never read or listed.
+- **What to do:** Copy or rename the file to a name and folder without a leading dot
+  ([tools.md](tools.md#hidden-files-and-folders)).
+
 **`storage-location-rejected`** or **`path-not-allowed`** from `list_files`
 
 - **What:** The location is outside the API's allowlists or the MCP's allowed folders. Pick one from
