@@ -171,9 +171,9 @@ folder grants don't give the API access to its own storage.
 **`preview-cursor-invalid`**
 
 - **What:** The `cursor` isn't one `preview_text` returned (empty, altered, too long, or pointing somewhere this
-  file's pages never start), or it was returned for another job or `which`.
-- **What to do:** Pass the `next` value from the previous page unchanged, with the same `jobId` and `which`, or
-  start again without `cursor`.
+  file's pages never start), or it was returned for another job, `which` or location.
+- **What to do:** Pass the `next` value from the previous page unchanged, with the same `jobId` and `which` (or the
+  same `location`), or start again without `cursor`.
 
 **`preview-cue-too-large`**
 
@@ -196,6 +196,37 @@ These come from the API; the MCP rewords them for the common case. An inline `co
 output location) is attached to the convert result and stored nowhere, so there is no output to preview: save the
 attached file and read it locally, or convert again with an API `output`. A source sent as `content` or a local
 `path` has no stored input either.
+
+## Browsing and reading by location
+
+**`list_files` is missing, or `preview_text` rejects `location`**
+
+- **Why:** Browsing is off by default.
+- **What to do:** Set `SUBTITLE_MCP_LIST_ENABLED=true` and restart the server
+  ([tools.md](tools.md#browsing-and-reading-by-location)).
+
+**`storage-list-disabled`**
+
+- **What:** An API location was listed or read, but the API doesn't allow browsing (or is older than this feature).
+  `list_allowed_folders` shows `remote.state: "disabled-api"`.
+- **What to do:** Local folders still work. For the API's storage, the API operator sets `STORAGE_LIST_ENABLED=true`.
+  The MCP picks the change up when its limits cache expires (`SUBTITLE_MCP_LIMITS_TTL_MS`) or at once after a refused
+  call.
+
+**`storage-not-listable`**
+
+- **What:** The location is an HTTPS URL (or another kind the API can't list). HTTPS works as a conversion `input` or
+  `output`, but it can't be browsed or read by location.
+
+**`list-cursor-invalid`** and **`storage-cursor-invalid`**
+
+- **What:** The `list_files` `cursor` is altered, or belongs to another location, prefix or side (local or API).
+- **What to do:** Pass `next` unchanged with the same `location` and `prefix`, or start again without `cursor`.
+
+**`storage-location-rejected`** or **`path-not-allowed`** from `list_files`
+
+- **What:** The location is outside the API's allowlists or the MCP's allowed folders. Pick one from
+  `list_allowed_folders`.
 
 ## Character sets and formats
 

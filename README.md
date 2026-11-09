@@ -54,8 +54,9 @@ Claude Desktop, Cursor, Windows, a VM, or building from source: see [docs/client
 | `list_formats` | Formats with read/write and text/binary flags |
 | `list_presets` / `get_profile` | Built-in and mounted presets, raw and resolved |
 | `validate_profile` | Check a profile, with pointer-level errors and hints |
-| `preview_text` | Read the text of an API job's stored input or output, page by page (binary formats shown as SRT) |
-| `list_allowed_folders` | The folders in effect right now, with mode and source |
+| `preview_text` | Read the text of an API job's stored input or output, or of a file by location, page by page (binary formats shown as SRT) |
+| `list_files` | Off by default (`SUBTITLE_MCP_LIST_ENABLED`): list a local folder or an API storage location, page by page |
+| `list_allowed_folders` | The folders in effect right now, with mode and source; with browsing on, also the API's storage locations |
 
 Inputs, results and warning fields: [docs/tools.md](docs/tools.md).
 
@@ -68,7 +69,9 @@ the MCP's local folders. Outputs are never overwritten unless you send `ifExists
 
 Every conversion returns a `jobId`. When work outlasts the wait, the MCP polls the job; the API keeps metadata only,
 so use an API `output` location for work that may take a while. `preview_text` reads the text of a job's stored
-input or output, in pages that end on whole cues, while the API still has its record. Without any output location,
+input or output, in pages that end on whole cues, while the API still has its record. Browsing is off by default:
+with `SUBTITLE_MCP_LIST_ENABLED=true` (and `STORAGE_LIST_ENABLED=true` on the API for its storage), `list_files`
+lists a folder and `preview_text` reads a file by location ([browsing](docs/tools.md#browsing-and-reading-by-location)). Without any output location,
 `convert_subtitle` attaches the whole converted file to its result for the client to save. See [tools](docs/tools.md#api-storage-and-job-ids),
 [configuration](docs/configuration.md#api-storage-and-asynchronous-jobs) and
 [writing files](docs/writing-files.md#api-destinations-are-separate).

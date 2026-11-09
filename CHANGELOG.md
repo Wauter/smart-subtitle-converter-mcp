@@ -22,6 +22,15 @@ These change tool names, result shapes and configuration. The project is still a
 - Removed `resourceUri` and `inline` from the `convert_subtitle` results and schema; the embedded resource's `uri` only labels the block.
 - The inline embedded resource is byte-identical to the stored deliverable. UTF-8 text keeps its byte order mark (a leading U+FEFF when the encoding is `utf-8`), and `outputs[].bytes` is the size of the attached file. Text in other encodings (UTF-16, legacy code pages) is attached as a base64 `blob` of the exact bytes instead of re-encoded text. The MCP now asks the API for base64 on every inline conversion.
 - A malformed `preview_text` `cursor` (empty, wrong characters, too long, or a forged position or unit) is `preview-cursor-invalid`, not `invalid-arguments` or `preview-source-changed`. `preview-source-changed` now means only that the stored bytes changed.
+- `preview_text` results have a new required `source` field (`job`, `local` or `remote`). With `SUBTITLE_MCP_LIST_ENABLED=true`, `jobId` and `which` become optional in its input and output schemas, because a call can give `location` instead.
+
+### New: browsing and reading by location (off by default)
+
+- `SUBTITLE_MCP_LIST_ENABLED` (default `false`) turns on browsing. It registers the new `list_files` tool and lets `preview_text` take a `location` instead of `jobId` and `which`. Local allowed folders work on their own; the API's storage also needs `STORAGE_LIST_ENABLED=true` on the API, which the MCP reads from `GET /v1/limits` (`storage.list`) at startup and when the limits cache expires.
+- `list_files {location, prefix?, cursor?}` lists one page (up to 200) of files and sub-folders in a local folder or an API `file://` / `s3://` location, in name order, with `name`, `location`, `type`, `size` and `modified`. `prefix` filters names (a `/` descends into a sub-folder); there are no globs, totals, date sorting or offsets. Paging uses an opaque stateless cursor bound to the location, prefix and side; files present for the whole walk appear exactly once, and there is no snapshot.
+- `preview_text {location}` reads a file by location with the same paging, change detection and SRT view of binary files as a job preview, inside the same allowlists and guards. HTTPS can't be read or listed by location.
+- `list_allowed_folders` adds a `remote` member when browsing is on: `state` (`on`, `disabled-api`, `unknown`), the API's `locations` (only when its switch is on) and a hint. With browsing off it is unchanged.
+- New error codes: `list-cursor-invalid` (local cursor), and from the API `storage-list-disabled`, `storage-not-listable` and `storage-cursor-invalid`. OpenAPI snapshot and types refreshed.
 
 ### Other changes
 

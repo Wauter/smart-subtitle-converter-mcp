@@ -37,7 +37,21 @@ and `source` (`config` / `client-roots`), plus a `state`:
 | `none` | No folders from config or client |
 
 When there are none, it adds a hint naming the settings. Path errors (`path-not-allowed`) include the current list
-in their hint. This tool reports MCP-local folders only — not API `STORAGE_FILE_ROOTS`, S3 buckets or HTTPS hosts.
+in their hint. With browsing off (the default) this tool reports MCP-local folders only — not API `STORAGE_FILE_ROOTS`, S3
+buckets or HTTPS hosts.
+
+## Local folders and API locations
+
+With `SUBTITLE_MCP_LIST_ENABLED=true`, `list_allowed_folders` also has a `remote` member with the API's own storage
+locations, but only when the API has `STORAGE_LIST_ENABLED=true` too. The two lists are different places:
+
+- `folders` are on the machine running this MCP server. Use them as `path`, `outputPath` / `outputDir`, and as
+  `list_files` or `preview_text` locations.
+- `remote.locations` are on the API's machine or in its S3 buckets. Use them as `input` / `output`, and as
+  `list_files` or `preview_text` locations.
+
+A path that exists in both (say `/data/subtitles`) is still two folders. Plain absolute paths in `list_files` and
+`preview_text` are local; API folders always come as `file://` or `s3://` URIs.
 
 ## Logging
 

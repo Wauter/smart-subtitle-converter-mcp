@@ -1,7 +1,7 @@
 # Tools
 
 The server is a thin client over the [Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api);
-each tool maps to an API endpoint, except `list_allowed_folders`, which is local. The tool descriptions the client
+each tool maps to an API endpoint, except `list_allowed_folders` and local `list_files` calls, which stay in the MCP. The tool descriptions the client
 sees are the authoritative, live version of this page (they include the allowed folders in effect).
 
 | Tool | API endpoint | Purpose |
@@ -12,10 +12,65 @@ sees are the authoritative, live version of this page (they include the allowed 
 | `validate_profile` | `POST /v1/profiles/validate` | Validate a profile (inline or `path`); pointer-level errors with hints |
 | `detect_format` | `POST /v1/detect` | Format, encoding and language of inline content, a local `path` or API `input`, plus `bom`, `lineEndings` and source `warnings` |
 | `convert_subtitle` | `POST /v1/convert/json` | Convert one file: exactly one content/path/input; result inline, local outputPath/outputDir or API output |
-| `preview_text` | `GET /v1/jobs/{id}/input` or `/output` (+ `POST /v1/convert/json` to SRT for binary files) | Read the text of a job's current stored input or single subtitle output, one page at a time |
-| `list_allowed_folders` | – (local) | The folders in effect, with `mode`, `source` and `state` ([folders-and-roots.md](folders-and-roots.md)) |
+| `preview_text` | `GET /v1/jobs/{id}/input` or `/output`, or `GET /v1/storage/file` for an API location (+ `POST /v1/convert/json` to SRT for binary files) | Read the text of a job's stored input or output, or of a file by location, one page at a time |
+| `list_files` | – (local) or `GET /v1/storage/list` | Only with `SUBTITLE_MCP_LIST_ENABLED=true`: one page of the files and sub-folders in a location |
+| `list_allowed_folders` | – (local), + `GET /v1/storage/locations` when browsing is on | The folders in effect, with `mode`, `source` and `state` ([folders-and-roots.md](folders-and-roots.md)); with browsing on, also the API's storage locations |
 
-`list_allowed_folders` stays registered even when paths are unavailable (empty folders, state none). It covers MCP-local folders only, never API input/output URIs.
+`list_allowed_folders` stays registered even when paths are unavailable (empty folders, state none). With browsing
+off (the default) it covers MCP-local folders only, never API input/output URIs.
+
+## Browsing and reading by location
+
+Browsing is off by default. It takes two switches:
+
+- `SUBTITLE_MCP_LIST_ENABLED=true` on the MCP registers `list_files` and lets `preview_text` take a `location`.
+  On its own, this covers the MCP's local allowed folders only.
+- `STORAGE_LIST_ENABLED=true` on the API lets it list and read its own storage (`STORAGE_FILE_ROOTS` and
+  `S3_ALLOWED_BUCKETS` × `S3_ALLOWED_PREFIXES`). The MCP finds out from `GET /v1/limits` (`storage.list`) when it
+  starts, and again whenever the limits cache (`SUBTITLE_MCP_LIMITS_TTL_MS`) expires. The API checks its own switch
+  on every request, so a stale cache can't get past it.
+
+| MCP | API | `list_allowed_folders` | `list_files` / `preview_text {location}` |
+|---|---|---|---|
+| off | any | Local folders only, as before; no `remote` member | `list_files` not registered; `location` not accepted |
+| on | off, older API, or unreachable | Local folders, plus `remote: {state: "disabled-api" or "unknown", locations: [], hint}` | Local paths work; API locations fail with `storage-list-disabled` (or `api-unreachable`) and a hint |
+| on | on | Local folders, plus `remote: {state: "on", locations: [...]}` | Local paths and API `file://` / `s3://` locations work |
+
+API allowlists never appear while the API's switch is off. Job previews (`jobId` + `which`) work in every combination.
+
+### `list_allowed_folders` with browsing on
+
+`remote.locations[]` has `location` (a folder URI such as `file:///data/subtitles/` or `s3://subs/tmp/`), `scheme`,
+`listable`, `readable`, and when useful `prefix` (an allowed S3 key prefix that ends mid-name, such as `tmp/show-`,
+which `list_files` uses as its name filter) and `note`. HTTPS hosts are listed with `listable: false` and
+`readable: false`: they can be used as conversion `input` and `output`, but can't be browsed or previewed by
+location. Locations never contain credentials, query strings or presigned parts.
+
+Local folders (the `folders` list) are paths on the MCP's machine. API locations are paths on the API's machine or
+in its buckets, even when they look alike. In a sidecar deployment the two are usually different filesystems.
+
+### `list_files`
+
+| Argument | Required | Description |
+|---|---|---|
+| `location` | yes | A folder: a local absolute path inside the allowed folders, or an API `file://` or `s3://` folder URI |
+| `prefix` | no | Name prefix filter. A `/` in it descends into a sub-folder (`season1/ep` lists `season1/` names starting with `ep`). No globs |
+| `cursor` | no | `next` from the previous page, unchanged |
+
+The result has `location`, `where` (`local` or `remote`), `prefix`, `items`, `returned`, `truncated` and, when
+truncated, `next`. Each item has `name` (folders end in `/`), `location` (pass it to `preview_text` for a file or to
+`list_files` for a folder), `type` (`file` or `folder`), and for files `size` and `modified` (ISO 8601, UTC).
+
+A page has up to 200 items, in name order (local folders and the API filesystem sort by UTF-8 bytes; S3 uses the
+bucket's key order). There is no total count, no sorting by date and no offsets. Hidden entries (names starting with
+`.`) and special files are skipped. Local symbolic links are listed only when their target stays inside the allowed
+folders; the API skips symbolic links.
+
+Paging is stateless and there is no snapshot. A file that exists for the whole walk and isn't renamed appears
+exactly once. A file added or removed during the walk may or may not appear. A cursor belongs to one location,
+prefix and side (local or API); anything else fails with `list-cursor-invalid` (local) or `storage-cursor-invalid`
+(API). A location outside the allowlists fails with `path-not-allowed` (local) or `storage-location-rejected` (API),
+an HTTPS location with `storage-not-listable`.
 
 ## Inline convert results
 
@@ -117,13 +172,19 @@ Arguments:
 
 | Argument | Required | Description |
 |---|---|---|
-| `jobId` | yes | The `jobId` from `convert_subtitle` |
-| `which` | yes | `input` (the stored source) or `output` (the single stored subtitle result, never a sidecar) |
+| `jobId` | yes, unless `location` | The `jobId` from `convert_subtitle` |
+| `which` | with `jobId` | `input` (the stored source) or `output` (the single stored subtitle result, never a sidecar) |
+| `location` | instead of `jobId` | Only with `SUBTITLE_MCP_LIST_ENABLED=true`: a file from `list_files`, a local absolute path inside the allowed folders, or an API `file://` or `s3://` URI ([browsing](#browsing-and-reading-by-location)) |
 | `maxBytes` | no | Page size in UTF-8 bytes. Defaults to `SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES` (65536); values below 4096 are raised to 4096 and values above `SUBTITLE_MCP_PREVIEW_MAX_BYTES` (262144) are lowered to it, with a `max-bytes-clamped` warning (`details.fields.requested` and `applied`). The value in effect comes back as `maxBytes` |
 | `cursor` | no | The `next` value from the previous page, unchanged. Omit it for the first page |
 
-Files are reached by job id only. There is no URI or local save-path argument. Local path uploads and inline
-content have no stored input, and a conversion without an API `output` has no stored output.
+Give either `jobId` and `which`, or `location`. With browsing off, files are reached by job id only. Local path
+uploads and inline content have no stored input, and a conversion without an API `output` has no stored output.
+
+A `location` read goes through the same checks as a conversion source: the local allowed folders (with traversal and
+symbolic-link checks) for a path, or the API's allowlists, its traversal and symbolic-link guards and its decoding
+checks for a URI. HTTPS URLs can't be read by location. The paging, the SRT view of binary files and the result are
+the same as for a job, with `source` saying which kind of read it was (`job`, `local` or `remote`).
 
 Text files are returned as stored (UTF-8, UTF-16 or the recorded legacy encoding, decoded exactly). Binary files
 (EBU STL, PAC, Cavena 890, …) are converted to SRT through the API, inline only (nothing is written, the stored
@@ -144,14 +205,14 @@ Byte counts are UTF-8 bytes of the text without a byte order mark, so `totalByte
 than `bytes`, the stored file's size. For a binary file they count the SRT text, not the stored bytes.
 
 When more text follows, `truncated` is `true` and `next` holds an opaque cursor. Call again with the same `jobId`
-and `which` and `cursor: next`; `maxBytes` may change between pages. The last page has `truncated: false` and no
+and `which` (or the same `location`) and `cursor: next`; `maxBytes` may change between pages. The last page has `truncated: false` and no
 `next`.
 
 Paging is stateless: there is nothing to close or expire on the server. Each call reads the stored file again, and
 the cursor carries a fingerprint (a SHA-256 hash) of the stored bytes. If the file changed between pages, the call
 fails with `preview-source-changed`, and you start again without `cursor`. Any other cursor problem is
 `preview-cursor-invalid`: a value that isn't one `preview_text` returned (empty, altered, too long), or a cursor
-used with another job or `which`. Every page re-reads the whole file (and converts a binary file
+used with another job, `which` or location. Every page re-reads the whole file (and converts a binary file
 again), so prefer larger pages for long files when your context allows.
 
 ### Result
@@ -165,7 +226,8 @@ again), so prefer larger pages for long files when your context allows.
 | `returnedBytes`, `totalBytes` | UTF-8 bytes of this page and of the whole text |
 | `fromCue`, `toCue`, `returnedCues`, `totalCues` | With `unit: "cue"`: 1-based position of this page and the cue counts |
 | `fromLine`, `toLine`, `returnedLines`, `totalLines` | With `unit: "line"`: the same in lines |
-| `jobId`, `which`, `fileName`, `mediaType`, `bytes`, `location`, `format` | The stored file: name, media type, size, redacted location and recorded format id |
+| `source` | `job`, `local` or `remote` |
+| `jobId`, `which`, `fileName`, `mediaType`, `bytes`, `location`, `format` | The file: name, media type, size, redacted location and recorded format id (`jobId`, `which` and `format` for job previews) |
 | `convertedFrom`, `convertedTo` | Set for binary files converted to SRT |
 | `warnings` | `max-bytes-clamped` when `maxBytes` was out of range, and what the SRT conversion of a binary file lost |
 

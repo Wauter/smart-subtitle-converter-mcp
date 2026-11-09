@@ -31,6 +31,7 @@ services:
     tmpfs: [/tmp]
     networks: [internal]
     # API_KEYS / API_KEYS_FILE optional
+    # environment: { STORAGE_LIST_ENABLED: "true" }     # optional: let the MCP browse the API's storage
   mcp:
     image: ghcr.io/wauter/smart-subtitle-converter-mcp:X.Y.Z      # same major.minor as the API
     read_only: true
@@ -41,6 +42,7 @@ services:
       SUBTITLE_MCP_ALLOWED_HOSTS: mcp,localhost,127.0.0.1
       SUBTITLE_MCP_HTTP_TOKEN_FILE: /run/secrets/mcp_token   # required
       # SUBTITLE_API_KEY_FILE: /run/secrets/api_key          # the only upstream key
+      # SUBTITLE_MCP_LIST_ENABLED: "true"                    # optional: list_files and preview_text by location
     volumes:
       - /mnt/share/subtitles-in:/data/in:ro
       - /mnt/share/subtitles-out:/data/out:rw   # .subtitle-mcp-staging/ is created here; must be writable by uid 65532
