@@ -39,7 +39,7 @@ There is no separate operator gate. Details: [writing-files.md](writing-files.md
 - API `input` / `output` URIs (filesystem, S3-compatible, HTTPS) are checked by the API with its own allowlists,
   separately from this server's local folders. Storage credentials belong to the API runtime, never to a tool call.
 - Job metadata cannot replay subtitle bytes; prefer an API output location for work that may outlast the wait.
-  `get_job_file` re-reads a stored input or output only for a known job id.
+  `preview_text` reads a stored input or output only for a known job id, never by URI.
 
 ## HTTP mode
 

@@ -19,7 +19,8 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 | `SUBTITLE_MCP_RETRY_MAX_ATTEMPTS` | – | `3` | Retries for safe metadata/read-only calls; conversion POST is never replayed |
 | `SUBTITLE_MCP_RETRY_MAX_WAIT_MS` | – | `60000` | Longest single `Retry-After` wait accepted |
 | `SUBTITLE_MCP_RETRY_BUDGET_MS` | – | `90000` | Total retry wait per call |
-| `SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES` | – | `65536` | Size limit, in UTF-8 bytes, of subtitle text returned to the model (`get_job_file`, inline `convert_subtitle`); longer text is cut at a cue or line boundary and marked `truncated` |
+| `SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES` | – | `65536` | `preview_text` page size, in UTF-8 bytes, when the call gives no `maxBytes`. At least 4096 and at most `SUBTITLE_MCP_PREVIEW_MAX_BYTES` |
+| `SUBTITLE_MCP_PREVIEW_MAX_BYTES` | – | `262144` | Largest `preview_text` page, in UTF-8 bytes; larger `maxBytes` requests are lowered to it, and a single cue over it can't be previewed (`preview-cue-too-large`). 4096 to 1048576 |
 | `SUBTITLE_MCP_JSON_MAX_DECODED_BYTES` | – | unset (10485760) | JSON decoded-content cap while `/v1/limits` is unreadable |
 | `SUBTITLE_MCP_LIMITS_TTL_MS` | – | `300000` | `/v1/limits` cache TTL |
 | `SUBTITLE_MCP_INCLUDE_DEBUG` | – | `false` | Pass the API's `debug` member into errors |
@@ -27,6 +28,9 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 | `SUBTITLE_MCP_ALLOWED_HOSTS` | – | `localhost,127.0.0.1,[::1]` + bind host | HTTP: `Host` allowlist (DNS rebinding) |
 | `SUBTITLE_MCP_LOG_LEVEL` | `--log-level` | `info` | `error`, `warn`, `info`, `debug` (JSON lines on stderr) |
 | `SUBTITLE_MCP_LOG_PATHS` | – | `false` | Log full paths instead of `sha256[:12]` + extension |
+
+`SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES` no longer exists: `convert_subtitle` returns whole files, and `preview_text`
+pages its text. Setting it fails startup with a message pointing to the two preview settings above.
 
 ## Logging and privacy
 

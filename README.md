@@ -54,7 +54,7 @@ Claude Desktop, Cursor, Windows, a VM, or building from source: see [docs/client
 | `list_formats` | Formats with read/write and text/binary flags |
 | `list_presets` / `get_profile` | Built-in and mounted presets, raw and resolved |
 | `validate_profile` | Check a profile, with pointer-level errors and hints |
-| `get_job_file` | Re-read the stored input or output of an API job as text in `text` (binary formats shown as SRT) |
+| `preview_text` | Read the text of an API job's stored input or output, page by page (binary formats shown as SRT) |
 | `list_allowed_folders` | The folders in effect right now, with mode and source |
 
 Inputs, results and warning fields: [docs/tools.md](docs/tools.md).
@@ -67,8 +67,9 @@ output; `detect_format` accepts `input` too. These are resolved by the API with 
 the MCP's local folders. Outputs are never overwritten unless you send `ifExists: "replace"`. One file per call.
 
 Every conversion returns a `jobId`. When work outlasts the wait, the MCP polls the job; the API keeps metadata only,
-so use an API `output` location for work that may take a while. `get_job_file` re-reads a job's stored input or
-output while the API still has its record. See [tools](docs/tools.md#api-storage-and-job-ids),
+so use an API `output` location for work that may take a while. `preview_text` reads the text of a job's stored
+input or output, in pages that end on whole cues, while the API still has its record. Without any output location,
+`convert_subtitle` attaches the whole converted file to its result for the client to save. See [tools](docs/tools.md#api-storage-and-job-ids),
 [configuration](docs/configuration.md#api-storage-and-asynchronous-jobs) and
 [writing files](docs/writing-files.md#api-destinations-are-separate).
 

@@ -145,7 +145,7 @@ Auth failures from the API are on that
 
 ## Jobs and storage URIs
 
-These apply when `convert_subtitle` uses API-side `input` / `output` locations, and to `get_job_file`.
+These apply when `convert_subtitle` uses API-side `input` / `output` locations, and to `preview_text`.
 Storage, overwrite, sidecar and job codes from the API are on the
 [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page.
 
@@ -159,6 +159,27 @@ folder grants don't give the API access to its own storage.
 
 - **What:** The job finished, but its detailed result was too large for the API's job record.
 - **What to do:** Read the full diagnostics from the sidecar (`sidecar: true`).
+
+**`preview-source-changed`**
+
+- **What:** `preview_text` was called with a `cursor`, but the stored file is no longer the one the cursor was made
+  for.
+- **Why:** Pages are read statelessly. Each call re-reads the file and compares a fingerprint of its bytes with the
+  one in the cursor, so a file replaced or edited between pages is caught instead of mixing two versions.
+- **What to do:** Call `preview_text` again without `cursor` to start from the first page.
+
+**`preview-cursor-invalid`**
+
+- **What:** The `cursor` isn't one `preview_text` returned, or it was returned for another job or `which`.
+- **What to do:** Pass the `next` value from the previous page unchanged, with the same `jobId` and `which`, or
+  start again without `cursor`.
+
+**`preview-cue-too-large`**
+
+- **What:** A single cue (or line) is larger than the largest page this server returns.
+- **Why:** Pages never split a cue, so one cue over `SUBTITLE_MCP_PREVIEW_MAX_BYTES` can't be shown.
+- **What to do:** Convert the file with `convert_subtitle` to a file and read that instead, or ask the operator to
+  raise `SUBTITLE_MCP_PREVIEW_MAX_BYTES` ([configuration.md](configuration.md)).
 
 ## Character sets and formats
 

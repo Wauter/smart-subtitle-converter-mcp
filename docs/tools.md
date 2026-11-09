@@ -12,12 +12,47 @@ sees are the authoritative, live version of this page (they include the allowed 
 | `validate_profile` | `POST /v1/profiles/validate` | Validate a profile (inline or `path`); pointer-level errors with hints |
 | `detect_format` | `POST /v1/detect` | Format, encoding and language of inline content, a local `path` or API `input`, plus `bom`, `lineEndings` and source `warnings` |
 | `convert_subtitle` | `POST /v1/convert/json` | Convert one file: exactly one content/path/input; result inline, local outputPath/outputDir or API output |
-| `get_job_file` | `GET /v1/jobs/{id}/input` or `/output` (+ `POST /v1/convert/json` to SRT for binary files) | Re-read the job's current stored input or single subtitle output as text |
+| `preview_text` | `GET /v1/jobs/{id}/input` or `/output` (+ `POST /v1/convert/json` to SRT for binary files) | Read the text of a job's current stored input or single subtitle output, one page at a time |
 | `list_allowed_folders` | – (local) | The folders in effect, with `mode`, `source` and `state` ([folders-and-roots.md](folders-and-roots.md)) |
 
-`list_allowed_folders` stays registered even when paths are unavailable (empty folders, state none). It covers MCP-local folders only, never API input/output URIs. Inline text results of `convert_subtitle` come back in `outputs[].text` (and as a text block); binary results are attached as an embedded resource the client can save, and that resource's `uri` only labels the block (it is not readable with `resources/read`).
+`list_allowed_folders` stays registered even when paths are unavailable (empty folders, state none). It covers MCP-local folders only, never API input/output URIs.
 
-Text longer than `SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES` (UTF-8 bytes, default 65536) is cut, never inside a character: SRT at the last whole cue, other text at the last full line. Text results carry `truncated` (true when cut), `returnedBytes` and `totalBytes`, and for SRT `returnedCues` and `totalCues`; the summary says plainly when the text was cut. To keep a whole long file, write it with `outputPath`/`outputDir` or an API `output`.
+## Inline convert results
+
+Without an output location (`outputPath`/`outputDir` or an API `output`), `convert_subtitle` attaches the whole
+converted file to its result as an embedded resource, for text and binary targets alike: text formats as `text`,
+binary formats (EBU STL, PAC, …) as base64 `blob`, with the format's `mimeType`. The file is never cut. The
+resource is the deliverable, for the client to save; its `uri` only labels the block and is not readable with
+`resources/read`.
+
+The structured result describes the file but doesn't repeat its content: `outputs[]` has `fileName`, `format`,
+`formatId`, `kind`, `mediaType`, `encoding`, `cues`, `bytes` and `attached: true`, plus `verification` for
+binary targets. Alongside it are `jobId`, `detected`, `stats`, `warnings` and a short `hint` on reading the
+converted text. Some clients (Claude Code, for example) show the model only the structured result when there is
+one, so the model sees this metadata and the client still receives the file.
+
+To read converted text yourself, use `preview_text`. It reads stored files only: an inline result isn't stored, so
+convert with an API `output` first, then call `preview_text` with `which: "output"`. When the source came from an
+API `input`, `preview_text` with `which: "input"` reads it straight away. `hint` says which of these applies.
+
+Example result for an inline conversion to EBU STL:
+
+```json
+{
+  "content": [
+    { "type": "text", "text": "Converted show.srt (SubRip, utf-8, en) → show.stl (EBU STL, iso-6937): 412 → 412 cues in 38 ms. The whole converted file is attached as an embedded resource." },
+    { "type": "resource", "resource": { "uri": "subtitleedit://outputs/mcp-…/show.stl", "mimeType": "application/octet-stream", "blob": "…" } }
+  ],
+  "structuredContent": {
+    "jobId": "0de4707d46fe4ff9b06ae83736f7dbbb",
+    "outputs": [{ "fileName": "show.stl", "format": "EBU STL", "formatId": "ebustl", "kind": "binary", "mediaType": "application/octet-stream",
+                  "encoding": "iso-6937", "contentEncoding": "base64", "cues": 412, "bytes": 52224, "attached": true, "verification": { "…": "…" } }],
+    "hint": "The converted file is attached as an embedded resource for the client to save. It is not stored, so preview_text cannot read this output; …",
+    "warnings": [], "…": "…"
+  }
+}
+```
+
 How files are written: [writing-files.md](writing-files.md).
 
 ## Resources
@@ -64,31 +99,76 @@ Failed admitted conversions also surface `error.jobId` / `error.jobUrl` when sup
 schemas permit structured errors as well as success results; required success fields are validated before
 returning a success. No external polling location is followed.
 
-## Re-reading a job file
+## Previewing a job's text
 
-`get_job_file` accepts exactly `{jobId, which:"input"|"output"}`. Use it after storage-to-storage conversion
-when the actual files are needed, often alongside warnings. Output means the single subtitle destination,
-never a sidecar. There is no arbitrary URI or local save-path parameter. Local path uploads have no stored
-input, and omitted API output has no stored output: use the original local file or conversion response.
+`preview_text` reads the subtitle text of a job's stored input or output so the model can check spelling,
+language and timing. It is a view, not a download: it never returns bytes to save.
 
-It uses the configured API key, not an owner/admin role. Job ids are unguessable capability tokens. It re-reads
-current storage through current API allowlists/limits, without detection or conversion. Files can change or
-vanish; a signed HTTPS query is not retained, so that location cannot be replayed.
+Arguments:
 
-Results include jobId, which, fileName, mediaType, `bytes` (the stored file's size), the redacted location, `format`
-when the job recorded it, and the file content as text in `text` (also sent as a text block). Text files are returned
-as stored (UTF-8, UTF-16 or the recorded legacy encoding, decoded exactly). Binary files (EBU STL, PAC, Cavena 890, …)
-are converted to SRT through the API for reading, inline only (no output location, nothing written, the stored file
-is unchanged): the result then has `convertedFrom` (the stored format id), `convertedTo: "srt"` and the
-conversion's `warnings`, which say what the SRT view lost. If that conversion fails (for example `ambiguous-encoding`
-on a PAC file), the normal error comes back with its candidates, and the hint says how to read the file with
-`convert_subtitle` and the right setting. `text` follows the same size limit and `truncated` fields as inline
-conversion results. Base64 is never returned, and there is no embedded resource or `resourceUri`.
-A missing `jobId` or `which` is reported as required, with the valid values. Subtitle text is not logged. Errors distinguish `job-not-ready`, `job-not-found`,
-`job-input-not-stored`, `job-output-not-stored`, `job-file-gone` and `job-location-not-replayable` (see the API's
-[errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page); the last two
-include a redacted location. Input may be readable while output is pending. A failed job has no successful
-stored output. A missing job is not a failed conversion.
+| Argument | Required | Description |
+|---|---|---|
+| `jobId` | yes | The `jobId` from `convert_subtitle` |
+| `which` | yes | `input` (the stored source) or `output` (the single stored subtitle result, never a sidecar) |
+| `maxBytes` | no | Page size in UTF-8 bytes. Defaults to `SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES` (65536); values below 4096 are raised to 4096 and values above `SUBTITLE_MCP_PREVIEW_MAX_BYTES` (262144) are lowered to it. The value in effect comes back as `maxBytes` |
+| `cursor` | no | The `next` value from the previous page, unchanged. Omit it for the first page |
+
+Files are reached by job id only. There is no URI or local save-path argument. Local path uploads and inline
+content have no stored input, and a conversion without an API `output` has no stored output.
+
+Text files are returned as stored (UTF-8, UTF-16 or the recorded legacy encoding, decoded exactly). Binary files
+(EBU STL, PAC, Cavena 890, …) are converted to SRT through the API, inline only (nothing is written, the stored
+file is unchanged). Then `convertedFrom` is the stored format id, `convertedTo` is `"srt"`, and `warnings` say what
+the SRT view lost. If that conversion fails (for example `ambiguous-encoding` on a PAC file), the normal error comes
+back with its candidates, and the hint says how to read the file with `convert_subtitle` and the right setting.
+
+### Pages
+
+The text is split into whole units: cues for SRT and WebVTT (a WebVTT header or `NOTE` block travels with the
+next cue), lines for everything else. A page is the longest run of whole units that fits in `maxBytes`. Pages
+always end on a whole cue and never split a character. Only a single cue larger than `maxBytes` makes a page go
+over it, and that cue is then returned alone. A cue larger than `SUBTITLE_MCP_PREVIEW_MAX_BYTES` can't be
+previewed (`preview-cue-too-large`). Joining all pages gives back the whole text exactly.
+
+Byte counts are UTF-8 bytes of the text without a byte order mark, so `totalBytes` can be a few bytes smaller
+than `bytes`, the stored file's size. For a binary file they count the SRT text, not the stored bytes.
+
+When more text follows, `truncated` is `true` and `next` holds an opaque cursor. Call again with the same `jobId`
+and `which` and `cursor: next`; `maxBytes` may change between pages. The last page has `truncated: false` and no
+`next`.
+
+Paging is stateless: there is nothing to close or expire on the server. Each call reads the stored file again, and
+the cursor carries a fingerprint (a SHA-256 hash) of the stored bytes. If the file changed between pages, the call
+fails with `preview-source-changed`, and you start again without `cursor`. A cursor used with another job or
+`which` fails with `preview-cursor-invalid`. Every page re-reads the whole file (and converts a binary file
+again), so prefer larger pages for long files when your context allows.
+
+### Result
+
+| Field | Description |
+|---|---|
+| `text` | One page of text, ending on a whole cue or line, without a BOM |
+| `unit` | `cue` (SRT, WebVTT) or `line` (other text) |
+| `truncated`, `next` | More text follows; pass `next` as `cursor` |
+| `maxBytes` | Page size in effect after clamping |
+| `returnedBytes`, `totalBytes` | UTF-8 bytes of this page and of the whole text |
+| `fromCue`, `toCue`, `returnedCues`, `totalCues` | With `unit: "cue"`: 1-based position of this page and the cue counts |
+| `fromLine`, `toLine`, `returnedLines`, `totalLines` | With `unit: "line"`: the same in lines |
+| `jobId`, `which`, `fileName`, `mediaType`, `bytes`, `location`, `format` | The stored file: name, media type, size, redacted location and recorded format id |
+| `convertedFrom`, `convertedTo`, `warnings` | Set for binary files converted to SRT |
+
+The text is sent once, in the structured result's `text`. The content block is a one-line summary of the page
+(which cues, how many bytes, whether more follows), without the text. Subtitle text is not logged.
+
+It uses the configured API key, not an owner or admin role. Job ids are unguessable capability tokens. It reads
+current storage through the API's current allowlists and limits; files can change or disappear, and a signed
+HTTPS query is not kept, so that location cannot be read again. Errors distinguish `job-not-ready`,
+`job-not-found`, `job-input-not-stored`, `job-output-not-stored`, `job-file-gone` and
+`job-location-not-replayable` (see the API's
+[errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page), and
+the paging codes `preview-source-changed`, `preview-cursor-invalid` and `preview-cue-too-large`
+([troubleshooting.md](troubleshooting.md#jobs-and-storage-uris)). Input may be readable while output is pending. A
+failed job has no stored output. A missing job is not a failed conversion.
 
 The convert description reports API storage schemes when limits are known; `subtitleedit://limits` exposes
 the full API response. The schemes line is omitted if either input/output scheme array is missing. `Prefer: wait` is bounded by MCP timeout and API maximum wait, not by destination.
