@@ -80,7 +80,8 @@ describe.skipIf(!URL_)("contract: real API", () => {
     it("SRT→VTT inline and to disk byte-exact vs direct API output", async () => {
       const inline = await callTool(h, "convert_subtitle", { content: SRT, fileName: "a.srt", target: "webvtt" });
       expect(inline.isError).toBeFalsy();
-      expect(inline.content.find((c: any) => c.type === "text" && c.text.startsWith("WEBVTT"))).toBeTruthy();
+      expect(inline.content.find((c: any) => c.type === "resource" && c.resource.text?.startsWith("WEBVTT"))).toBeTruthy();
+      expect(inline.structuredContent.outputs[0].attached).toBe(true);
       const src = put("single/a.srt");
       const out = path.join(dir, "single", "a.vtt");
       const disk = await callTool(h, "convert_subtitle", { path: src, target: "webvtt", outputPath: out });
@@ -282,7 +283,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
       expect(fs.readFileSync(stl).subarray(3, 11).toString("latin1")).toMatch(/^STL\d\d\.01$/);
       const back = await callTool(h, "convert_subtitle", { path: stl, target: "subrip" });
       expect(back.isError).toBeFalsy();
-      expect(back.content.map((c: any) => c.text ?? "").join("")).toMatch(/Round trip 3/);
+      expect(back.content.map((c: any) => c.resource?.text ?? "").join("")).toMatch(/Round trip 3/);
     });
     it("invalid-binary-input", async () => {
       const p = put("bin/bad.stl", Buffer.alloc(100, 0x41)); // shorter than the 1024-byte GSI block
