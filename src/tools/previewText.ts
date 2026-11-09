@@ -3,7 +3,10 @@ import { pathToFileURL } from "node:url";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Call, Deps } from "../context.js";
 import { ToolFailure, mcpError, type WarningT } from "../errors.js";
-import { defineTool, getCaps, inputCap, mapWarnings, tooLarge, Warning, warningText } from "./common.js";
+import path from "node:path";
+import { defineTool, getCaps, inputCap, inputScheme, mapWarnings, redactInput, tooLarge, Warning, warningText } from "./common.js";
+import { readFileChecked } from "../fs/guard.js";
+import { isRemote, remoteState, remoteUnavailable, staleGate } from "./storage.js";
 import { sanitizeOutputName } from "../fs/write.js";
 import { withSuffix } from "../ids.js";
 import { finishConversion } from "../api/jobs.js";
@@ -12,22 +15,26 @@ import { checkCursor, clampPageBytes, decodeCursor, encodeCursor, fingerprint, h
 
 export function describePreviewText(deps: Deps): string {
   const c = deps.cfg;
-  return "Read the subtitle text of a convert_subtitle job's stored input or output, to check spelling, language and timing. This is a read-only text preview for you, not the file: it never returns bytes to save. Give `jobId` and `which` (input | output); files are reachable only by job id, never by URI." +
-    " Text formats are returned as stored. Binary formats (EBU STL, PAC, Cavena 890, …) are converted to SRT for reading: `convertedFrom` is the stored format id, `convertedTo` is 'srt', and `warnings` say what the SRT view lost or changed; the stored file is never modified." +
+  const what = c.listEnabled
+    ? "Read the subtitle text of a file, to check spelling, language and timing. This is a read-only text preview for you, not the file: it never returns bytes to save. Give either `location` (a local absolute path in this server's allowed folders, or an API file:// or s3:// URI; find files with list_files) or `jobId` and `which` (input | output) for a convert_subtitle job's stored file. API locations need browsing on the converter API (list_allowed_folders `remote.state` on); local paths and job ids work either way."
+    : "Read the subtitle text of a convert_subtitle job's stored input or output, to check spelling, language and timing. This is a read-only text preview for you, not the file: it never returns bytes to save. Give `jobId` and `which` (input | output); files are reachable only by job id, never by URI.";
+  return what +
+    " Text formats are returned as stored. Binary formats (EBU STL, PAC, Cavena 890, …) are converted to SRT for reading: `convertedFrom` is the stored format id, `convertedTo` is 'srt', and `warnings` say what the SRT view lost or changed; the file is never modified." +
     ` The text is paged and the result's \`text\` holds one page. SRT and WebVTT pages always end on a whole cue, other text on a whole line. \`maxBytes\` sets the page size in UTF-8 bytes (default ${c.previewDefaultBytes}, clamped to ${PREVIEW_MIN_BYTES}..${c.previewMaxBytes}, with a max-bytes-clamped warning); only a single cue larger than maxBytes is returned alone over it.` +
-    " When `truncated` is true, more text follows: call again with the same jobId and which and `cursor` set to `next` (you may change maxBytes between pages). `fromCue`/`toCue` (or `fromLine`/`toLine`), `totalCues` (or `totalLines`), `returnedBytes` and `totalBytes` say where you are; tell the user when you only read part of a file. If the stored file changes between pages the call fails with `preview-source-changed`, and a cursor that wasn't returned for this jobId and which fails with `preview-cursor-invalid`: start again without cursor." +
-    " Each call re-reads current storage (not a cached copy); files may change or disappear. Local path uploads and inline content have no stored input, and a conversion without an API `output` has no stored output. Any valid API key knowing the unguessable job id can read it. Query-redacted HTTPS locations cannot be replayed.";
+    ` When \`truncated\` is true, more text follows: call again with the same ${c.listEnabled ? "location (or jobId and which)" : "jobId and which"} and \`cursor\` set to \`next\` (you may change maxBytes between pages). \`fromCue\`/\`toCue\` (or \`fromLine\`/\`toLine\`), \`totalCues\` (or \`totalLines\`), \`returnedBytes\` and \`totalBytes\` say where you are; tell the user when you only read part of a file. If the file changes between pages the call fails with \`preview-source-changed\`, and a cursor that wasn't returned for the same ${c.listEnabled ? "location or job file" : "jobId and which"} fails with \`preview-cursor-invalid\`: start again without cursor.` +
+    " Each call re-reads current storage (not a cached copy); files may change or disappear. Local path uploads and inline content have no stored job input, and a conversion without an API `output` has no stored job output. Any valid API key knowing the unguessable job id can read it. Query-redacted HTTPS locations cannot be replayed.";
 }
 
 const count = z.number().int().nonnegative();
 
 export const PreviewTextOutput = {
-  jobId: z.string().describe("The job id the file belongs to"),
-  which: z.enum(["input", "output"]).describe("Which of the job's stored files was read"),
-  fileName: z.string().describe("Name of the stored file (last segment of its location)"),
-  mediaType: z.string().describe("Media type the API reported for the stored file"),
+  source: z.enum(["job", "local", "remote"]).describe("job: a convert_subtitle job's stored file; local: a file in this server's allowed folders; remote: an API storage location"),
+  jobId: z.string().optional().describe("source job: the job id the file belongs to"),
+  which: z.enum(["input", "output"]).optional().describe("source job: which of the job's stored files was read"),
+  fileName: z.string().describe("Name of the file (last segment of its location)"),
+  mediaType: z.string().describe("Media type of the file (as the API reported it, or from the extension for local files)"),
   bytes: count.describe("Size of the stored file in bytes (before any SRT conversion)"),
-  location: z.string().describe("The stored file's location, with any credentials or query removed"),
+  location: z.string().describe("The file's location (local path or API URI), with any credentials or query removed"),
   format: z.string().optional().describe("Format id of the stored file, when the job recorded it"),
   text: z.string().describe("One page of the text (SRT when convertedFrom is set), ending on a whole cue or line; no BOM"),
   unit: z.enum(["cue", "line"]).describe("How pages are cut: whole cues (SRT, WebVTT) or whole lines (other text)"),
@@ -51,22 +58,38 @@ export const PreviewTextOutput = {
 };
 
 export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
+  const listing = deps.cfg.listEnabled;
+  const jobId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).describe("Job id (`jobId`) returned by convert_subtitle");
+  const which = z.enum(["input", "output"]).describe("input | output: the job's stored source or its stored result");
   defineTool(server, deps, {
     name: "preview_text", title: "Preview subtitle text", warningArray: true,
-    description: describePreviewText(deps),
+    description: () => describePreviewText(deps),
     shape: {
-      jobId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).describe("Job id (`jobId`) returned by convert_subtitle"),
-      which: z.enum(["input", "output"]).describe("input | output: the job's stored source or its stored result"),
+      ...(listing
+        ? {
+            location: z.string().min(1).max(16384).optional().describe("A file to read: a local absolute path in this server's allowed folders, or an API file:// or s3:// URI (from list_files). Use instead of jobId and which."),
+            jobId: jobId.optional(),
+            which: which.optional().describe("input | output, with jobId: the job's stored source or its stored result"),
+          }
+        : { jobId, which }),
       maxBytes: z.number().int().positive().optional().describe(`Page size in UTF-8 bytes (default ${deps.cfg.previewDefaultBytes}, clamped to ${PREVIEW_MIN_BYTES}..${deps.cfg.previewMaxBytes})`),
       // Validated by decodeCursor, so every malformed cursor is preview-cursor-invalid rather than invalid-arguments.
       cursor: z.string().optional().describe("`next` from the previous page, unchanged, to read the following page; omit for the first page"),
     },
     output: PreviewTextOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
-    handler: async (a, call) => {
-      const jobPath = `/v1/jobs/${a.jobId}`;
+    handler: async (a: any, call) => {
+      const byJob = a.location === undefined;
+      if (listing) {
+        if (a.location !== undefined && (a.jobId !== undefined || a.which !== undefined))
+          throw mcpError("invalid-arguments", "Give either `location`, or `jobId` and `which`, not both.", "location reads a file directly; jobId with which reads a convert_subtitle job's stored file.");
+        if (byJob && a.jobId === undefined)
+          throw mcpError("invalid-arguments", "`location`, or `jobId` with `which`, is required.", "Pass a file location from list_files, or the jobId from convert_subtitle with which input | output.");
+        if (byJob && a.which === undefined) throw mcpError("invalid-arguments", "`which` is required with `jobId` (input | output).");
+      }
+      const jobPath = byJob ? `/v1/jobs/${a.jobId}` : undefined;
       try {
-        // Decode first: a malformed cursor fails before any API call.
+        // Decode first: a malformed cursor fails before any API call or file read.
         const cursor = a.cursor !== undefined ? decodeCursor(a.cursor) : undefined;
         const maxBytes = clampPageBytes(a.maxBytes, deps.cfg.previewDefaultBytes, deps.cfg.previewMaxBytes);
         const clampWarning: WarningT[] = a.maxBytes !== undefined && a.maxBytes !== maxBytes ? [{
@@ -76,23 +99,8 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
           details: { fields: { requested: String(a.maxBytes), applied: String(maxBytes) } },
         }] : [];
         const caps = await getCaps(deps, call);
-        const meta = await deps.api.request({ method: "GET", path: jobPath, kind: "metadata" }, call);
-        const job: any = meta.json;
-        if (job?.id !== a.jobId) throw mcpError("api-protocol-error", "The job metadata id does not match the requested id.");
-        // Each distinct request gets its own correlation id: base id for the job metadata, `.f` for the file.
-        const response = await deps.api.request({ method: "GET", path: `${jobPath}/${a.which}`, kind: "conversion", accept: "application/octet-stream", responseBytes: true }, { ...call, requestId: withSuffix(call.requestId, ".f") });
-        const data = response.bytes;
-        if (!data) throw mcpError("api-protocol-error", "The job file response contains no byte body.");
-        const cap = inputCap(caps);
-        if (data.length > cap.value) throw tooLarge("The job file", cap, data.length);
-        const rawLocation = job?.[a.which];
-        if (typeof rawLocation !== "string") throw mcpError("api-protocol-error", "The job has no location metadata for its downloaded file.");
-        const location = redactedLocation(rawLocation);
-        const fileName = sanitizeOutputName(locationBaseName(location) || `${a.jobId}-${a.which}`);
-        const mediaType = (response.contentType || "application/octet-stream").split(";")[0].trim();
-        const known = a.which === "input" ? job.result?.detected : job.result?.outputs?.[0];
-        const formatId = str(a.which === "input" ? known?.id : known?.formatId);
-        const key = hashKey(`job:${a.jobId}:${a.which}`);
+        const src = byJob ? await loadJobFile(deps, call, caps, a.jobId, a.which) : await loadLocation(deps, call, caps, a.location);
+        const { data, fileName, mediaType, location, formatId, known, key } = src;
         const fp = fingerprint(data);
         // Checked again after segmenting; failing here first avoids a needless SRT conversion.
         if (cursor && cursor.k === key && cursor.h !== fp) throw sourceChanged();
@@ -100,9 +108,9 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
         let text = decodeText(data, known);
         let warnings: WarningT[] = [];
         let convertedFrom: string | undefined;
-        let requestId = response.requestId;
+        let requestId = src.requestId;
         if (text === undefined) {
-          const c = await convertToSrt(deps, call, caps, { data, fileName, formatId, location, which: a.which, profile: job.result?.profile });
+          const c = await convertToSrt(deps, call, caps, { data, fileName, formatId, location, which: a.which ?? "input", profile: src.profile, local: src.source === "local" });
           text = c.text; warnings = c.warnings; convertedFrom = c.formatId ?? formatId ?? "unknown";
           requestId = c.requestId ?? requestId;
         }
@@ -119,25 +127,89 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
         const U = seg.unit === "cue" ? "Cue" : "Line";
         const pos = total === 0 ? { [`returned${U}s`]: 0, [`total${U}s`]: 0 } : { [`from${U}`]: page.start + 1, [`to${U}`]: page.end, [`returned${U}s`]: n, [`total${U}s`]: total };
         const structured: any = {
-          jobId: a.jobId, which: a.which, fileName, mediaType, bytes: data.length, location, ...(formatId ? { format: formatId } : {}),
+          source: src.source, ...(byJob ? { jobId: a.jobId, which: a.which } : {}), fileName, mediaType, bytes: data.length, location, ...(formatId ? { format: formatId } : {}),
           text: page.text, unit: seg.unit, maxBytes, truncated: page.more,
           ...(page.more ? { next: encodeCursor({ k: key, h: fp, u: seg.unit, f: page.end }) } : {}),
           returnedBytes: page.returnedBytes, totalBytes: seg.totalBytes, ...pos,
           ...(convertedFrom ? { convertedFrom, convertedTo: "srt" } : {}), warnings: [...clampWarning, ...warnings], ...(requestId ? { requestId } : {}),
         };
-        let summary = `Preview of ${a.which} for job ${a.jobId}: ${fileName}, ${data.length} bytes (${mediaType}).`;
-        if (convertedFrom) summary += ` It is a binary ${convertedFrom} file, so its text is shown converted to SRT; the stored file is unchanged.`;
+        let summary = byJob
+          ? `Preview of ${a.which} for job ${a.jobId}: ${fileName}, ${data.length} bytes (${mediaType}).`
+          : `Preview of ${src.source === "local" ? "local file" : "API location"} ${location}: ${data.length} bytes (${mediaType}).`;
+        if (convertedFrom) summary += ` It is a binary ${convertedFrom} file, so its text is shown converted to SRT; the ${byJob ? "stored " : ""}file is unchanged.`;
         summary += pageText({ unit: seg.unit, from: page.start + 1, to: page.end, total, returnedBytes: page.returnedBytes, totalBytes: seg.totalBytes, truncated: page.more });
-        summary += " The text is in the structured result's `text` field (sent once, not repeated here). Current storage contents, not an archived copy.";
+        summary += ` The text is in the structured result's \`text\` field (sent once, not repeated here). Current ${byJob ? "storage" : "file"} contents, not an archived copy.`;
         if (clampWarning.length) summary += ` Warning max-bytes-clamped: ${clampWarning[0].message}`;
         if (warnings.length) summary += ` ${warnings.length} conversion warning${warnings.length === 1 ? "" : "s"}: ${warnings.map(warningText).join("; ")}`;
         return { structured, summary, logFields: { unit: seg.unit, pageBytes: page.returnedBytes, paged: Boolean(cursor) || page.more } };
       } catch (e) {
-        if (e instanceof ToolFailure) { e.toolError.jobId = a.jobId; e.toolError.jobUrl = jobPath; explainNotStored(e, a.jobId); }
+        if (e instanceof ToolFailure && byJob) { e.toolError.jobId = a.jobId; e.toolError.jobUrl = jobPath; explainNotStored(e, a.jobId); }
         throw e;
       }
     },
   });
+}
+
+interface Loaded {
+  source: "job" | "local" | "remote";
+  data: Buffer; fileName: string; mediaType: string; location: string;
+  formatId?: string; known?: any; key: string; requestId?: string; profile?: any;
+}
+
+async function loadJobFile(deps: Deps, call: Call, caps: Caps, jobId: string, which: "input" | "output"): Promise<Loaded> {
+  const jobPath = `/v1/jobs/${jobId}`;
+  call.log.source = "job";
+  const meta = await deps.api.request({ method: "GET", path: jobPath, kind: "metadata" }, call);
+  const job: any = meta.json;
+  if (job?.id !== jobId) throw mcpError("api-protocol-error", "The job metadata id does not match the requested id.");
+  // Each distinct request gets its own correlation id: base id for the job metadata, `.f` for the file.
+  const response = await deps.api.request({ method: "GET", path: `${jobPath}/${which}`, kind: "conversion", accept: "application/octet-stream", responseBytes: true }, { ...call, requestId: withSuffix(call.requestId, ".f") });
+  const data = response.bytes;
+  if (!data) throw mcpError("api-protocol-error", "The job file response contains no byte body.");
+  const cap = inputCap(caps);
+  if (data.length > cap.value) throw tooLarge("The job file", cap, data.length);
+  const rawLocation = job?.[which];
+  if (typeof rawLocation !== "string") throw mcpError("api-protocol-error", "The job has no location metadata for its downloaded file.");
+  const location = redactedLocation(rawLocation);
+  const known = which === "input" ? job.result?.detected : job.result?.outputs?.[0];
+  return {
+    source: "job", data, location,
+    fileName: sanitizeOutputName(locationBaseName(location) || `${jobId}-${which}`),
+    mediaType: (response.contentType || "application/octet-stream").split(";")[0].trim(),
+    formatId: str(which === "input" ? known?.id : known?.formatId), known,
+    key: hashKey(`job:${jobId}:${which}`), requestId: response.requestId, profile: job.result?.profile,
+  };
+}
+
+/** preview_text {location}: a local file in this server's allowed folders, or an API file/s3 location read through GET /v1/storage/file. */
+async function loadLocation(deps: Deps, call: Call, caps: Caps, location: string): Promise<Loaded> {
+  const cap = inputCap(caps);
+  if (!isRemote(location)) {
+    call.log.source = "path";
+    call.log.inputHash = deps.log.p(location);
+    if (!deps.pathsInSchema) throw mcpError("paths-disabled", "Local files are not available on this server.", "Pass an API location (file:// or s3:// URI from list_files), or a jobId with which.");
+    const r = await deps.guard.resolveInputFile(location);
+    const data = await readFileChecked(r.real, location, cap);
+    const fileName = sanitizeOutputName(path.basename(location));
+    return { source: "local", data, fileName, mediaType: mediaTypeOf(fileName), location, key: hashKey(`loc:local:${r.real}`) };
+  }
+  const shown = redactInput(location);
+  call.log.source = inputScheme(location);
+  call.log.inputHash = deps.log.p(shown);
+  const rs = await remoteState(deps, call);
+  if (rs.state !== "on") throw remoteUnavailable(rs, "Reading an API location");
+  const response = await deps.api.request({ method: "GET", path: "/v1/storage/file", query: { location }, kind: "conversion", accept: "application/octet-stream", responseBytes: true }, { ...call, requestId: withSuffix(call.requestId, ".f") })
+    .catch((e) => { throw staleGate(deps, e); });
+  const data = response.bytes;
+  if (!data) throw mcpError("api-protocol-error", "The storage file response contains no byte body.");
+  if (data.length > cap.value) throw tooLarge("The file", cap, data.length);
+  const fileName = sanitizeOutputName(locationBaseName(shown) || "file");
+  return { source: "remote", data, fileName, mediaType: (response.contentType || mediaTypeOf(fileName)).split(";")[0].trim(), location: shown, key: hashKey(`loc:remote:${location}`), requestId: response.requestId };
+}
+
+function mediaTypeOf(name: string): string {
+  const ext = /\.([^./]+)$/.exec(name)?.[1]?.toLowerCase();
+  return ext === "srt" ? "application/x-subrip" : ext === "vtt" ? "text/vtt" : "application/octet-stream";
 }
 
 /** Plain wording for the API's 409 job-*-not-stored, naming the inline (attached) case, which is the usual cause. */
@@ -162,17 +234,21 @@ function decodeText(data: Buffer, known: any): string | undefined {
   if (known?.kind === "binary") return undefined;
   const encoding = typeof known?.encoding === "string" ? known.encoding.toLowerCase() : undefined;
   let label: string | undefined;
-  if (encoding === undefined || /^utf-8(?:-|$)/.test(encoding)) label = "utf-8";
+  // Nothing recorded (a file read by location): a UTF-16 byte order mark says so; anything else is tried as UTF-8.
+  if (known === undefined && data.length >= 2 && data[0] === 0xff && data[1] === 0xfe) label = "utf-16le";
+  else if (known === undefined && data.length >= 2 && data[0] === 0xfe && data[1] === 0xff) label = "utf-16be";
+  else if (encoding === undefined || /^utf-8(?:-|$)/.test(encoding)) label = "utf-8";
   else if (encoding.startsWith("utf-16")) label = encoding.includes("be") ? "utf-16be" : "utf-16le";
   else if (known?.kind === "text") label = encoding;
   if (!label) return undefined;
   // Unknown kind: NUL bytes mean binary even when the bytes happen to be valid UTF-8.
   if (known?.kind !== "text" && label === "utf-8" && data.includes(0)) return undefined;
+  if (label.startsWith("utf-16") && data.length % 2 !== 0) return undefined;
   try { return new TextDecoder(label, { fatal: true }).decode(data); } catch { return undefined; }
 }
 
 /** Converts a binary stored file to SRT through the API, inline only: no output location, nothing is written. */
-async function convertToSrt(deps: Deps, call: Call, caps: Caps, f: { data: Buffer; fileName: string; formatId?: string; location: string; which: string; profile?: any }) {
+async function convertToSrt(deps: Deps, call: Call, caps: Caps, f: { data: Buffer; fileName: string; formatId?: string; location: string; which: string; profile?: any; local?: boolean }) {
   const profile: Record<string, any> = { encoding: { output: "utf-8-no-bom" } };
   if (f.formatId) profile.source = { format: f.formatId };
   // PAC has no code page in the file; reuse the one the job wrote (output) or was told to read (input).
@@ -190,7 +266,7 @@ async function convertToSrt(deps: Deps, call: Call, caps: Caps, f: { data: Buffe
     res = await finishConversion(deps.api, res, srtCall, deps.cfg, started);
   } catch (e) {
     if (e instanceof ToolFailure && e.toolError.source === "api" && e.toolError.status === 422) {
-      const how = `preview_text converts binary files to SRT to show their text and takes no profile settings. To read it with a setting from this hint, call convert_subtitle with input "${f.location}", target "srt" and that profile setting, and no output (nothing is written).`;
+      const how = `preview_text converts binary files to SRT to show their text and takes no profile settings. To read it with a setting from this hint, call convert_subtitle with ${f.local ? "path" : "input"} "${f.location}", target "srt" and that profile setting, and no output (nothing is written).`;
       e.toolError.hint = e.toolError.hint ? `${e.toolError.hint} ${how}` : how;
     }
     throw e;

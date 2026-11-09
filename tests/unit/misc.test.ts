@@ -60,6 +60,12 @@ describe("config", () => {
     }
   };
   const token = "t".repeat(32);
+  it("SUBTITLE_MCP_LIST_ENABLED is off by default and strict", () => {
+    expect(cfg([]).listEnabled).toBe(false);
+    expect(cfg([], { SUBTITLE_MCP_LIST_ENABLED: "true" }).listEnabled).toBe(true);
+    expect(err([], { SUBTITLE_MCP_LIST_ENABLED: "maybe" })).toMatch(/SUBTITLE_MCP_LIST_ENABLED/);
+  });
+
   it("defaults to local stdio", () => {
     const c = cfg([]);
     expect(c.mode).toBe("local");

@@ -40,6 +40,7 @@ async function main(): Promise<void> {
     roots: cfg.logPaths ? roots.map((r) => `${r.path}${r.writable ? "" : " (ro)"}`) : roots.length,
     rootsSource: roots.length ? "configured" : cfg.mode === "local" && cfg.useClientRoots ? "client" : "none",
     upstreamKey: cfg.apiKey || cfg.apiKeyFile ? "configured" : "none",
+    listEnabled: cfg.listEnabled,
   });
   // Never wait on the API (§10 step 2): probe in the background.
   probeApi(cfg, log);

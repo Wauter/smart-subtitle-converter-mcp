@@ -232,6 +232,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/storage/locations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the allowed storage locations (file roots, S3 buckets and prefixes, HTTPS hosts).
+         * @description The existing allowlists, as folders to pass to GET /v1/storage/list. HTTPS hosts are reported as not listable and not readable by location (convert input/output only). Never includes credentials or query strings. Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.
+         */
+        get: operations["listStorageLocations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/storage/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List one folder of an allowed file or S3 location, a page at a time.
+         * @description `location` is a folder (file:///root/folder/, /root/folder/ or s3://bucket/prefix/), `prefix` an optional name prefix ('/' descends into sub-folders; no globs). Lists one level in backend name order (UTF-8 byte order), at most 200 items per page: files with size and modified time, and folders (ending in '/'). When `truncated` is true pass `next` as `cursor` with the same location and prefix. Stateless: items that exist for the whole walk appear exactly once; items created or deleted during the walk may or may not appear. No total count, time sort or offsets. Filesystem listings skip hidden (dot) entries, symlinks and special files. HTTPS is not listable (422 storage-not-listable). Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.
+         */
+        get: operations["listStorage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/storage/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one file from an allowed file or S3 location (current contents, unconverted).
+         * @description The same allowlists, symlink, traversal and size checks as convert input. HTTPS is not readable here (422 storage-not-listable); use it as convert input. Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.
+         */
+        get: operations["getStorageFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -243,7 +303,7 @@ export interface components {
             title: string;
             status: number;
             /** @enum {string} */
-            code: "job-not-found" | "job-input-not-stored" | "job-output-not-stored" | "job-not-ready" | "job-file-gone" | "job-location-not-replayable" | "storage-location-rejected" | "storage-not-found" | "storage-io-failed" | "output-exists" | "invalid-request" | "invalid-profile" | "empty-input" | "unauthorized" | "not-found" | "preset-not-found" | "payload-too-large" | "unsupported-media-type" | "format-not-detected" | "format-not-supported" | "format-not-writable" | "format-option-invalid" | "invalid-binary-input" | "ambiguous-format" | "ambiguous-encoding" | "encoding-error" | "unsafe-xml" | "input-limits-exceeded" | "conversion-failed" | "rate-limited" | "queue-full" | "conversion-timeout" | "internal-error";
+            code: "job-not-found" | "job-input-not-stored" | "job-output-not-stored" | "job-not-ready" | "job-file-gone" | "job-location-not-replayable" | "storage-location-rejected" | "storage-not-found" | "storage-io-failed" | "storage-list-disabled" | "storage-not-listable" | "storage-cursor-invalid" | "output-exists" | "invalid-request" | "invalid-profile" | "empty-input" | "unauthorized" | "not-found" | "preset-not-found" | "payload-too-large" | "unsupported-media-type" | "format-not-detected" | "format-not-supported" | "format-not-writable" | "format-option-invalid" | "invalid-binary-input" | "ambiguous-format" | "ambiguous-encoding" | "encoding-error" | "unsafe-xml" | "input-limits-exceeded" | "conversion-failed" | "rate-limited" | "queue-full" | "conversion-timeout" | "internal-error";
             detail: string;
             /** @description What to do about it. */
             hint: string;
@@ -422,6 +482,8 @@ export interface components {
         LimitsStorage: {
             inputSchemes: string[];
             outputSchemes: string[];
+            list: boolean;
+            listSchemes: string[];
         };
         OutputDto: {
             fileName: string;
@@ -505,6 +567,35 @@ export interface components {
             elapsedMs: number | string;
             /** Format: int64 */
             queueWaitMs: number | string;
+        };
+        StorageItem: {
+            name: string;
+            uri: string;
+            type: string;
+            /** Format: int64 */
+            size?: null | number | string;
+            /** Format: date-time */
+            modified?: null | string;
+        };
+        StorageListResponse: {
+            location: string;
+            prefix: string;
+            items: components["schemas"]["StorageItem"][];
+            /** Format: int32 */
+            returned: number | string;
+            truncated: boolean;
+            next?: null | string;
+        };
+        StorageLocationInfo: {
+            uri: string;
+            scheme: string;
+            listable: boolean;
+            readable: boolean;
+            prefix?: null | string;
+            note?: null | string;
+        };
+        StorageLocationsResponse: {
+            locations: components["schemas"]["StorageLocationInfo"][];
         };
         TimingCheck: {
             /** Format: double */
@@ -1739,6 +1830,289 @@ export interface operations {
                     "X-Request-Id"?: string;
                     /** @description Seconds to wait before retrying. */
                     "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+        };
+    };
+    listStorageLocations: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional client request id, echoed back; replaced by a fresh ULID when it doesn't match the pattern. */
+                "X-Request-Id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageLocationsResponse"];
+                };
+            };
+            /** @description Unauthorized: API keys are configured and the bearer key is missing or wrong. */
+            401: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Rate limited (only when RATE_LIMIT_PER_MINUTE > 0). */
+            429: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+        };
+    };
+    listStorage: {
+        parameters: {
+            query?: {
+                location?: string;
+                prefix?: string;
+                cursor?: string;
+            };
+            header?: {
+                /** @description Optional client request id, echoed back; replaced by a fresh ULID when it doesn't match the pattern. */
+                "X-Request-Id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageListResponse"];
+                };
+            };
+            /** @description invalid-request: a parameter has an invalid value. */
+            400: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Unauthorized: API keys are configured and the bearer key is missing or wrong. */
+            401: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Rate limited (only when RATE_LIMIT_PER_MINUTE > 0). */
+            429: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+        };
+    };
+    getStorageFile: {
+        parameters: {
+            query?: {
+                location?: string;
+            };
+            header?: {
+                /** @description Optional client request id, echoed back; replaced by a fresh ULID when it doesn't match the pattern. */
+                "X-Request-Id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid-request: a parameter has an invalid value. */
+            400: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Unauthorized: API keys are configured and the bearer key is missing or wrong. */
+            401: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Payload Too Large */
+            413: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Rate limited (only when RATE_LIMIT_PER_MINUTE > 0). */
+            429: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ApiProblem"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    /** @description Request id (also in problem.requestId and the logs). */
+                    "X-Request-Id"?: string;
                     [name: string]: unknown;
                 };
                 content: {

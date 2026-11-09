@@ -16,7 +16,7 @@ describe("preview_text", () => {
     mswServer.use(http.get(`${endpoint}/input`, () => new HttpResponse(SRT, { headers: { "content-type": "application/x-subrip" } })));
     const r = await callTool(h, "preview_text", { jobId: id, which: "input" });
     expect(r.isError).toBeFalsy();
-    expect(r.structuredContent).toEqual({ jobId: id, which: "input", fileName: "show.srt", mediaType: "application/x-subrip", bytes: Buffer.byteLength(SRT), location: "file:///data/in/show.srt",
+    expect(r.structuredContent).toEqual({ source: "job", jobId: id, which: "input", fileName: "show.srt", mediaType: "application/x-subrip", bytes: Buffer.byteLength(SRT), location: "file:///data/in/show.srt",
       text: SRT, unit: "cue", maxBytes: 65536, truncated: false, returnedBytes: Buffer.byteLength(SRT), totalBytes: Buffer.byteLength(SRT), fromCue: 1, toCue: 1, returnedCues: 1, totalCues: 1, warnings: [] });
     expect(r.content).toHaveLength(1); expect(r.content[0].text).not.toContain("Hello");
     expect(r.content[0].text).toContain("Showing all 1 cue"); expect(r.content[0].text).toContain("`text` field (sent once");

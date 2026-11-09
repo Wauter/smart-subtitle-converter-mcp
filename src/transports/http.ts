@@ -5,6 +5,7 @@ import type { Logger } from "../log.js";
 import { InboundTokens } from "../auth.js";
 import { buildDeps } from "../app.js";
 import { createServer } from "../server.js";
+import { discoverListing } from "../tools/storage.js";
 import type { Deps } from "../context.js";
 import type { Root } from "../fs/guard.js";
 import { startSweeper } from "../fs/sweep.js";
@@ -44,6 +45,7 @@ export async function startHttp(cfg: Config, roots: Root[], log: Logger, depsOve
   const tokens = new InboundTokens(cfg.httpTokens, cfg.httpTokenFile, log);
   // Client roots are ignored in HTTP mode; only configured roots count.
   const deps: Deps = buildDeps(cfg, { log, roots, ...depsOverride });
+  void discoverListing(deps);
   const allowedHosts = new Set(cfg.allowedHosts.map((h) => h.toLowerCase()));
   const allowedOrigins = new Set(cfg.allowedOrigins);
 

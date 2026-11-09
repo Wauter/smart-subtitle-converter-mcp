@@ -3,6 +3,7 @@ import type { Config } from "../config.js";
 import type { Logger } from "../log.js";
 import { buildDeps } from "../app.js";
 import { createServer } from "../server.js";
+import { discoverListing } from "../tools/storage.js";
 import type { Root } from "../fs/guard.js";
 import { startSweeper } from "../fs/sweep.js";
 import { attachClientRoots, rootsSource, selectRoots } from "../roots.js";
@@ -12,6 +13,7 @@ export async function runStdio(cfg: Config, roots: Root[], log: Logger): Promise
   const setup = selectRoots(cfg, roots, () => server.server.listRoots().then((r) => r.roots), log);
   const deps = buildDeps(cfg, { log, roots, rootsProvider: setup.provider });
   const server = createServer(deps);
+  void discoverListing(deps);
   let stopSweep: (() => void) | undefined;
   if (setup.client) {
     const cr = setup.client;

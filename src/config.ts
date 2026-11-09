@@ -34,6 +34,8 @@ export interface Config {
   allowedHosts: string[];
   logLevel: LogLevel;
   logPaths: boolean;
+  /** SUBTITLE_MCP_LIST_ENABLED: list_files and preview_text {location} (browse and read by location). */
+  listEnabled: boolean;
 }
 
 const KNOWN_ENV = new Set([
@@ -44,7 +46,7 @@ const KNOWN_ENV = new Set([
   "SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES", "SUBTITLE_MCP_PREVIEW_MAX_BYTES",
   "SUBTITLE_MCP_JSON_MAX_DECODED_BYTES", "SUBTITLE_MCP_LIMITS_TTL_MS",
   "SUBTITLE_MCP_INCLUDE_DEBUG", "SUBTITLE_MCP_ALLOWED_ORIGINS", "SUBTITLE_MCP_ALLOWED_HOSTS", "SUBTITLE_MCP_LOG_LEVEL",
-  "SUBTITLE_MCP_LOG_PATHS",
+  "SUBTITLE_MCP_LOG_PATHS", "SUBTITLE_MCP_LIST_ENABLED",
 ]);
 
 export const USAGE = `Usage: smart-subtitle-converter-mcp [options]
@@ -237,6 +239,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv, opts: { checkF
     allowedHosts,
     logLevel: logLevel as LogLevel,
     logPaths: bool("SUBTITLE_MCP_LOG_PATHS", env.SUBTITLE_MCP_LOG_PATHS, false),
+    listEnabled: bool("SUBTITLE_MCP_LIST_ENABLED", env.SUBTITLE_MCP_LIST_ENABLED, false),
   };
   return { kind: "config", config: cfg };
 }
@@ -260,6 +263,6 @@ export function defaultConfig(over: Partial<Config> = {}): Config {
     partialMaxAgeMs: 3_600_000, timeoutMs: 120_000, retryMaxAttempts: 3, retryMaxWaitMs: 60_000,
     retryBudgetMs: 90_000, previewDefaultBytes: 65_536, previewMaxBytes: 262_144,
     limitsTtlMs: 300_000, includeDebug: false, allowedOrigins: [], allowedHosts: ["localhost", "127.0.0.1", "[::1]"],
-    logLevel: "error", logPaths: false, ...over,
+    logLevel: "error", logPaths: false, listEnabled: false, ...over,
   };
 }
