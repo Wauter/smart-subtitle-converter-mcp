@@ -32,10 +32,11 @@ Start the API first (its [quick start](https://github.com/Wauter/smart-subtitle-
 `http://localhost:8080`), then:
 
 ```bash
-claude mcp add --transport stdio \
+claude mcp add \
   --env SUBTITLE_API_URL=http://localhost:8080 \
   --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/Subtitles \
-  smart-subtitle -- npx -y smart-subtitle-converter-mcp
+  --transport stdio \
+  smart-subtitle-convert -- npx -y smart-subtitle-converter-mcp
 ```
 
 Point `SUBTITLE_MCP_ALLOWED_DIRS` at the folder that holds your subtitles, then ask:

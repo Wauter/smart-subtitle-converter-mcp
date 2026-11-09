@@ -11,24 +11,29 @@ nowhere to work.
 ## Claude Code
 
 ```bash
-claude mcp add --transport stdio \
+claude mcp add \
   --env SUBTITLE_API_URL=http://localhost:8080 \
   --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/Subtitles \
-  smart-subtitle -- npx -y smart-subtitle-converter-mcp
+  --transport stdio \
+  smart-subtitle-convert -- npx -y smart-subtitle-converter-mcp
 ```
+
+`--env` accepts every following `KEY=value` as an environment variable, so put `--transport stdio`
+between the last `--env` and the server name (`smart-subtitle-convert`). If the name comes right after
+`--env`, Claude Code rejects it as an invalid environment variable.
 
 - Add more folders the same way (`SUBTITLE_MCP_ALLOWED_DIRS` for read-write,
   `SUBTITLE_MCP_READONLY_DIRS=/Volumes/Masters` for read-only). Separate several paths with `:` (`;` on Windows),
   or use a JSON array.
-- To change settings: `claude mcp remove smart-subtitle`, add it again, and restart Claude Code.
-- Check what is registered with `claude mcp get smart-subtitle`.
+- To change settings: `claude mcp remove smart-subtitle-convert`, add it again, and restart Claude Code.
+- Check what is registered with `claude mcp get smart-subtitle-convert`.
 
 ## Claude Desktop and Cursor
 
 Claude Desktop does not pass folders you approve in a chat to this server. Name them in the config:
 
 ```jsonc
-{ "mcpServers": { "smart-subtitle": {
+{ "mcpServers": { "smart-subtitle-convert": {
     "command": "npx", "args": ["-y", "smart-subtitle-converter-mcp"],
     "env": { "SUBTITLE_API_URL": "http://localhost:8080",
              "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/Subtitles" } } } }
