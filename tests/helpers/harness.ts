@@ -92,7 +92,7 @@ export interface Harness {
 export async function harness(cfg: Partial<Config> = {}, opts: DepsOptions & { roots?: Root[] } = {}): Promise<Harness> {
   const logs: string[] = [];
   const config = defaultConfig({ apiUrl: API, ...cfg });
-  const log = createLogger("debug", false, (l) => logs.push(l));
+  const log = createLogger("debug", config.logPaths, (l) => logs.push(l));
   const deps = buildDeps(config, { log, ...opts });
   const server = createServer(deps);
   const [ct, st] = InMemoryTransport.createLinkedPair();
