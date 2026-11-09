@@ -31,9 +31,10 @@ binary targets. Alongside it are `jobId`, `detected`, `stats`, `warnings` and a 
 converted text. Some clients (Claude Code, for example) show the model only the structured result when there is
 one, so the model sees this metadata and the client still receives the file.
 
-To read converted text yourself, use `preview_text`. It reads stored files only: an inline result isn't stored, so
-convert with an API `output` first, then call `preview_text` with `which: "output"`. When the source came from an
-API `input`, `preview_text` with `which: "input"` reads it straight away. `hint` says which of these applies.
+Inline results are not stored anywhere, so `preview_text` cannot read them: the attached file is the only copy. If
+the text is needed, save the file to disk and read it locally. To preview it with `preview_text` instead, convert
+with an API `output` location, then call `preview_text` with `which: "output"`. When the source came from an API
+`input`, `preview_text` with `which: "input"` works straight away. `hint` says which of these applies.
 
 Example result for an inline conversion to EBU STL:
 
@@ -47,7 +48,7 @@ Example result for an inline conversion to EBU STL:
     "jobId": "0de4707d46fe4ff9b06ae83736f7dbbb",
     "outputs": [{ "fileName": "show.stl", "format": "EBU STL", "formatId": "ebustl", "kind": "binary", "mediaType": "application/octet-stream",
                   "encoding": "iso-6937", "contentEncoding": "base64", "cues": 412, "bytes": 52224, "attached": true, "verification": { "…": "…" } }],
-    "hint": "The converted file is attached as an embedded resource for the client to save. It is not stored, so preview_text cannot read this output; …",
+    "hint": "The whole file is in the attached embedded resource; save it to disk and read it locally if you need the text. To preview it with preview_text instead, convert with an API `output` location.",
     "warnings": [], "…": "…"
   }
 }

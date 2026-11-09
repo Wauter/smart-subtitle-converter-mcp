@@ -178,7 +178,7 @@ describe("convert_subtitle", () => {
     for (const o of [txt, bin]) for (const k of ["text", "truncated", "preview", "resourceUri", "inline"]) expect(o[k]).toBeUndefined();
     expect(JSON.stringify(r.structuredContent)).not.toMatch(/AQID|Hello world/);
     expect(r.structuredContent.jobId).toBe("job123");
-    expect(r.structuredContent.hint).toContain("preview_text cannot read this output"); expect(r.structuredContent.hint).toContain('which:"output"');
+    expect(r.structuredContent.hint).toBe("The whole file is in the attached embedded resource; save it to disk and read it locally if you need the text. To preview it with preview_text instead, convert with an API `output` location.");
     expect(r.content[0].text).toContain("whole converted file is attached as an embedded resource");
     expect(r.content[0].text).not.toMatch(/TRUNCATED|Hello world/);
   });

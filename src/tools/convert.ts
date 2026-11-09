@@ -72,7 +72,7 @@ export function describeConvert(deps: Deps): string {
   if (deps.pathsInSchema) {
     d += " With outputPath (exact file) or outputDir (API-generated basename), write a local result and return metadata. ifExists is error (default) | replace, for both local writes and API output. Explicit replace is sufficient. Choose another path if replacement is unwanted.";
   }
-  d += ` Without ${deps.pathsInSchema ? "outputPath/outputDir or " : ""}an API \`output\`, the whole converted file is attached as an embedded resource (text formats as text, binary formats as base64) for the client to save; it is the deliverable, not a view for you, and \`outputs[].attached\` is true. Its text is not repeated in the structured result. To read converted text yourself, store it with an API \`output\` and call preview_text {jobId, which:"output"}; \`hint\` says what applies.`;
+  d += ` Without ${deps.pathsInSchema ? "outputPath/outputDir or " : ""}an API \`output\`, the whole converted file is attached as an embedded resource (text formats as text, binary formats as base64) for the client to save; it is the deliverable, not a view for you, and \`outputs[].attached\` is true. Its text is not repeated in the structured result. Inline results are not stored, so preview_text cannot read them: save the attached file and read it locally, or convert with an API \`output\` and call preview_text {jobId, which:"output"}; \`hint\` says what applies.`;
   d += " Server-side `output` stores the result via the API instead of returning bytes; `sidecar:true` requests output.json. It cannot be combined with local outputPath/outputDir. Jobs expose jobId and the MCP polls 202 responses. Cancelling this call does not cancel accepted API work. Filesystem and S3 reject an existing output by default; ifExists:replace allows replacement. Presigned HTTPS PUT follows whatever the signer/receiver allowed, not a filesystem/S3 lock. API locations are not governed by list_allowed_folders.";
   d +=
     " Note: EBU Tech 3264 has no 29.97 fps code, so a 29.97 fps EBU STL source is written with the STL30.01 code; the API flags such frame-rate code mismatches with the warning `frame-rate-changed`. Timings change by less than one frame (no cumulative drift); tell the user, and see the warning for the workaround. Always report `warnings` to the user: they flag lossy formats, replaced characters, truncated text, zero-length cues, frame quantisation and frame-rate changes; many carry a `hint` with the setting that fixes them (the API never switches code pages or character tables by itself) and `details` with cue numbers and code points. For `characters-replaced`, `details.remedy` lists the setting (`option`), its `allowedValues`, the value in effect and the `candidates` that keep the characters (for PAC tested by the converter); `suggested` is set only when exactly one fits. With several candidates, choose by the text's language (ask the user if unsure), or use `unicodeAlternative` (fpc)." +
@@ -265,8 +265,9 @@ function readHint(jobId: string | undefined, outputs: any[], src: SourceInput): 
   if (!jobId) return undefined;
   if (outputs.some((o) => o.output)) return `Read the converted text with preview_text {jobId:"${jobId}", which:"output"}.`;
   if (!outputs.some((o) => o.attached)) return undefined;
-  let h = "The converted file is attached as an embedded resource for the client to save. It is not stored, so preview_text cannot read this output; to read the converted text, convert again with an API `output` location and call preview_text {jobId, which:\"output\"}.";
-  if (src.input !== undefined) h += ` The source can be read now with preview_text {jobId:"${jobId}", which:"input"}.`;
+  // Inline outputs are not stored anywhere, so preview_text cannot read them: the attached file is the only copy.
+  let h = "The whole file is in the attached embedded resource; save it to disk and read it locally if you need the text. To preview it with preview_text instead, convert with an API `output` location.";
+  if (src.input !== undefined) h += ` The source can be previewed now with preview_text {jobId:"${jobId}", which:"input"}.`;
   return h;
 }
 
