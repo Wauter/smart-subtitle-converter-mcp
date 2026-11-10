@@ -136,7 +136,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
       const r = await callTool(h, "convert_subtitle", { path: src, target: "webvtt", outputDir: path.join(dir, "big", "out") });
       expect(r.isError).toBeFalsy();
     }, 120_000);
-    it.skipIf(!SMALL)("too-large input is refused before upload (limits pre-check)", async () => {
+    (SMALL ? itLocal : it.skip)("too-large input is refused before upload (limits pre-check)", async () => {
       const src = put("big/big.srt", "x".repeat(1_100_000));
       const r = await callTool(h, "convert_subtitle", { path: src, target: "webvtt" });
       expect(r.structuredContent.error).toMatchObject({ code: "precheck-too-large", limit: { name: "json.maxDecodedContentBytes", value: 1048576 } });
