@@ -263,13 +263,15 @@ describe.skipIf(!URL_)("contract: real API", () => {
     });
     it("PAC/FPC ambiguity: no deciding name → ambiguous-format with candidates; .fpc name or source.format decides", async () => {
       const bytes = fs.readFileSync(new URL("./fixtures/sample.fpc.bin", import.meta.url));
-      const bin = put("v12/amb.bin", bytes);
-      const r = await callTool(h, "convert_subtitle", { path: bin, target: "subrip" });
+      // A local .bin file is not a subtitle file name, so the MCP never reads it (H3); inline content has no such rule.
+      expect((await callTool(h, "convert_subtitle", { path: put("v12/amb.bin", bytes), target: "subrip" })).structuredContent.error.code).toBe("extension-not-allowed");
+      const inline = { content: bytes.toString("base64"), contentEncoding: "base64", fileName: "amb.bin", target: "subrip" };
+      const r = await callTool(h, "convert_subtitle", inline);
       expect(r.isError).toBe(true);
       expect(r.structuredContent.error.code).toBe("ambiguous-format");
       expect(r.structuredContent.error.candidates).toEqual(expect.arrayContaining(["pacscreenelectronics", "pacunicodeunipac"]));
       expect(r.content[0].text).toMatch(/profile\.source\.format \('pac' or 'fpc'\)/);
-      const ok = await callTool(h, "convert_subtitle", { path: bin, target: "subrip", profile: { source: { format: "fpc" } } });
+      const ok = await callTool(h, "convert_subtitle", { ...inline, profile: { source: { format: "fpc" } } });
       expect(ok.isError).toBeFalsy();
       const named = await callTool(h, "detect_format", { path: put("v12/amb.fpc", bytes) });
       expect(named.structuredContent.id).toBe("pacunicodeunipac");
