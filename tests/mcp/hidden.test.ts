@@ -43,8 +43,11 @@ const hiddenFiles = () => [
   path.join(dir, "sub", ".git", "c.srt"), path.join(dir, ".nested-root", "r.srt"), path.join(hiddenRoot, "r.srt"), path.join(dir, ".missing.srt"),
   path.join(dir, "alias.srt"), path.join(dir, "aliasdir", "in-hidden.srt"), path.join(dir, "sub", "..", ".env"),
 ];
-const refused = (r: any, what: string) => {
-  expect(r.structuredContent?.error?.code, `${what}: ${JSON.stringify(r.structuredContent)}`).toBe("path-not-allowed");
+// H2: hidden inside an allowed folder is its own error; a symlink (even to a hidden target) is never followed (H10).
+const SYMLINKED = ["alias.srt", "aliasdir"];
+const expectedCode = (what: string) => (SYMLINKED.some((n) => what.includes(n)) ? "path-not-allowed" : "hidden-path");
+const refused = (r: any, what: string, code = expectedCode(what)) => {
+  expect(r.structuredContent?.error?.code, `${what}: ${JSON.stringify(r.structuredContent)}`).toBe(code);
   expect(JSON.stringify(r)).not.toContain(SENTINEL);
 };
 
@@ -56,17 +59,19 @@ describe("hidden files and folders, local", () => {
     const hint = (await callTool(h, "preview_text", { location: path.join(dir, ".env") })).structuredContent.error;
     expect(hint.detail).toContain("Hidden files and folders");
     expect(hint.hint).not.toContain(".hidden-root"); expect(hint.hint).not.toContain(".nested-root"); // hidden allowed folders aren't named
-    for (const location of [path.join(dir, "plain.srt"), path.join(dir, "show.en.v2.srt"), path.join(dir, "v1.2", "ep.srt"), path.join(dir, "visible-link.srt")]) {
+    for (const location of [path.join(dir, "plain.srt"), path.join(dir, "show.en.v2.srt"), path.join(dir, "v1.2", "ep.srt")]) {
       const r = await callTool(h, "preview_text", { location });
       expect(r.isError, JSON.stringify(r.structuredContent?.error)).toBeFalsy(); expect(r.structuredContent.text).toBe(SRT);
     }
+    // H10: a symlink is refused even when its target is an ordinary file inside the folder.
+    refused(await callTool(h, "preview_text", { location: path.join(dir, "visible-link.srt") }), "visible-link", "path-not-allowed");
     expect(recorded.filter((r) => r.path.startsWith("/v1/storage/"))).toEqual([]);
   });
 
   it("list_files skips hidden entries and hidden symlink targets, and refuses hidden folders directly, through a prefix or a symlink", async () => {
     h = await mk(true);
     const names = (await callTool(h, "list_files", { location: dir })).structuredContent.items.map((i: any) => i.name);
-    expect(names).toEqual(["plain.srt", "profiles/", "show.en.v2.srt", "sub/", "v1.2/", "visible-link.srt"]);
+    expect(names).toEqual(["plain.srt", "profiles/", "show.en.v2.srt", "sub/", "v1.2/"]); // symlinks are never shown (H10)
     expect((await callTool(h, "list_files", { location: path.join(dir, "sub") })).structuredContent.items).toEqual([]);
     const cases: Record<string, unknown>[] = [
       { location: path.join(dir, ".hiddendir") }, { location: path.join(dir, ".hiddendir", "deeper") }, { location: path.join(dir, "sub", ".git") },
@@ -74,7 +79,7 @@ describe("hidden files and folders, local", () => {
       { location: path.join(dir, ".nested-root") }, { location: hiddenRoot }, { location: path.join(dir, ".nope") },
     ];
     for (const args of cases) refused(await callTool(h, "list_files", args), JSON.stringify(args));
-    expect((await callTool(h, "list_files", { location: dir, prefix: ".h" })).structuredContent.items).toEqual([]);
+    refused(await callTool(h, "list_files", { location: dir, prefix: ".h" }), "prefix .h"); // H2: a '.' name prefix is refused up front
     // Hidden allowed folders are not named anywhere: list_allowed_folders, tool descriptions, path-not-allowed hints.
     const folders = await callTool(h, "list_allowed_folders", {});
     expect(folders.structuredContent.folders.map((f: any) => f.path)).toEqual([fs.realpathSync(dir)]);
@@ -94,12 +99,22 @@ describe("hidden files and folders, local", () => {
     refused(await callTool(h, "validate_profile", { path: path.join(dir, "profiles", ".p.json") }), "validate_profile");
     refused(await callTool(h, "convert_subtitle", { content: SRT, target: "vtt", profilePath: path.join(dir, "profiles", ".p.json") }), "profilePath");
     expect(recorded.filter((r) => r.path.startsWith("/v1/convert") || r.path.startsWith("/v1/detect"))).toEqual([]);
-    // Control: an ordinary dotted file converts. Writes keep their rules (a dot-named output is still written).
+    // Control: an ordinary dotted file converts. H2: a hidden output is refused before any conversion, nothing is written.
     mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "show.en.v2.vtt", content: "WEBVTT\n" }]))));
-    const ok = await callTool(h, "convert_subtitle", { path: path.join(dir, "show.en.v2.srt"), target: "vtt", outputPath: path.join(dir, ".written.vtt") });
+    for (const outputPath of [path.join(dir, ".written.vtt"), path.join(dir, ".hiddendir", "out.vtt"), path.join(dir, ".newdir", "out.vtt"), path.join(hiddenRoot, "out.vtt")])
+      refused(await callTool(h, "convert_subtitle", { path: path.join(dir, "show.en.v2.srt"), target: "vtt", outputPath }), outputPath);
+    refused(await callTool(h, "convert_subtitle", { path: path.join(dir, "show.en.v2.srt"), target: "vtt", outputDir: path.join(dir, ".hiddendir") }), "outputDir .hiddendir");
+    expect(fs.existsSync(path.join(dir, ".written.vtt"))).toBe(false); expect(fs.existsSync(path.join(dir, ".newdir"))).toBe(false);
+    expect(recorded.filter((r) => r.path.startsWith("/v1/convert"))).toEqual([]);
+    // Outside the allowed folders comes first: a hidden path there is path-not-allowed, not hidden-path.
+    refused(await callTool(h, "convert_subtitle", { path: "/etc/.hidden.srt", target: "vtt" }), "outside", "path-not-allowed");
+    refused(await callTool(h, "convert_subtitle", { content: SRT, target: "vtt", outputPath: "/etc/.x.vtt" }), "outside output", "path-not-allowed");
+    // An API-named output that would be hidden (inline content named ".x.srt") is refused too.
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: ".x.vtt", content: "WEBVTT\n" }]))));
+    refused(await callTool(h, "convert_subtitle", { content: SRT, fileName: ".x.srt", target: "vtt", outputDir: dir }), "api-named hidden output");
+    expect(fs.existsSync(path.join(dir, ".x.vtt"))).toBe(false);
+    const ok = await callTool(h, "convert_subtitle", { path: path.join(dir, "show.en.v2.srt"), target: "vtt", outputPath: path.join(dir, "written.vtt") });
     expect(ok.isError, JSON.stringify(ok.structuredContent?.error)).toBeFalsy();
-    expect(fs.readFileSync(path.join(dir, ".written.vtt"), "utf8")).toBe("WEBVTT\n");
-    refused(await callTool(h, "detect_format", { path: path.join(dir, ".written.vtt") }), "written hidden output");
   });
 
   it("raw NUL paths are refused without touching the filesystem; API rejections of encoded NULs pass through as 422", async () => {

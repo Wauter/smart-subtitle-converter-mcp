@@ -3,7 +3,7 @@ import type { McpServer, RegisteredTool } from "@modelcontextprotocol/sdk/server
 import type { CallToolResult, ContentBlock, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { errorText, FieldError, mcpError, ToolFailure, ToolErrorSchema, Warning, type ToolError, type WarningT } from "../errors.js";
 import { newCallId, withSuffix } from "../ids.js";
-import { newStats } from "../api/client.js";
+import { newStats, type CallCtx } from "../api/client.js";
 import { capsFrom, type Caps } from "../api/limits.js";
 import { toInt } from "../api/coerce.js";
 import type { Call, Deps } from "../context.js";
@@ -277,13 +277,13 @@ export function sourceLabel(src: SourceInput): string {
 }
 
 /** §4.2: path → base64 of raw bytes with fileName=basename; inline content validated. */
-export async function loadSource(deps: Deps, args: { content?: string; contentEncoding?: "text" | "base64"; path?: string; fileName?: string; input?: string }, caps: Caps): Promise<SourceInput> {
+export async function loadSource(deps: Deps, args: { content?: string; contentEncoding?: "text" | "base64"; path?: string; fileName?: string; input?: string }, caps: Caps, call?: CallCtx): Promise<SourceInput> {
   if (args.input !== undefined) {
     return { input: args.input, content: "", contentEncoding: "text", fileName: args.fileName, size: 0 };
   }
   const cap = inputCap(caps);
   if (args.path !== undefined) {
-    const r = await deps.guard.resolveInputFile(args.path);
+    const r = await deps.guard.resolveInputFile(args.path, (name) => deps.extensions.check(name, "read", call));
     const nodePath = await import("node:path");
     const fileName = args.fileName ?? nodePath.basename(args.path);
     const readCap = cap;

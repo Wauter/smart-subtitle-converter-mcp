@@ -171,7 +171,7 @@ export class ApiClient {
         if (ra !== undefined) te.retryAfterSeconds = ra;
         const w = await this.planWait(retries, waited, ra);
         if (w !== undefined) {
-          const what = res.status === 429 ? "API rate limited" : res.status === 503 ? "Converter busy (queue full)" : "Converter overloaded (queue timeout)";
+          const what = res.status === 429 ? "API rate limited" : res.status === 503 ? (te.code === "browse-busy" ? "API busy (browse queue full)" : te.code === "conversion-engine-stuck" ? "Converter stuck on a previous conversion" : "Converter busy (queue full)") : "Converter overloaded (queue timeout)";
           await this.doWait(w, ctx, `${what}; retrying in ${Math.ceil(w / 1000)}s (attempt ${retries + 2}/${this.cfg.retryMaxAttempts + 1})`);
           waited += w;
           retries++;

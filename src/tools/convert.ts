@@ -7,6 +7,7 @@ import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import type { Call, Deps } from "../context.js";
 import { mcpError, ToolFailure, type WarningT } from "../errors.js";
 import { sanitizeOutputName, type WriteResult } from "../fs/write.js";
+import { hiddenPathError } from "../fs/guard.js";
 import { finishConversion } from "../api/jobs.js";
 import { toInt } from "../api/coerce.js";
 import { locationBaseName } from "./textPage.js";
@@ -134,12 +135,15 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
 
   // Output location checks (no directories created yet).
   let outFile: { dir: string; name: string; full: string } | undefined;
-  if (a.outputPath !== undefined) outFile = await deps.guard.resolveOutputFile(a.outputPath, false);
+  if (a.outputPath !== undefined) {
+    outFile = await deps.guard.resolveOutputFile(a.outputPath, false);
+    await deps.extensions.check(outFile.name, "written", call); // H3: a subtitle name (its format is checked once known)
+  }
   if (a.outputDir !== undefined) await deps.guard.resolveOutputDir(a.outputDir, false);
 
   // Explicit outputPath: source check and the only pre-check (D-32).
   let srcReal: string | undefined;
-  if (a.path !== undefined) srcReal = (await deps.guard.resolveInputFile(a.path)).real;
+  if (a.path !== undefined) srcReal = (await deps.guard.resolveInputFile(a.path, (name) => deps.extensions.check(name, "read", call))).real;
   if (outFile) {
     if (srcReal && (outFile.full === srcReal || (await fsp.realpath(outFile.full).catch(() => "")) === srcReal))
       throw mcpError("source-overwrite-refused", `Refusing to write over the source file: ${a.outputPath}`, "Choose another output path.", { path: a.outputPath });
@@ -150,7 +154,7 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
   }
 
   const caps = await getCaps(deps, call);
-  const src = await loadSource(deps, a, caps);
+  const src = await loadSource(deps, a, caps, call);
   logSource(deps, call, src);
   const profile = await loadProfile(deps, a, caps);
   const warnings: WarningT[] = ebuSizeWarning(src, caps);
@@ -210,6 +214,11 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
       const name = outFile ? outFile.name : sanitizeOutputName(o.fileName);
       let w: WriteResult;
       try {
+        // H2/H3: never a hidden name; a subtitle extension, and for a caller-chosen outputPath one of the produced format's
+        // (the API names outputDir files itself, with the format's extension).
+        if (name.startsWith(".")) throw hiddenPathError(nodePath.join(dir, name));
+        if (outFile) await deps.extensions.checkOutput(name, o.formatId, call);
+        else await deps.extensions.check(name, "written", call);
         w = await deps.writer.write({ dir, name, data: o.data, ifExists, sources, signal: call.signal });
       } catch (e) {
         if (e instanceof ToolFailure) {

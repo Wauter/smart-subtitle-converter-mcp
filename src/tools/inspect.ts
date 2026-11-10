@@ -72,7 +72,7 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
       exactlyOne(a, paths ? ["content", "path", "input"] : ["content", "input"], "the subtitle source");
       const caps = await getCaps(deps, call);
       refreshToolDescriptions(server);
-      const src = await loadSource(deps, a, caps);
+      const src = await loadSource(deps, a, caps, call);
       logSource(deps, call, src);
       const body: Record<string, unknown> = src.input !== undefined ? { input: src.input } : { content: src.content, contentEncoding: src.contentEncoding };
       if (src.fileName) body.fileName = src.fileName;

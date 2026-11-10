@@ -116,6 +116,10 @@ export const MCP_HINTS: Record<string, string> = {
   "rate-limited": "The API is rate limited; try again later.",
   "queue-full": "The converter is busy; retry later or ask the operator to scale out.",
   "internal-error": "This is a server bug; report the requestId.",
+  "browse-busy": "The API is busy listing and reading other files; retry after Retry-After.",
+  "conversion-engine-stuck": "A previous conversion is stuck; the API refuses new ones until it finishes or restarts itself. Retry after Retry-After.",
+  "host-not-allowed": "The API doesn't accept the host name in SUBTITLE_API_URL; ask the operator to add it to the API's ALLOWED_HOSTS.",
+  "origin-not-allowed": "The API refused a browser Origin header; this MCP never sends one, so check any proxy in between.",
 };
 
 function joinHints(a?: string, b?: string): string | undefined {
@@ -183,8 +187,8 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
     case "unauthorized":
       mcpHint =
         ctx.mode === "local"
-          ? "Set SUBTITLE_API_KEY."
-          : "The MCP's SUBTITLE_API_KEY (or _FILE) is missing or wrong; ask the operator.";
+          ? "Set SUBTITLE_API_KEY, or SUBTITLE_API_KEY_FILE pointing at a file with the key from the API's api_keys.txt (the API generates one there on first start)."
+          : "The MCP's SUBTITLE_API_KEY (or _FILE) is missing or wrong; ask the operator. The API's api_keys.txt holds the key.";
       break;
     case "not-found":
       if (ctx.endpoint !== "/v1/limits") {

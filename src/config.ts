@@ -27,6 +27,10 @@ export interface Config {
   previewDefaultBytes: number;
   /** Largest preview_text page (and largest single cue) returned, in UTF-8 bytes. */
   previewMaxBytes: number;
+  /** H7: in-memory preview cache size cap in bytes (0 turns it off). */
+  previewCacheBytes: number;
+  /** H7: an entry not used for this long is dropped (ms). */
+  previewCacheTtlMs: number;
   jsonMaxDecodedBytes?: number;
   limitsTtlMs: number;
   includeDebug: boolean;
@@ -43,7 +47,7 @@ const KNOWN_ENV = new Set([
   "SUBTITLE_MCP_HTTP", "SUBTITLE_MCP_HOSTED", "SUBTITLE_MCP_ALLOWED_DIRS", "SUBTITLE_MCP_READONLY_DIRS",
   "SUBTITLE_MCP_USE_CLIENT_ROOTS", "SUBTITLE_MCP_PARTIAL_MAX_AGE_MS", "SUBTITLE_MCP_MAX_BYTES",
   "SUBTITLE_MCP_TIMEOUT_MS", "SUBTITLE_MCP_RETRY_MAX_ATTEMPTS", "SUBTITLE_MCP_RETRY_MAX_WAIT_MS", "SUBTITLE_MCP_RETRY_BUDGET_MS",
-  "SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES", "SUBTITLE_MCP_PREVIEW_MAX_BYTES",
+  "SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES", "SUBTITLE_MCP_PREVIEW_MAX_BYTES", "SUBTITLE_MCP_PREVIEW_CACHE_BYTES", "SUBTITLE_MCP_PREVIEW_CACHE_TTL_MS",
   "SUBTITLE_MCP_JSON_MAX_DECODED_BYTES", "SUBTITLE_MCP_LIMITS_TTL_MS",
   "SUBTITLE_MCP_INCLUDE_DEBUG", "SUBTITLE_MCP_ALLOWED_ORIGINS", "SUBTITLE_MCP_ALLOWED_HOSTS", "SUBTITLE_MCP_LOG_LEVEL",
   "SUBTITLE_MCP_LOG_PATHS", "SUBTITLE_MCP_LIST_ENABLED",
@@ -232,6 +236,8 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv, opts: { checkF
     retryBudgetMs: int("SUBTITLE_MCP_RETRY_BUDGET_MS", env.SUBTITLE_MCP_RETRY_BUDGET_MS, 90_000)!,
     previewDefaultBytes,
     previewMaxBytes,
+    previewCacheBytes: int("SUBTITLE_MCP_PREVIEW_CACHE_BYTES", env.SUBTITLE_MCP_PREVIEW_CACHE_BYTES, 67_108_864, 0)!,
+    previewCacheTtlMs: int("SUBTITLE_MCP_PREVIEW_CACHE_TTL_MS", env.SUBTITLE_MCP_PREVIEW_CACHE_TTL_MS, 300_000, 1)!,
     jsonMaxDecodedBytes: int("SUBTITLE_MCP_JSON_MAX_DECODED_BYTES", env.SUBTITLE_MCP_JSON_MAX_DECODED_BYTES, undefined, 1),
     limitsTtlMs: int("SUBTITLE_MCP_LIMITS_TTL_MS", env.SUBTITLE_MCP_LIMITS_TTL_MS, 300_000)!,
     includeDebug: bool("SUBTITLE_MCP_INCLUDE_DEBUG", env.SUBTITLE_MCP_INCLUDE_DEBUG, false),
@@ -261,7 +267,7 @@ export function defaultConfig(over: Partial<Config> = {}): Config {
   return {
     mode: "local", apiUrl: "http://api.test", httpTokens: [], allowedDirs: [], readonlyDirs: [], useClientRoots: true,
     partialMaxAgeMs: 3_600_000, timeoutMs: 120_000, retryMaxAttempts: 3, retryMaxWaitMs: 60_000,
-    retryBudgetMs: 90_000, previewDefaultBytes: 65_536, previewMaxBytes: 262_144,
+    retryBudgetMs: 90_000, previewDefaultBytes: 65_536, previewMaxBytes: 262_144, previewCacheBytes: 67_108_864, previewCacheTtlMs: 300_000,
     limitsTtlMs: 300_000, includeDebug: false, allowedOrigins: [], allowedHosts: ["localhost", "127.0.0.1", "[::1]"],
     logLevel: "error", logPaths: false, listEnabled: false, ...over,
   };

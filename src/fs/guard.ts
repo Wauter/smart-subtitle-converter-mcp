@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { constants as fsc } from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { mcpError, ToolFailure } from "../errors.js";
@@ -110,15 +111,40 @@ export class PathGuard {
   constructor(public readonly roots: RootsProvider, private readonly opts: GuardOptions = {}) {}
 
   /** path-not-allowed whose hint names the allowed folders in effect now. */
-  notAllowed(detail: string, advice = "Use a path inside an allowed folder (symlinks must stay inside too)."): ToolFailure {
+  notAllowed(detail: string, advice = "Use a path inside an allowed folder (symlinks are not followed)."): ToolFailure {
     return mcpError("path-not-allowed", detail, `${advice} ${allowedFoldersText(this.roots.snapshot())}`);
   }
 
+  /** H2: inside an allowed folder but hidden: its own error, after the not-allowed check. */
   private hidden(callerPath: string): ToolFailure {
-    return this.notAllowed(`Hidden files and folders can't be read or listed: ${callerPath}`, "Names starting with '.' (and everything inside a folder whose name starts with '.') are never read or listed; use a file or folder without a leading dot.");
+    return hiddenPathError(callerPath);
   }
   private rejectHidden(p: string, callerPath: string): void {
     if (isHiddenPath(p, this.opts.platform)) throw this.hidden(callerPath);
+  }
+  /**
+   * Hidden caller path: not-allowed when it isn't inside an allowed folder (lexically), else hidden-path. Checked before
+   * any filesystem call, so a hidden name is never resolved, opened or created.
+   */
+  private rejectHiddenLexical(roots: Root[], resolved: string, callerPath: string): void {
+    if (!isHiddenPath(resolved, this.opts.platform)) return;
+    if (!findRoot(roots, resolved, this.opts)) throw this.notAllowed(`Path is outside the allowed folders: ${callerPath}`);
+    throw this.hidden(callerPath);
+  }
+  /**
+   * H10: symlinks inside an allowed folder are never followed. The part of the caller's path below the allowed folder must
+   * be the same, component for component, as the resolved real path (an allowed folder reached through an alias, such
+   * as /tmp on macOS, is fine). A symlink anywhere below the folder makes them differ.
+   */
+  private rejectSymlinked(root: Root, resolved: string, real: string, callerPath: string): void {
+    const P = (this.opts.platform ?? process.platform) === "win32" ? nodePath.win32 : nodePath.posix;
+    const ci = this.opts.caseInsensitive ?? ((this.opts.platform ?? process.platform) === "win32" || (this.opts.platform ?? process.platform) === "darwin");
+    const rel = P.relative(root.path, real);
+    const below = rel ? rel.split(P.sep) : [];
+    const parts = resolved.split(P.sep).filter((x) => x.length > 0);
+    const tail = below.length ? parts.slice(-below.length) : [];
+    const same = tail.length === below.length && tail.every((x, i) => (ci ? x.toLowerCase() === below[i].toLowerCase() : x === below[i]));
+    if (!same) throw this.notAllowed(`Symlinks are not followed: ${callerPath}`, "Use the real path of the file or folder (no symbolic link in the path below the allowed folder).");
   }
 
   /** checkPathSyntax, with the allowed folders added to the hint. */
@@ -146,26 +172,33 @@ export class PathGuard {
   }
 
   /** Resolves an input file: realpath inside any root, must be a regular file. */
-  async resolveInputFile(p: string): Promise<{ real: string; root: Root; size: number }> {
+  /**
+   * `check` (the H3 extension rule for subtitle inputs) runs after the allowed-folder and hidden checks and before the
+   * file is opened, so the errors come in that order: path-not-allowed, hidden-path, extension-not-allowed.
+   */
+  async resolveInputFile(p: string, check?: (name: string) => Promise<void>): Promise<{ real: string; root: Root; size: number; mtimeMs: number; ino: number; dev: number }> {
     const roots = await this.active();
     const resolved = this.syntax(p);
-    this.rejectHidden(resolved, p);
+    this.rejectHiddenLexical(roots, resolved, p);
     let real: string;
     try {
       real = await fs.realpath(resolved);
     } catch (e) {
       // Distinguish "outside roots" from "missing" without leaking: only say not found if lexically inside a root.
       if (!findRoot(roots, resolved, this.opts)) throw this.notAllowed(`Path is outside the allowed folders: ${p}`);
+      if (check) await check(resolved);
       throw fsErr(e, p, "file");
     }
     const root = findRoot(roots, real, this.opts);
     if (!root) throw this.notAllowed(`Path is outside the allowed folders: ${p}`);
+    this.rejectSymlinked(root, resolved, real, p);
     this.rejectHidden(real, p);
-    const st = await fs.stat(real).catch((e) => {
+    if (check) await check(real);
+    const st = await fs.lstat(real).catch((e) => {
       throw fsErr(e, p, "file");
     });
     if (!st.isFile()) throw mcpError("not-a-file", `Not a regular file: ${p}`);
-    return { real, root, size: st.size };
+    return { real, root, size: st.size, mtimeMs: st.mtimeMs, ino: st.ino, dev: st.dev };
   }
 
   /** Resolves an input directory: realpath inside any root. */
@@ -173,7 +206,7 @@ export class PathGuard {
     const roots = await this.active();
     const resolved = this.syntax(p);
     rejectStaging(resolved, p);
-    this.rejectHidden(resolved, p);
+    this.rejectHiddenLexical(roots, resolved, p);
     let real: string;
     try {
       real = await fs.realpath(resolved);
@@ -183,13 +216,13 @@ export class PathGuard {
     }
     const root = findRoot(roots, real, this.opts);
     if (!root) throw this.notAllowed(`Path is outside the allowed folders: ${p}`);
+    this.rejectSymlinked(root, resolved, real, p);
     this.rejectHidden(real, p);
     const st = await fs.stat(real);
     if (!st.isDirectory()) throw mcpError("not-a-directory", `Not a directory: ${p}`);
     return { real, root };
   }
 
-  /** Is a realpath inside an allowed root (used for symlinks found while walking)? */
   /** D-38: output root (deepest writable root) of a realpath'd destination folder. */
   async outputRoot(realDir: string): Promise<string | undefined> {
     const r = await this.roots.get();
@@ -202,10 +235,6 @@ export class PathGuard {
     return !!findRoot(r.roots, real, this.opts);
   }
 
-  /** May a symlink found while listing be shown: its target is inside an allowed root and not hidden. */
-  async allowsRead(real: string): Promise<boolean> {
-    return !isHiddenPath(real, this.opts.platform) && (await this.allows(real));
-  }
 
   /**
    * Resolves an output directory (§11.2 step 4): the deepest existing ancestor is realpath'd and must be in a
@@ -215,6 +244,7 @@ export class PathGuard {
     const roots = await this.active();
     const resolved = this.syntax(p);
     rejectStaging(resolved, callerPath);
+    this.rejectHiddenLexical(roots, resolved, callerPath);
     const P = (this.opts.platform ?? process.platform) === "win32" ? nodePath.win32 : nodePath.posix;
     const missing: string[] = [];
     let cur = resolved;
@@ -234,6 +264,8 @@ export class PathGuard {
     }
     const root = findRoot(roots, real, this.opts);
     if (!root) throw this.notAllowed(`Path is outside the allowed folders: ${callerPath}`);
+    this.rejectSymlinked(root, cur, real, callerPath);
+    this.rejectHidden(real, callerPath);
     if (!root.writable) throw this.notAllowed(`Path is in a read-only folder: ${callerPath}`, "Write to a read-write allowed folder instead.");
     if (missing.length === 0) {
       const st = await fs.stat(real);
@@ -250,6 +282,7 @@ export class PathGuard {
       // Re-check after creation (a racing symlink could have appeared).
       const again = await fs.realpath(target);
       if (!isInside(root.path, again, this.opts)) throw this.notAllowed(`Path is outside the allowed folders: ${callerPath}`);
+      this.rejectSymlinked(root, target, again, callerPath);
       return again;
     }
     return target;
@@ -261,6 +294,7 @@ export class PathGuard {
     const P = (this.opts.platform ?? process.platform) === "win32" ? nodePath.win32 : nodePath.posix;
     const name = P.basename(resolved);
     if (!name || name === "." || name === "..") throw mcpError("path-not-allowed", `Not a file path: ${p}`);
+    this.rejectHiddenLexical(await this.active(), resolved, p);
     const dir = await this.resolveOutputDir(P.dirname(resolved), create, p);
     return { dir, name, full: P.join(dir, name) };
   }
@@ -445,17 +479,43 @@ export class CombinedRoots implements RootsProvider {
   }
 }
 
-/** Opens once, checks through the same handle (fstat), reads. Size check happens before reading. */
+export function hiddenPathError(callerPath: string): ToolFailure {
+  return mcpError("hidden-path", `Hidden files and folders are never read, listed or written: ${callerPath}`, "Names starting with '.' (and everything inside a folder whose name starts with '.') can't be used; use a file or folder without a leading dot.", { path: callerPath });
+}
+
+/** Linux: /proc/self/fd; elsewhere undefined (the dev/inode fallback is used). Injectable for tests. */
+export const fdPath = {
+  async of(fd: number): Promise<string | undefined> {
+    if (process.platform !== "linux") return undefined;
+    try { return await fs.readlink(`/proc/self/fd/${fd}`); } catch { return undefined; }
+  },
+};
+
+/**
+ * H10: opens once with O_NOFOLLOW | O_NONBLOCK (a symlink is refused, a FIFO or device never blocks), checks through the
+ * same handle (fstat: a regular file), and verifies the opened file is the one that was checked: on Linux the fd's path
+ * (/proc/self/fd) must equal `real`; elsewhere (macOS has F_GETPATH, which Node can't call) the fd's device and inode
+ * must match a fresh no-follow lstat of `real`. Size check happens before reading.
+ */
 export async function readFileChecked(real: string, callerPath: string, maxBytes?: { name: string; value: number }): Promise<Buffer> {
   let fh: fs.FileHandle;
+  const flags = fsc.O_RDONLY | (fsc.O_NOFOLLOW ?? 0) | (fsc.O_NONBLOCK ?? 0);
   try {
-    fh = await fs.open(real, "r");
+    fh = await fs.open(real, flags);
   } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ELOOP") throw mcpError("path-not-allowed", `Symlinks are not followed: ${callerPath}`, "Use the real path of the file (no symbolic link).");
     throw fsErr(e, callerPath, "file");
   }
   try {
     const st = await fh.stat();
     if (!st.isFile()) throw mcpError("not-a-file", `Not a regular file: ${callerPath}`);
+    const opened = await fdPath.of(fh.fd);
+    if (opened !== undefined) {
+      if (opened !== real) throw mcpError("path-not-allowed", `The file changed while it was opened (a folder in its path was replaced): ${callerPath}`, "Try again; symlinks are not followed.");
+    } else {
+      const again = await fs.lstat(real).catch(() => undefined);
+      if (!again || again.dev !== st.dev || again.ino !== st.ino) throw mcpError("path-not-allowed", `The file changed while it was opened: ${callerPath}`, "Try again; symlinks are not followed.");
+    }
     if (maxBytes && st.size > maxBytes.value) {
       throw mcpError("precheck-too-large", `${callerPath} is ${st.size} bytes; the limit is ${maxBytes.value}.`, "Split the file.", {
         limit: { name: maxBytes.name, value: maxBytes.value, actual: st.size },

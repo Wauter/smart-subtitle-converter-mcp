@@ -8,6 +8,8 @@ import { CombinedRoots, ClientRoots, PathGuard, StaticRoots, type Root, type Roo
 import { allowedFoldersText } from "./fs/folders.js";
 import { realFsOps, SafeWriter, type FsOps } from "./fs/write.js";
 import { VERSION } from "./version.js";
+import { ExtensionPolicy } from "./fs/extensions.js";
+import { PreviewCache } from "./tools/previewCache.js";
 
 export interface DepsOptions {
   log?: Logger;
@@ -38,13 +40,16 @@ export function buildDeps(cfg: Config, o: DepsOptions = {}): Deps {
   const guard = new PathGuard(provider);
   const writer = new SafeWriter(log, o.fsOps);
   writer.rootOf = (dir) => guard.outputRoot(dir);
+  const limits = o.limits ?? new LimitsCache(api, cfg, log);
   return {
     cfg,
     log,
     api,
-    limits: o.limits ?? new LimitsCache(api, cfg, log),
+    limits,
     guard,
     writer,
+    extensions: new ExtensionPolicy(limits, api, cfg.limitsTtlMs, log),
+    previewCache: new PreviewCache(cfg.previewCacheBytes, cfg.previewCacheTtlMs),
     fsOps: o.fsOps ?? realFsOps,
     features: o.features ?? {},
     pathsInSchema,

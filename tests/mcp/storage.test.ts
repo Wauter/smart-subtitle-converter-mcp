@@ -154,7 +154,7 @@ describe("list_files", () => {
     return { names, raws };
   };
 
-  it("local walk: every entry once in UTF-8 name order; hidden, outside symlinks and specials skipped; inside symlinks kept", async () => {
+  it("local walk: every entry once in UTF-8 name order; hidden, non-subtitle files, all symlinks and specials skipped", async () => {
     const expected: string[] = [];
     for (let i = 0; i < 450; i++) { const n = `show_${String(i).padStart(3, "0")}.srt`; fs.writeFileSync(path.join(dir, n), "x"); expected.push(n); }
     for (const n of ["Émission.srt", "Zebra.srt", "émission.srt", "zz-日本.srt"]) { fs.writeFileSync(path.join(dir, n), SRT); expected.push(n); }
@@ -162,7 +162,10 @@ describe("list_files", () => {
     fs.writeFileSync(path.join(dir, ".hidden.srt"), "x");
     fs.symlinkSync(path.join(outside, "secret.srt"), path.join(dir, "escape.srt"));
     fs.symlinkSync(outside, path.join(dir, "escape-dir"));
-    fs.symlinkSync(path.join(dir, "show_000.srt"), path.join(dir, "inside-link.srt")); expected.push("inside-link.srt");
+    fs.symlinkSync(path.join(dir, "show_000.srt"), path.join(dir, "inside-link.srt")); // H10: never followed, not shown
+    for (const n of ["notes.pdf", "run.sh", "README", "image.PNG"]) fs.writeFileSync(path.join(dir, n), "x"); // H3: not subtitles
+    fs.writeFileSync(path.join(dir, "UPPER.SRT"), SRT); expected.push("UPPER.SRT"); // case-insensitive extension
+    fs.mkdirSync(path.join(dir, "folder.pdf")); expected.push("folder.pdf/"); // folders are listed whatever their name
     if (process.platform !== "win32") execFileSync("mkfifo", [path.join(dir, "pipe.srt")]);
     expected.sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
     h = await mk(true); apiStorage({ list: false });

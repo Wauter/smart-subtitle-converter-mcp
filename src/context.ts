@@ -4,6 +4,8 @@ import type { ApiClient, CallCtx, CallStats } from "./api/client.js";
 import type { LimitsCache } from "./api/limits.js";
 import type { PathGuard } from "./fs/guard.js";
 import type { FsOps, SafeWriter } from "./fs/write.js";
+import type { ExtensionPolicy } from "./fs/extensions.js";
+import type { PreviewCache } from "./tools/previewCache.js";
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface Features {}
@@ -15,6 +17,10 @@ export interface Deps {
   limits: LimitsCache;
   guard: PathGuard;
   writer: SafeWriter;
+  /** H3: subtitle extensions allowed for local list/read/write (from the API's limits, else built in). */
+  extensions: ExtensionPolicy;
+  /** H7: preview_text's in-memory cache. */
+  previewCache: PreviewCache;
   fsOps: FsOps;
   features: Features;
   /** Path parameters are advertised (local; sidecar with configured roots). */

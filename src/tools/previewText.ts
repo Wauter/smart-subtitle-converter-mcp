@@ -6,6 +6,7 @@ import { ToolFailure, mcpError, type WarningT } from "../errors.js";
 import path from "node:path";
 import { defineTool, getCaps, inputCap, inputScheme, mapWarnings, redactInput, tooLarge, Warning, warningText } from "./common.js";
 import { readFileChecked } from "../fs/guard.js";
+import type { PreviewEntry } from "./previewCache.js";
 import { isRemote, remoteState, remoteUnavailable, staleGate } from "./storage.js";
 import { sanitizeOutputName } from "../fs/write.js";
 import { withSuffix } from "../ids.js";
@@ -22,7 +23,7 @@ export function describePreviewText(deps: Deps): string {
     " Text formats are returned as stored. Binary formats (EBU STL, PAC, Cavena 890, …) are converted to SRT for reading: `convertedFrom` is the stored format id, `convertedTo` is 'srt', and `warnings` say what the SRT view lost or changed; the file is never modified." +
     ` The text is paged and the result's \`text\` holds one page. SRT and WebVTT pages always end on a whole cue, other text on a whole line. \`maxBytes\` sets the page size in UTF-8 bytes (default ${c.previewDefaultBytes}, clamped to ${PREVIEW_MIN_BYTES}..${c.previewMaxBytes}, with a max-bytes-clamped warning); only a single cue larger than maxBytes is returned alone over it.` +
     ` When \`truncated\` is true, more text follows: call again with the same ${c.listEnabled ? "location (or jobId and which)" : "jobId and which"} and \`cursor\` set to \`next\` (you may change maxBytes between pages). \`fromCue\`/\`toCue\` (or \`fromLine\`/\`toLine\`), \`totalCues\` (or \`totalLines\`), \`returnedBytes\` and \`totalBytes\` say where you are; tell the user when you only read part of a file. If the file changes between pages the call fails with \`preview-source-changed\`, and a cursor that wasn't returned for the same ${c.listEnabled ? "location or job file" : "jobId and which"} fails with \`preview-cursor-invalid\`: start again without cursor.` +
-    " Each call re-reads current storage (not a cached copy); files may change or disappear. Local path uploads and inline content have no stored job input, and a conversion without an API `output` has no stored job output. Any valid API key knowing the unguessable job id can read it. Query-redacted HTTPS locations cannot be replayed.";
+    " Each call checks the current file first (local: size and modification time; API: the file's ETag) and re-reads it when it changed; unchanged text may come from a short-lived in-memory cache. Files may change or disappear. Local path uploads and inline content have no stored job input, and a conversion without an API `output` has no stored job output. Any valid API key knowing the unguessable job id can read it. Query-redacted HTTPS locations cannot be replayed.";
 }
 
 const count = z.number().int().nonnegative();
@@ -104,19 +105,32 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
         }] : [];
         const caps = await getCaps(deps, call);
         const src = byJob ? await loadJobFile(deps, call, caps, a.jobId, a.which) : await loadLocation(deps, call, caps, a.location);
-        const { data, fileName, mediaType, location, formatId, known, key } = src;
-        const fp = fingerprint(data);
-        // Checked again after segmenting; failing here first avoids a needless SRT conversion.
-        if (cursor && cursor.k === key && cursor.h !== fp) throw sourceChanged();
-
-        let text = decodeText(data, known);
+        const { fileName, location, known, key } = src;
+        let { mediaType, formatId } = src;
+        let fp: string, text: string | undefined, bytes: number;
         let warnings: WarningT[] = [];
         let convertedFrom: string | undefined;
         let requestId = src.requestId;
-        if (text === undefined) {
-          const c = await convertToSrt(deps, call, caps, { data, fileName, formatId, location, which: a.which ?? "input", profile: src.profile, local: src.source === "local" });
-          text = c.text; warnings = c.warnings; convertedFrom = c.formatId ?? formatId ?? "unknown";
-          requestId = c.requestId ?? requestId;
+        // H7: a cache hit (unchanged version, or the same bytes) skips decoding and any SRT conversion.
+        const hit = src.cached ?? (src.data ? sameContent(deps, key, fingerprint(src.data), src.version) : undefined);
+        if (hit) {
+          fp = hit.fp; text = hit.text; bytes = hit.bytes; warnings = hit.warnings; convertedFrom = hit.convertedFrom;
+          formatId = formatId ?? hit.formatId; mediaType = src.data ? mediaType : hit.mediaType;
+          if (cursor && cursor.k === key && cursor.h !== fp) throw sourceChanged();
+          call.log.previewCache = "hit";
+        } else {
+          const data = src.data!;
+          fp = fingerprint(data); bytes = data.length;
+          // Checked again after segmenting; failing here first avoids a needless SRT conversion.
+          if (cursor && cursor.k === key && cursor.h !== fp) throw sourceChanged();
+          text = decodeText(data, known);
+          if (text === undefined) {
+            const c = await convertToSrt(deps, call, caps, { data, fileName, formatId, location, which: a.which ?? "input", profile: src.profile, local: src.source === "local" });
+            text = c.text; warnings = c.warnings; convertedFrom = c.formatId ?? formatId ?? "unknown";
+            requestId = c.requestId ?? requestId;
+          }
+          deps.previewCache.set({ key, version: src.version, fp, text: text as string, bytes, warnings, convertedFrom, formatId, mediaType, requestId });
+          call.log.previewCache = "miss";
         }
         const cueFormat = convertedFrom !== undefined || formatId === "subrip" || formatId === "webvtt" || /\.(srt|vtt)$/i.test(fileName);
         const seg = segment(stripBom(text as string), cueFormat);
@@ -131,15 +145,15 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
         const U = seg.unit === "cue" ? "Cue" : "Line";
         const pos = total === 0 ? { [`returned${U}s`]: 0, [`total${U}s`]: 0 } : { [`from${U}`]: page.start + 1, [`to${U}`]: page.end, [`returned${U}s`]: n, [`total${U}s`]: total };
         const structured: any = {
-          source: src.source, ...(byJob ? { jobId: a.jobId, which: a.which } : {}), fileName, mediaType, bytes: data.length, location, ...(formatId ? { format: formatId } : {}),
+          source: src.source, ...(byJob ? { jobId: a.jobId, which: a.which } : {}), fileName, mediaType, bytes, location, ...(formatId ? { format: formatId } : {}),
           text: page.text, unit: seg.unit, maxBytes, truncated: page.more,
           ...(page.more ? { next: encodeCursor({ k: key, h: fp, u: seg.unit, f: page.end }) } : {}),
           returnedBytes: page.returnedBytes, totalBytes: seg.totalBytes, ...pos,
           ...(convertedFrom ? { convertedFrom, convertedTo: "srt" } : {}), warnings: [...clampWarning, ...warnings], ...(requestId ? { requestId } : {}),
         };
         let summary = byJob
-          ? `Preview of ${a.which} for job ${a.jobId}: ${fileName}, ${data.length} bytes (${mediaType}).`
-          : `Preview of ${src.source === "local" ? "local file" : "API location"} ${location}: ${data.length} bytes (${mediaType}).`;
+          ? `Preview of ${a.which} for job ${a.jobId}: ${fileName}, ${bytes} bytes (${mediaType}).`
+          : `Preview of ${src.source === "local" ? "local file" : "API location"} ${location}: ${bytes} bytes (${mediaType}).`;
         if (convertedFrom) summary += ` It is a binary ${convertedFrom} file, so its text is shown converted to SRT; the ${byJob ? "stored " : ""}file is unchanged.`;
         summary += pageText({ unit: seg.unit, from: page.start + 1, to: page.end, total, returnedBytes: page.returnedBytes, totalBytes: seg.totalBytes, truncated: page.more });
         summary += ` The text is in the structured result's \`text\` field (sent once, not repeated here). Current ${byJob ? "storage" : "file"} contents, not an archived copy.`;
@@ -156,8 +170,36 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
 
 interface Loaded {
   source: "job" | "local" | "remote";
-  data: Buffer; fileName: string; mediaType: string; location: string;
+  /** The stored bytes; absent when the change check found the cached entry still current. */
+  data?: Buffer; cached?: PreviewEntry; version?: string;
+  fileName: string; mediaType: string; location: string;
   formatId?: string; known?: any; key: string; requestId?: string; profile?: any;
+}
+
+/** After a full read: the cached entry for the same bytes (an API without ETags, or a touched but unchanged file). */
+function sameContent(deps: Deps, key: string, fp: string, version: string | undefined): PreviewEntry | undefined {
+  const e = deps.previewCache.peek(key);
+  if (!e || e.fp !== fp) return undefined;
+  deps.previewCache.hitByContent();
+  if (version !== undefined && e.version !== version) deps.previewCache.set({ ...e, version });
+  return e;
+}
+
+/** Conditional GET of an API file (H7): If-None-Match with the cached ETag; 304 means the cached entry is current. */
+async function conditionalGet(deps: Deps, call: Call, key: string, req: { path: string; query?: Record<string, string | undefined> }) {
+  const prev = deps.previewCache.peek(key);
+  const headers: Record<string, string> = prev?.version ? { "If-None-Match": prev.version } : {};
+  const response = await deps.api.request({ method: "GET", path: req.path, query: req.query, kind: "conversion", accept: "application/octet-stream", responseBytes: true, headers, passStatuses: [304] }, { ...call, requestId: withSuffix(call.requestId, ".f") });
+  const etag = response.headers.get("etag") ?? undefined;
+  if (response.status === 304) {
+    const cached = deps.previewCache.get(key, etag ?? prev?.version);
+    if (cached) return { cached, response, etag };
+    // Evicted meanwhile: read it again without the condition.
+    const again = await deps.api.request({ method: "GET", path: req.path, query: req.query, kind: "conversion", accept: "application/octet-stream", responseBytes: true }, { ...call, requestId: withSuffix(call.requestId, ".f2") });
+    return { response: again, etag: again.headers.get("etag") ?? undefined };
+  }
+  if (prev) deps.previewCache.get(key, etag); // counts the miss and drops a stale version
+  return { response, etag };
 }
 
 async function loadJobFile(deps: Deps, call: Call, caps: Caps, jobId: string, which: "input" | "output"): Promise<Loaded> {
@@ -167,21 +209,22 @@ async function loadJobFile(deps: Deps, call: Call, caps: Caps, jobId: string, wh
   const job: any = meta.json;
   if (job?.id !== jobId) throw mcpError("api-protocol-error", "The job metadata id does not match the requested id.");
   // Each distinct request gets its own correlation id: base id for the job metadata, `.f` for the file.
-  const response = await deps.api.request({ method: "GET", path: `${jobPath}/${which}`, kind: "conversion", accept: "application/octet-stream", responseBytes: true }, { ...call, requestId: withSuffix(call.requestId, ".f") });
-  const data = response.bytes;
-  if (!data) throw mcpError("api-protocol-error", "The job file response contains no byte body.");
+  const key = hashKey(`job:${jobId}:${which}`);
+  const { response, cached, etag } = await conditionalGet(deps, call, key, { path: `${jobPath}/${which}` });
+  const data = cached ? undefined : response.bytes;
+  if (!cached && !data) throw mcpError("api-protocol-error", "The job file response contains no byte body.");
   const cap = inputCap(caps);
-  if (data.length > cap.value) throw tooLarge("The job file", cap, data.length);
+  if (data && data.length > cap.value) throw tooLarge("The job file", cap, data.length);
   const rawLocation = job?.[which];
   if (typeof rawLocation !== "string") throw mcpError("api-protocol-error", "The job has no location metadata for its downloaded file.");
   const location = redactedLocation(rawLocation);
   const known = which === "input" ? job.result?.detected : job.result?.outputs?.[0];
   return {
-    source: "job", data, location,
+    source: "job", data, cached, version: etag, location,
     fileName: sanitizeOutputName(locationBaseName(location) || `${jobId}-${which}`),
     mediaType: (response.contentType || "application/octet-stream").split(";")[0].trim(),
     formatId: str(which === "input" ? known?.id : known?.formatId), known,
-    key: hashKey(`job:${jobId}:${which}`), requestId: response.requestId, profile: job.result?.profile,
+    key, requestId: response.requestId, profile: job.result?.profile,
   };
 }
 
@@ -192,23 +235,30 @@ async function loadLocation(deps: Deps, call: Call, caps: Caps, location: string
     call.log.source = "path";
     call.log.inputHash = deps.log.p(location);
     if (!deps.pathsInSchema) throw mcpError("paths-disabled", "Local files are not available on this server.", "Pass an API location (file:// or s3:// URI from list_files), or a jobId with which.");
-    const r = await deps.guard.resolveInputFile(location);
-    const data = await readFileChecked(r.real, location, cap);
+    const r = await deps.guard.resolveInputFile(location, (name) => deps.extensions.check(name, "read", call));
     const fileName = sanitizeOutputName(path.basename(location));
-    return { source: "local", data, fileName, mediaType: mediaTypeOf(fileName), location, key: hashKey(`loc:local:${r.real}`) };
+    const key = hashKey(`loc:local:${r.real}`);
+    // H7 change check: device, inode, size and modification time from the guard's no-follow lstat; nothing is opened on a hit.
+    const version = `fs:${r.dev}:${r.ino}:${r.size}:${r.mtimeMs}`;
+    if (r.size > cap.value) throw tooLarge(location, cap, r.size);
+    const cached = deps.previewCache.get(key, version);
+    if (cached) return { source: "local", cached, version, fileName, mediaType: mediaTypeOf(fileName), location, key };
+    const data = await readFileChecked(r.real, location, cap);
+    return { source: "local", data, version, fileName, mediaType: mediaTypeOf(fileName), location, key };
   }
   const shown = redactInput(location);
   call.log.source = inputScheme(location);
   call.log.inputHash = deps.log.p(shown);
   const rs = await remoteState(deps, call);
   if (rs.state !== "on") throw remoteUnavailable(rs, "Reading an API location");
-  const response = await deps.api.request({ method: "GET", path: "/v1/storage/file", query: { location }, kind: "conversion", accept: "application/octet-stream", responseBytes: true }, { ...call, requestId: withSuffix(call.requestId, ".f") })
+  const key = hashKey(`loc:remote:${location}`);
+  const { response, cached, etag } = await conditionalGet(deps, call, key, { path: "/v1/storage/file", query: { location } })
     .catch((e) => { throw staleGate(deps, e); });
-  const data = response.bytes;
-  if (!data) throw mcpError("api-protocol-error", "The storage file response contains no byte body.");
-  if (data.length > cap.value) throw tooLarge("The file", cap, data.length);
+  const data = cached ? undefined : response.bytes;
+  if (!cached && !data) throw mcpError("api-protocol-error", "The storage file response contains no byte body.");
+  if (data && data.length > cap.value) throw tooLarge("The file", cap, data.length);
   const fileName = sanitizeOutputName(locationBaseName(shown) || "file");
-  return { source: "remote", data, fileName, mediaType: (response.contentType || mediaTypeOf(fileName)).split(";")[0].trim(), location: shown, key: hashKey(`loc:remote:${location}`), requestId: response.requestId };
+  return { source: "remote", data, cached, version: etag, fileName, mediaType: (response.contentType || mediaTypeOf(fileName)).split(";")[0].trim(), location: shown, key, requestId: response.requestId };
 }
 
 function mediaTypeOf(name: string): string {

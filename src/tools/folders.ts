@@ -22,7 +22,7 @@ export function registerFoldersTool(server: McpServer, deps: Deps): void {
       state: z.enum(["ready", "waiting-for-roots", "roots-unsupported", "roots-empty", "roots-failed", "none"]),
       folders: z.array(z.object({ path: z.string(), mode: z.enum(["read-write", "read-only"]), source: z.enum(["config", "client-roots"]) })),
       clientRoots: z.enum(["waiting", "received", "empty", "failed", "unsupported", "disabled", "not-used"]),
-      hiddenFolders: z.number().int().positive().optional().describe("How many allowed folders are hidden (a path component starts with '.') and so not listed here: files there can be written but never read or listed"),
+      hiddenFolders: z.number().int().positive().optional().describe("How many allowed folders are hidden (a path component starts with '.') and so not listed here: nothing there is read, listed or written"),
       reason: z.string().optional(),
       hint: z.string().optional(),
       ...(listing ? {

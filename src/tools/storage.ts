@@ -8,6 +8,8 @@ import { mcpError, ToolFailure } from "../errors.js";
 import { newStats } from "../api/client.js";
 import { withSuffix } from "../ids.js";
 import { defineTool, redactInput } from "./common.js";
+import { hiddenPathError } from "../fs/guard.js";
+import { extOf } from "../fs/extensions.js";
 
 /**
  * Browse and read by location (SUBTITLE_MCP_LIST_ENABLED, off by default).
@@ -93,40 +95,62 @@ export function decodeListCursor(cursor: string, mode: "local" | "remote", bindi
 
 // ---------- local listing ----------
 
-const utf8Compare = (a: string, b: string) => Buffer.compare(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
+/** H6: per-folder cap on matching entries (visible names with the prefix), and on raw names scanned. Same as the API. */
+export const LIST_MAX_ENTRIES = 5000;
+export const LIST_MAX_SCAN = 100_000;
 
 function checkPrefix(prefix: string): void {
   if (prefix.length > 1024 || prefix.startsWith("/") || prefix.includes("\\") || prefix.includes("//") || [...prefix].some((ch) => ch.charCodeAt(0) < 0x20 || ch.charCodeAt(0) === 0x7f) || prefix.split("/").slice(0, -1).some((s) => s === "." || s === ".."))
     throw mcpError("invalid-arguments", "`prefix` must be a relative name prefix (at most 1024 characters) without a leading '/', empty or dot segments, backslashes or control characters.", "Pass the start of a file or folder name, e.g. show_ or season1/ep; no globs.");
 }
 
+export function folderTooLarge(location: string, prefixed: boolean): ToolFailure {
+  return mcpError("folder-too-large", `${location} has more than ${LIST_MAX_ENTRIES} entries${prefixed ? " matching this prefix" : ""}, so it isn't listed.`,
+    "Pass a longer `prefix` (the start of the names you want) or list a sub-folder.", { limit: { name: "listMaxEntries", value: LIST_MAX_ENTRIES, actual: LIST_MAX_ENTRIES + 1 } });
+}
+
 interface Item { name: string; location: string; type: "file" | "folder"; size?: number; modified?: string }
 
-async function listLocal(deps: Deps, location: string, prefix: string, after: string | undefined) {
+async function listLocal(deps: Deps, call: Call, location: string, prefix: string, after: string | undefined) {
   const cut = prefix.lastIndexOf("/") + 1;
   const sub = prefix.slice(0, cut), namePrefix = prefix.slice(cut);
+  // H2: a name prefix starting with '.' could only match hidden entries.
+  if (namePrefix.startsWith(".") || sub.split("/").some((x) => x.startsWith("."))) throw hiddenPathError(prefix);
   const dir = await deps.guard.resolveInputDir(sub ? path.join(location, sub) : location);
-  let names: string[];
-  try { names = await fs.readdir(dir.real); } catch (e) { throw mcpError("path-not-found", `Couldn't list ${location}${sub} (${(e as NodeJS.ErrnoException).code ?? "error"}).`); }
-  const candidates = names.filter((n) => !n.startsWith(".") && n.startsWith(namePrefix) && (after === undefined || utf8Compare(n, after) > 0)).sort(utf8Compare);
+  const allowed = await deps.extensions.allowed(call);
+  // Stream the folder (no full readdir array), stop early past the caps; sort keys (UTF-8 bytes) computed once per name.
+  const matching: { key: Buffer; name: string; kind: "file" | "folder" | "unknown" }[] = [];
+  let scanned = 0;
+  let handle;
+  try { handle = await fs.opendir(dir.real); } catch (e) { throw mcpError("path-not-found", `Couldn't list ${location}${sub} (${(e as NodeJS.ErrnoException).code ?? "error"}).`); }
+  try {
+    for await (const d of handle) {
+      if (++scanned > LIST_MAX_SCAN) throw folderTooLarge(location + sub, prefix.length > 0);
+      const name = d.name;
+      if (name.startsWith(".") || !name.startsWith(namePrefix)) continue;
+      if (d.isSymbolicLink()) continue; // H10: symlinks are never followed (nor shown)
+      const kind = d.isDirectory() ? "folder" : d.isFile() ? "file" : d.isFIFO() || d.isSocket() || d.isCharacterDevice() || d.isBlockDevice() ? undefined : "unknown";
+      if (!kind) continue;
+      if (matching.length >= LIST_MAX_ENTRIES) throw folderTooLarge(location + sub, prefix.length > 0);
+      if (kind === "file" && !allowed.has(extOf(name))) continue; // H3: only subtitle files are listed
+      matching.push({ key: Buffer.from(name, "utf8"), name, kind });
+    }
+  } finally {
+    await handle.close().catch(() => {});
+  }
+  const afterKey = after !== undefined ? Buffer.from(after, "utf8") : undefined;
+  const candidates = (afterKey ? matching.filter((m) => Buffer.compare(m.key, afterKey) > 0) : matching).sort((a, b) => Buffer.compare(a.key, b.key));
   const items: Item[] = [];
-  for (const name of candidates) {
-    const full = path.join(dir.real, name);
+  for (const c of candidates) {
+    const full = path.join(dir.real, c.name);
     let st;
-    try {
-      st = await fs.lstat(full);
-      if (st.isSymbolicLink()) {
-        // Same rule as path inputs: a symlink counts only when its target stays inside an allowed folder.
-        const real = await fs.realpath(full);
-        if (!(await deps.guard.allowsRead(real))) continue;
-        st = await fs.stat(real);
-      }
-    } catch { continue; } // vanished or dangling
-    if (!st.isFile() && !st.isDirectory()) continue;
+    try { st = await fs.lstat(full); } catch { continue; } // vanished
+    if (st.isSymbolicLink() || (!st.isFile() && !st.isDirectory())) continue;
+    if (st.isFile() && !allowed.has(extOf(c.name))) continue;
     if (items.length === LIST_PAGE_SIZE) return { dir: dir.real, items, more: true };
     items.push(st.isDirectory()
-      ? { name: name + "/", location: full + path.sep, type: "folder" }
-      : { name, location: full, type: "file", size: st.size, modified: st.mtime.toISOString() });
+      ? { name: c.name + "/", location: full + path.sep, type: "folder" }
+      : { name: c.name, location: full, type: "file", size: st.size, modified: st.mtime.toISOString() });
   }
   return { dir: dir.real, items, more: false };
 }
@@ -142,7 +166,8 @@ const ItemSchema = z.object({
 export function describeListFiles(deps: Deps): string {
   return "List one folder, a page at a time, to find subtitle files to read with preview_text {location}. `location` is either a local folder of this MCP server (a plain absolute path from list_allowed_folders `folders`) or an API location (a file:// or s3:// folder URI from list_allowed_folders `remote.locations`)." +
     ` Lists one level in name order (UTF-8 byte order), at most ${LIST_PAGE_SIZE} items a page: files with size and modified time, and folders (ending in '/'). \`prefix\` keeps names that start with it ('/' descends into a sub-folder, e.g. season1/ep); no globs, no time sorting, no total count.` +
-    " When `truncated` is true, call again with the same location and prefix and `cursor` set to `next`. Items that exist for the whole walk appear exactly once; files added or removed meanwhile may or may not appear. Hidden (dot) entries are skipped; API listings also skip symlinks and special files. HTTPS locations can't be listed." +
+    " When `truncated` is true, call again with the same location and prefix and `cursor` set to `next`. Items that exist for the whole walk appear exactly once; files added or removed meanwhile may or may not appear. Only subtitle files and folders are listed; hidden (dot) entries, symlinks and special files are skipped." +
+    ` A folder with more than ${LIST_MAX_ENTRIES} matching entries isn't listed (folder-too-large): pass a longer prefix. HTTPS locations can't be listed.` +
     (deps.pathsInSchema ? "" : " Local folders are not available on this server.");
 }
 
@@ -177,7 +202,7 @@ export function registerListFilesTool(server: McpServer, deps: Deps): void {
       call.log.inputHash = deps.log.p(remote ? redactInput(a.location) : a.location);
       if (!remote) {
         if (!deps.pathsInSchema) throw mcpError("paths-disabled", "Local folders are not available on this server.", "List an API location (file:// or s3:// URI) from list_allowed_folders instead.");
-        const r = await listLocal(deps, a.location, prefix, after);
+        const r = await listLocal(deps, call, a.location, prefix, after);
         const next = r.more ? encodeListCursor("local", binding, r.items[r.items.length - 1].name.replace(/\/$/, "")) : undefined;
         return result(a.location, "local", prefix, r.items, next);
       }

@@ -8,7 +8,7 @@ export const CONFIGURE =
 const visible = (roots: Root[]) => roots.filter((r) => !isHiddenPath(r.path));
 const hiddenNote = (roots: Root[]) => {
   const n = roots.length - visible(roots).length;
-  return n ? ` ${n} more allowed folder${n === 1 ? " is" : "s are"} hidden (a path component starts with '.'), so not shown: files there can be written but never read or listed.` : "";
+  return n ? ` ${n} more allowed folder${n === 1 ? " is" : "s are"} hidden (a path component starts with '.'), so not shown: nothing there is read, listed or written.` : "";
 };
 const list = (roots: Root[]) => visible(roots).map((r) => `${r.path} (${r.writable ? "read-write" : "read-only"})`).join(", ");
 
