@@ -241,7 +241,7 @@ export interface paths {
         };
         /**
          * List the allowed storage locations (file roots, S3 buckets and prefixes, HTTPS hosts).
-         * @description The existing allowlists, as folders to pass to GET /v1/storage/list. HTTPS hosts are reported as not listable and not readable by location (convert input/output only). Never includes credentials or query strings. Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.
+         * @description The existing allowlists, as folders to pass to GET /v1/storage/list. HTTPS hosts are reported as not listable and not readable by location (convert input/output only). Never includes credentials or query strings. On by default; with STORAGE_LIST_ENABLED=false it is 403 storage-list-disabled.
          */
         get: operations["listStorageLocations"];
         put?: never;
@@ -261,7 +261,7 @@ export interface paths {
         };
         /**
          * List one folder of an allowed file or S3 location, a page at a time.
-         * @description `location` is a folder (file:///root/folder/, /root/folder/ or s3://bucket/prefix/), `prefix` an optional name prefix ('/' descends into sub-folders; no globs). Lists one level in backend name order (UTF-8 byte order), at most 200 items per page: files with a subtitle extension (GET /v1/limits storage.extensions) with size and modified time, and folders (ending in '/'). When `truncated` is true pass `next` as `cursor` with the same location and prefix. Stateless: items that exist for the whole walk appear exactly once; items created or deleted during the walk may or may not appear. No total count, time sort or offsets. A filesystem folder with more than 5000 matching entries is 422 folder-too-large (narrow it with `prefix`). Hidden entries (names starting with '.') are skipped; a hidden folder or a prefix starting with '.' is 422 hidden-path. Filesystem listings also skip symlinks and special files. HTTPS is not listable (422 storage-not-listable). Shares the browse queue with reads by location and job file reads (503 browse-busy with Retry-After when it is full). Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.
+         * @description `location` is a folder (file:///root/folder/, /root/folder/ or s3://bucket/prefix/), `prefix` an optional name prefix ('/' descends into sub-folders; no globs). Lists one level in backend name order (UTF-8 byte order), at most 200 items per page: files with a subtitle extension (GET /v1/limits storage.extensions) with size and modified time, and folders (ending in '/'). When `truncated` is true pass `next` as `cursor` with the same location and prefix. Stateless: items that exist for the whole walk appear exactly once; items created or deleted during the walk may or may not appear. No total count, time sort or offsets. A filesystem folder with more than 5000 matching entries is 422 folder-too-large (narrow it with `prefix`). Hidden entries (names starting with '.') are skipped; a hidden folder or a prefix starting with '.' is 422 hidden-path. Filesystem listings also skip symlinks and special files. HTTPS is not listable (422 storage-not-listable). Shares the browse queue with reads by location and job file reads (503 browse-busy with Retry-After when it is full). On by default; with STORAGE_LIST_ENABLED=false it is 403 storage-list-disabled.
          */
         get: operations["listStorage"];
         put?: never;
@@ -281,7 +281,7 @@ export interface paths {
         };
         /**
          * Read one file from an allowed file or S3 location (current contents, unconverted).
-         * @description The same allowlists, symlink, traversal, hidden-file, extension and size checks as convert input: outside the allowed locations is 422 storage-location-rejected, a path or key with a component starting with '.' is 422 hidden-path, a name without a subtitle extension is 422 extension-not-allowed. HTTPS is not readable here (422 storage-not-listable); use it as convert input. Shares the browse queue (503 browse-busy). The response carries an ETag (file: size, modification time and inode; S3: the object ETag); send it back as If-None-Match to get 304 Not Modified without the content being read (a cheap change check). Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.
+         * @description The same allowlists, symlink, traversal, hidden-file, extension and size checks as convert input: outside the allowed locations is 422 storage-location-rejected, a path or key with a component starting with '.' is 422 hidden-path, a name without a subtitle extension is 422 extension-not-allowed. HTTPS is not readable here (422 storage-not-listable); use it as convert input. Shares the browse queue (503 browse-busy). The response carries an ETag (file: size, modification time and inode; S3: the object ETag); send it back as If-None-Match to get 304 Not Modified without the content being read (a cheap change check). On by default; with STORAGE_LIST_ENABLED=false it is 403 storage-list-disabled.
          */
         get: operations["getStorageFile"];
         put?: never;
