@@ -68,7 +68,7 @@ Claude Desktop, Cursor, Windows, a VM, or building from source: see [docs/client
 | `list_presets` / `get_profile` | Built-in and mounted presets, raw and resolved |
 | `validate_profile` | Check a profile, with pointer-level errors and hints |
 | `preview_text` | Read the text of an API job's stored input or output, or of a file by location, page by page (binary formats shown as SRT) |
-| `list_files` | Off by default (`SUBTITLE_MCP_LIST_ENABLED`): list a local folder or an API storage location, page by page |
+| `list_files` | List a local folder or an API storage location, page by page (`SUBTITLE_MCP_LIST_ENABLED=false` hides it) |
 | `list_allowed_folders` | The folders in effect right now, with mode and source; with browsing on, also the API's storage locations |
 
 Inputs, results and warning fields: [docs/tools.md](docs/tools.md).
@@ -82,9 +82,8 @@ the MCP's local folders. Outputs are never overwritten unless you send `ifExists
 
 Every conversion returns a `jobId`. When work outlasts the wait, the MCP polls the job; the API keeps metadata only,
 so use an API `output` location for work that may take a while. `preview_text` reads the text of a job's stored
-input or output, in pages that end on whole cues, while the API still has its record. Browsing is off by default:
-with `SUBTITLE_MCP_LIST_ENABLED=true` (and `STORAGE_LIST_ENABLED=true` on the API for its storage), `list_files`
-lists a folder and `preview_text` reads a file by location ([browsing](docs/tools.md#browsing-and-reading-by-location)). Without any output location,
+input or output, in pages that end on whole cues, while the API still has its record. `list_files` lists a folder and `preview_text` reads a file by its full URI
+or path; the API's storage is browsable whenever the API allows it (its default) ([browsing](docs/tools.md#browsing-and-reading-by-location)). Without any output location,
 `convert_subtitle` attaches the whole converted file to its result for the client to save. See [tools](docs/tools.md#api-storage-and-job-ids),
 [configuration](docs/configuration.md#api-storage-and-asynchronous-jobs) and
 [writing files](docs/writing-files.md#api-destinations-are-separate).

@@ -37,7 +37,7 @@ export function registerFoldersTool(server: McpServer, deps: Deps): void {
             note: z.string().optional(),
           })),
           hint: z.string().optional(),
-        }).describe("The converter API's storage locations (another machine's paths); present when SUBTITLE_MCP_LIST_ENABLED=true"),
+        }).describe("The converter API's storage locations (another machine's paths); present unless SUBTITLE_MCP_LIST_ENABLED=false"),
       } : {}),
       summary: z.string(),
     },

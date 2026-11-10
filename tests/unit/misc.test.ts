@@ -60,9 +60,10 @@ describe("config", () => {
     }
   };
   const token = "t".repeat(32);
-  it("SUBTITLE_MCP_LIST_ENABLED is off by default and strict", () => {
-    expect(cfg([]).listEnabled).toBe(false);
+  it("SUBTITLE_MCP_LIST_ENABLED is on by default (API locations follow the API), false turns it off, strict", () => {
+    expect(cfg([]).listEnabled).toBe(true);
     expect(cfg([], { SUBTITLE_MCP_LIST_ENABLED: "true" }).listEnabled).toBe(true);
+    expect(cfg([], { SUBTITLE_MCP_LIST_ENABLED: "false" }).listEnabled).toBe(false);
     expect(err([], { SUBTITLE_MCP_LIST_ENABLED: "maybe" })).toMatch(/SUBTITLE_MCP_LIST_ENABLED/);
   });
 

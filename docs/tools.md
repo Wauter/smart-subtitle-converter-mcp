@@ -13,7 +13,7 @@ sees are the authoritative, live version of this page (they include the allowed 
 | `detect_format` | `POST /v1/detect` | Format, encoding and language of inline content, a local `path` or API `input`, plus `bom`, `lineEndings` and source `warnings` |
 | `convert_subtitle` | `POST /v1/convert/json` | Convert one file: exactly one content/path/input; result inline, local outputPath/outputDir or API output |
 | `preview_text` | `GET /v1/jobs/{id}/input` or `/output`, or `GET /v1/storage/file` for an API location (+ `POST /v1/convert/json` to SRT for binary files) | Read the text of a job's stored input or output, or of a file by location, one page at a time |
-| `list_files` | – (local) or `GET /v1/storage/list` | Only with `SUBTITLE_MCP_LIST_ENABLED=true`: one page of the files and sub-folders in a location |
+| `list_files` | – (local) or `GET /v1/storage/list` | Unless `SUBTITLE_MCP_LIST_ENABLED=false`: one page of the files and sub-folders in a location |
 | `list_allowed_folders` | – (local), + `GET /v1/storage/locations` when browsing is on | The folders in effect, with `mode`, `source` and `state` ([folders-and-roots.md](folders-and-roots.md)); with browsing on, also the API's storage locations |
 
 `list_allowed_folders` stays registered even when paths are unavailable (empty folders, state none). With browsing
@@ -21,20 +21,20 @@ off (the default) it covers MCP-local folders only, never API input/output URIs.
 
 ## Browsing and reading by location
 
-Browsing is off by default. It takes two switches:
+Browsing is on by default and follows the API:
 
-- `SUBTITLE_MCP_LIST_ENABLED=true` on the MCP registers `list_files` and lets `preview_text` take a `location`.
-  On its own, this covers the MCP's local allowed folders only.
-- `STORAGE_LIST_ENABLED=true` on the API lets it list and read its own storage (`STORAGE_FILE_ROOTS` and
+- `list_files` is registered and `preview_text` takes a `location` unless the MCP has
+  `SUBTITLE_MCP_LIST_ENABLED=false`. The MCP's local allowed folders are always browsable then.
+- The API's own `STORAGE_LIST_ENABLED` (on by default) decides whether the API lists and reads its own storage (`STORAGE_FILE_ROOTS` and
   `S3_ALLOWED_BUCKETS` × `S3_ALLOWED_PREFIXES`). The MCP finds out from `GET /v1/limits` (`storage.list`) when it
   starts, and again whenever the limits cache (`SUBTITLE_MCP_LIMITS_TTL_MS`) expires. The API checks its own switch
   on every request, so a stale cache can't get past it.
 
 | MCP | API | `list_allowed_folders` | `list_files` / `preview_text {location}` |
 |---|---|---|---|
-| off | any | Local folders only, as before; no `remote` member | `list_files` not registered; `location` not accepted |
-| on | off, older API, or unreachable | Local folders, plus `remote: {state: "disabled-api" or "unknown", locations: [], hint}` | Local paths work; API locations fail with `storage-list-disabled` (or `api-unreachable`) and a hint |
-| on | on | Local folders, plus `remote: {state: "on", locations: [...]}` | Local paths and API `file://` / `s3://` locations work |
+| `false` | any | Local folders only, as before; no `remote` member | `list_files` not registered; `location` not accepted |
+| unset or `true` | off, older API, or unreachable | Local folders, plus `remote: {state: "disabled-api" or "unknown", locations: [], hint}` | Local paths work; API locations fail with `storage-list-disabled` (or `api-unreachable`) and a hint |
+| unset or `true` | on | Local folders, plus `remote: {state: "on", locations: [...]}` | Local paths and API `file://` / `s3://` locations work |
 
 API allowlists never appear while the API's switch is off. Job previews (`jobId` + `which`) work in every combination.
 
@@ -199,7 +199,7 @@ Arguments:
 |---|---|---|
 | `jobId` | yes, unless `location` | The `jobId` from `convert_subtitle` |
 | `which` | with `jobId` | `input` (the stored source) or `output` (the single stored subtitle result, never a sidecar) |
-| `location` | instead of `jobId` | Only with `SUBTITLE_MCP_LIST_ENABLED=true`: a file from `list_files`, a local absolute path inside the allowed folders, or an API `file://` or `s3://` URI ([browsing](#browsing-and-reading-by-location)) |
+| `location` | instead of `jobId` | The file's full URI or absolute path, as `list_files` `items[].location`: `s3://bucket/key`, `file:///path`, or a local absolute path inside the allowed folders (e.g. `s3://subs/show.srt`, or the sidecar `s3://subs/show.srt.json`). Not with `SUBTITLE_MCP_LIST_ENABLED=false` ([browsing](#browsing-and-reading-by-location)) |
 | `maxBytes` | no | Page size in UTF-8 bytes. Defaults to `SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES` (65536); values below 4096 are raised to 4096 and values above `SUBTITLE_MCP_PREVIEW_MAX_BYTES` (262144) are lowered to it, with a `max-bytes-clamped` warning (`details.fields.requested` and `applied`). The value in effect comes back as `maxBytes` |
 | `cursor` | no | The `next` value from the previous page, unchanged. Omit it for the first page |
 

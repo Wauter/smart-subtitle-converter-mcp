@@ -22,6 +22,12 @@ cross-origin calls ([configuration.md](configuration.md)). Name the allowed fold
 
 The API and the MCP side by side on an internal network, with the MCP reachable on `127.0.0.1:3000`. Replace
 `X.Y.Z` with release tags whose major.minor match (see the [CHANGELOG](../CHANGELOG.md)); pin them, never `latest`.
+Tunable settings go in a `.env` next to the file, passed in with `env_file` (Docker Compose 2.24 or later for
+`required: false`); for example `S3_ALLOWED_BUCKETS=subs`, `SUBTITLE_MCP_LOG_LEVEL=debug`, or
+`SUBTITLE_MCP_LIST_ENABLED=false` to hide browsing (on by default, and API locations only when the API allows it).
+`environment:` keeps only wiring that must match the mounts, secrets and network, plus defaults written as
+`${VAR:-default}`: values under `environment:` override `env_file`, so a setting placed there would silently win over
+`.env`. Both services read the same `.env`; each ignores the other's variables.
 
 ```yaml
 services:
@@ -30,23 +36,23 @@ services:
     read_only: true
     tmpfs: [/tmp]
     networks: [internal]
+    env_file: [{ path: .env, required: false }]
     environment:
-      API_KEYS_FILE: /api_keys.txt                  # the API generates a key here on first start
-      ALLOWED_HOSTS: api                            # the host name the MCP uses in SUBTITLE_API_URL
-      # STORAGE_LIST_ENABLED: "true"                # optional: let the MCP browse the API's storage
+      API_KEYS_FILE: /api_keys.txt                  # matches the mount; the API generates a key here on first start
+      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-api}"        # default: the host name the MCP uses in SUBTITLE_API_URL
     volumes:
       - ./api_keys.txt:/api_keys.txt:rw             # touch api_keys.txt && chmod 600 api_keys.txt && sudo chown 1654 api_keys.txt
   mcp:
     image: ghcr.io/wauter/smart-subtitle-converter-mcp:X.Y.Z      # same major.minor as the API
     read_only: true
+    env_file: [{ path: .env, required: false }]
     environment:
-      SUBTITLE_API_URL: http://api:8080              # container port on the internal network (host port 8080 is not involved)
-      SUBTITLE_MCP_READONLY_DIRS: /data/in
+      SUBTITLE_API_URL: http://api:8080              # the api service on the internal network (host port 8080 is not involved)
+      SUBTITLE_MCP_READONLY_DIRS: /data/in           # match the volumes below
       SUBTITLE_MCP_ALLOWED_DIRS: /data/out
-      SUBTITLE_MCP_ALLOWED_HOSTS: mcp,localhost,127.0.0.1
-      SUBTITLE_MCP_HTTP_TOKEN_FILE: /run/secrets/mcp_token   # required
+      SUBTITLE_MCP_ALLOWED_HOSTS: "${SUBTITLE_MCP_ALLOWED_HOSTS:-mcp,localhost,127.0.0.1}"
+      SUBTITLE_MCP_HTTP_TOKEN_FILE: /run/secrets/mcp_token   # required; matches secrets below
       SUBTITLE_API_KEY_FILE: /run/secrets/api_key            # the only upstream key (a copy of the API's key, see below)
-      # SUBTITLE_MCP_LIST_ENABLED: "true"                    # optional: list_files and preview_text by location
     volumes:
       - /mnt/share/subtitles-in:/data/in:ro
       - /mnt/share/subtitles-out:/data/out:rw   # .subtitle-mcp-staging/ is created here; must be writable by uid 65532

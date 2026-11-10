@@ -17,7 +17,7 @@ import { checkCursor, clampPageBytes, decodeCursor, encodeCursor, fingerprint, h
 export function describePreviewText(deps: Deps): string {
   const c = deps.cfg;
   const what = c.listEnabled
-    ? "Read the subtitle text of a file, to check spelling, language and timing. This is a read-only text preview for you, not the file: it never returns bytes to save. Give either `location` (a local absolute path in this server's allowed folders, or an API file:// or s3:// URI; find files with list_files) or `jobId` and `which` (input | output) for a convert_subtitle job's stored file. API locations need browsing on the converter API (list_allowed_folders `remote.state` on); local paths and job ids work either way."
+    ? "Read the subtitle text of a file. `location` takes the file's full URI (s3://bucket/key or file:///path, on the converter API's side) or an absolute local path in this server's allowed folders, exactly as list_files returns it in items[].location; for example s3://subs/show.srt, s3://subs/show.srt.json (a convert_subtitle sidecar: the output URI plus .json), file:///data/out/show.vtt or /home/me/subs/show.srt. Or give `jobId` and `which` (input | output) for a convert_subtitle job's stored file. API URIs need browsing on the converter API (list_allowed_folders `remote.state` on); local paths and job ids work either way. Use it to check spelling, language and timing: a read-only text preview, never bytes to save."
     : "Read the subtitle text of a convert_subtitle job's stored input or output, to check spelling, language and timing. This is a read-only text preview for you, not the file: it never returns bytes to save. Give `jobId` and `which` (input | output); files are reachable only by job id, never by URI.";
   return what +
     " Text formats are returned as stored. Binary formats (EBU STL, PAC, Cavena 890, …) are converted to SRT for reading: `convertedFrom` is the stored format id, `convertedTo` is 'srt', and `warnings` say what the SRT view lost or changed; the file is never modified." +
@@ -68,7 +68,7 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
     shape: {
       ...(listing
         ? {
-            location: z.string().min(1).max(16384).optional().describe("A file to read: a local absolute path in this server's allowed folders, or an API file:// or s3:// URI (from list_files). Use instead of jobId and which."),
+            location: z.string().min(1).max(16384).optional().describe("The file's full URI or absolute path, as list_files items[].location: s3://bucket/key, file:///path or /local/path (e.g. s3://subs/show.srt.json). Use instead of jobId and which."),
             jobId: jobId.optional(),
             which: which.optional().describe("input | output, with jobId: the job's stored source or its stored result"),
           }

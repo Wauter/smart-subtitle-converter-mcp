@@ -184,7 +184,7 @@ describe("QA p6b/p7j: every tool result validates against its advertised outputS
       ["convert_subtitle", { content: SRT, target: "srt" }], ["convert_subtitle", { content: SRT, target: "ebustl" }],
       ["convert_subtitle", { content: SRT, target: "srt", output: "s3://subs/out/a.srt" }], ["convert_subtitle", { content: SRT, target: "bad" }], ["convert_subtitle", { content: SRT }],
       ["preview_text", { jobId: id, which: "output", maxBytes: 1 }], ["preview_text", { jobId: id }], ["preview_text", { jobId: id, which: "output", cursor: "bad cursor" }],
-      ["list_allowed_folders", {}],
+      ["list_allowed_folders", {}], ["list_files", { location: "/nowhere" }],
     ];
     const seen = new Set<string>();
     for (const [name, args] of calls) {

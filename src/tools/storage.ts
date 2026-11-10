@@ -12,7 +12,7 @@ import { hiddenPathError } from "../fs/guard.js";
 import { extOf } from "../fs/extensions.js";
 
 /**
- * Browse and read by location (SUBTITLE_MCP_LIST_ENABLED, off by default).
+ * Browse and read by location (on unless SUBTITLE_MCP_LIST_ENABLED=false).
  *
  * Local: plain absolute paths inside this MCP server's allowed folders (configured and client roots), listed and read
  * by the MCP itself. Remote: file:// and s3:// URIs inside the converter API's allowlists, listed and read through the
@@ -27,7 +27,7 @@ export type RemoteState =
   | { state: "disabled-api" }
   | { state: "unknown"; reason: string };
 
-/** The API's listing capability from GET /v1/limits (cached). Only meaningful when SUBTITLE_MCP_LIST_ENABLED=true. */
+/** The API's listing capability from GET /v1/limits (cached). Only consulted when browsing is on in the MCP. */
 export async function remoteState(deps: Deps, call?: Call): Promise<RemoteState> {
   const st = await deps.limits.get({ requestId: withSuffix(call?.requestId ?? "mcp-startup", ".l"), signal: call?.signal, stats: newStats() });
   if (st.kind === "ok") return st.limits.storageList ? { state: "on", schemes: st.limits.listSchemes ?? [] } : { state: "disabled-api" };
@@ -157,14 +157,14 @@ async function listLocal(deps: Deps, call: Call, location: string, prefix: strin
 
 const ItemSchema = z.object({
   name: z.string().describe("Name relative to the listed folder; folders end in '/'"),
-  location: z.string().describe("Pass to preview_text `location` (files) or list_files `location` (folders)"),
+  location: z.string().describe("Full URI or absolute path; pass it unchanged as preview_text `location` (files) or list_files `location` (folders)"),
   type: z.enum(["file", "folder"]),
   size: z.number().int().nonnegative().optional().describe("Files: size in bytes"),
   modified: z.string().optional().describe("Files: last modified time (ISO 8601, UTC)"),
 });
 
 export function describeListFiles(deps: Deps): string {
-  return "List one folder, a page at a time, to find subtitle files to read with preview_text {location}. `location` is either a local folder of this MCP server (a plain absolute path from list_allowed_folders `folders`) or an API location (a file:// or s3:// folder URI from list_allowed_folders `remote.locations`)." +
+  return "List one folder, a page at a time, to find subtitle files; pass a file's items[].location (its full URI or path) unchanged as preview_text `location`. `location` is either a local folder of this MCP server (a plain absolute path from list_allowed_folders `folders`) or an API location (a file:// or s3:// folder URI from list_allowed_folders `remote.locations`)." +
     ` Lists one level in name order (UTF-8 byte order), at most ${LIST_PAGE_SIZE} items a page: files with size and modified time, and folders (ending in '/'). \`prefix\` keeps names that start with it ('/' descends into a sub-folder, e.g. season1/ep); no globs, no time sorting, no total count.` +
     " When `truncated` is true, call again with the same location and prefix and `cursor` set to `next`. Items that exist for the whole walk appear exactly once; files added or removed meanwhile may or may not appear. Only subtitle files and folders are listed; hidden (dot) entries, symlinks and special files are skipped." +
     ` A folder with more than ${LIST_MAX_ENTRIES} matching entries isn't listed (folder-too-large): pass a longer prefix. HTTPS locations can't be listed.` +
@@ -222,6 +222,7 @@ export function registerListFilesTool(server: McpServer, deps: Deps): void {
     const files = items.filter((i) => i.type === "file").length;
     const lines = [`${where === "local" ? "Local folder" : "API location"} ${location}${prefix ? ` (prefix "${prefix}")` : ""}: ${items.length} item${items.length === 1 ? "" : "s"} on this page (${files} file${files === 1 ? "" : "s"}, ${items.length - files} folder${items.length - files === 1 ? "" : "s"}).`];
     for (const i of items) lines.push(`${i.type === "folder" ? "[folder] " : ""}${i.name}${i.size !== undefined ? ` (${i.size} bytes)` : ""}`);
+    if (files) lines.push(`To read a file, pass its full items[].location as preview_text \`location\` (e.g. ${items.find((i) => i.type === "file")!.location}).`);
     lines.push(next ? "MORE ITEMS FOLLOW: pass `next` as `cursor` (same location and prefix)." : "End of listing.");
     return {
       structured: { location, where, prefix, items, returned: items.length, truncated: Boolean(next), ...(next ? { next } : {}), ...(requestId ? { requestId } : {}) },

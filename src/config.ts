@@ -38,7 +38,10 @@ export interface Config {
   allowedHosts: string[];
   logLevel: LogLevel;
   logPaths: boolean;
-  /** SUBTITLE_MCP_LIST_ENABLED: list_files and preview_text {location} (browse and read by location). */
+  /**
+   * SUBTITLE_MCP_LIST_ENABLED (default true): list_files and preview_text {location}. Local folders are browsable; API
+   * locations follow the API's own setting (GET /v1/limits storage.list), checked on use. false hides both.
+   */
   listEnabled: boolean;
 }
 
@@ -245,7 +248,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv, opts: { checkF
     allowedHosts,
     logLevel: logLevel as LogLevel,
     logPaths: bool("SUBTITLE_MCP_LOG_PATHS", env.SUBTITLE_MCP_LOG_PATHS, false),
-    listEnabled: bool("SUBTITLE_MCP_LIST_ENABLED", env.SUBTITLE_MCP_LIST_ENABLED, false),
+    listEnabled: bool("SUBTITLE_MCP_LIST_ENABLED", env.SUBTITLE_MCP_LIST_ENABLED, true),
   };
   return { kind: "config", config: cfg };
 }
@@ -269,6 +272,6 @@ export function defaultConfig(over: Partial<Config> = {}): Config {
     partialMaxAgeMs: 3_600_000, timeoutMs: 120_000, retryMaxAttempts: 3, retryMaxWaitMs: 60_000,
     retryBudgetMs: 90_000, previewDefaultBytes: 65_536, previewMaxBytes: 262_144, previewCacheBytes: 67_108_864, previewCacheTtlMs: 300_000,
     limitsTtlMs: 300_000, includeDebug: false, allowedOrigins: [], allowedHosts: ["localhost", "127.0.0.1", "[::1]"],
-    logLevel: "error", logPaths: false, listEnabled: false, ...over,
+    logLevel: "error", logPaths: false, listEnabled: true, ...over,
   };
 }

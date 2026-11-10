@@ -244,8 +244,8 @@ attached file and read it locally, or convert again with an API `output`. A sour
 
 **`list_files` is missing, or `preview_text` rejects `location`**
 
-- **Why:** Browsing is off by default.
-- **What to do:** Set `SUBTITLE_MCP_LIST_ENABLED=true` and restart the server
+- **Why:** The MCP has `SUBTITLE_MCP_LIST_ENABLED=false`.
+- **What to do:** Remove it (or set it to `true`) and restart the server
   ([tools.md](tools.md#browsing-and-reading-by-location)).
 
 **`storage-list-disabled`**

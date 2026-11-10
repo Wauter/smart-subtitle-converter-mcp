@@ -159,7 +159,7 @@ describe("preview_text", () => {
     expect(r.totalCues).toBeUndefined(); expect(body.startsWith(r.text)).toBe(true);
   });
   it("says a missing jobId/which is required and lists the valid values", async () => {
-    h = await harness();
+    h = await harness({ listEnabled: false });
     const missing = (await callTool(h, "preview_text", { jobId: id })).structuredContent.error;
     expect(missing.code).toBe("invalid-arguments"); expect(missing.detail).toBe('Invalid arguments: /which: `which` is required (valid values: "input" | "output").');
     const text = (await callTool(h, "preview_text", { jobId: id })).content[0].text;

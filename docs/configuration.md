@@ -23,7 +23,7 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 | `SUBTITLE_MCP_PREVIEW_MAX_BYTES` | – | `262144` | Largest `preview_text` page, in UTF-8 bytes; larger `maxBytes` requests are lowered to it, and a single cue over it can't be previewed (`preview-cue-too-large`). 4096 to 1048576 |
 | `SUBTITLE_MCP_PREVIEW_CACHE_BYTES` | – | `67108864` | Memory for cached `preview_text` texts (64 MiB). Least recently used entries go first; a text bigger than the whole cache isn't cached. `0` turns the cache off |
 | `SUBTITLE_MCP_PREVIEW_CACHE_TTL_MS` | – | `300000` | A cached preview unused for this long is dropped |
-| `SUBTITLE_MCP_LIST_ENABLED` | – | `false` | Register `list_files` and accept `location` in `preview_text`. Local folders work on their own; API locations also need `STORAGE_LIST_ENABLED=true` on the API ([tools.md](tools.md#browsing-and-reading-by-location)) |
+| `SUBTITLE_MCP_LIST_ENABLED` | – | `true` | Optional. Unset or `true`: register `list_files` and accept `location` in `preview_text`; local folders are browsable, and API locations follow the API's own `STORAGE_LIST_ENABLED` (on by default there). `false`: hide both ([tools.md](tools.md#browsing-and-reading-by-location)) |
 | `SUBTITLE_MCP_JSON_MAX_DECODED_BYTES` | – | unset (10485760) | JSON decoded-content cap while `/v1/limits` is unreadable |
 | `SUBTITLE_MCP_LIMITS_TTL_MS` | – | `300000` | `/v1/limits` cache TTL |
 | `SUBTITLE_MCP_INCLUDE_DEBUG` | – | `false` | Pass the API's `debug` member into errors |

@@ -62,7 +62,25 @@ beforeEach(() => {
 afterEach(async () => { await h?.close(); h = undefined; mswServer.resetHandlers(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true }); });
 
 describe("gates", () => {
-  it("MCP off (default): no list_files, no preview_text location, no remote section and no /v1/storage calls; job previews work", async () => {
+  it("default (SUBTITLE_MCP_LIST_ENABLED unset): list_files shown, preview_text leads with the full-URI location, remote follows the API", async () => {
+    apiStorage({ list: true });
+    h = await harness({}, { roots: await realpathRoots([dir], []) });
+    const tools = (await h.client.listTools()).tools;
+    expect(tools.map((t) => t.name)).toContain("list_files");
+    const preview = tools.find((t) => t.name === "preview_text")!;
+    expect(preview.description).toMatch(/^Read the subtitle text of a file\. `location` takes the file's full URI \(s3:\/\/bucket\/key or file:\/\/\/path/);
+    expect(preview.description).toContain("s3://subs/show.srt.json");
+    expect((preview.inputSchema.properties as any).location.description).toMatch(/^The file's full URI or absolute path/);
+    const listed = await callTool(h, "list_files", { location: "s3://subs/in/" });
+    expect(listed.content[0].text).toMatch(/pass its full items\[\]\.location as preview_text `location` \(e\.g\. s3:\/\/subs\/in\//);
+    await h.close();
+    mswServer.resetHandlers(); mswServer.use(...baseHandlers()); apiStorage({ list: false });
+    h = await harness({}, { roots: await realpathRoots([dir], []) });
+    const off = await callTool(h, "list_files", { location: "s3://subs/in/" });
+    expect(off.structuredContent.error.code).toBe("storage-list-disabled");
+    expect(off.structuredContent.error.hint).toContain("STORAGE_LIST_ENABLED=true");
+  });
+  it("MCP off (SUBTITLE_MCP_LIST_ENABLED=false): no list_files, no preview_text location, no remote section and no /v1/storage calls; job previews work", async () => {
     apiStorage({ list: true });
     h = await mk(false);
     const tools = (await h.client.listTools()).tools;

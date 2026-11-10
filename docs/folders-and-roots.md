@@ -44,7 +44,7 @@ buckets or HTTPS hosts.
 
 ## Local folders and API locations
 
-With `SUBTITLE_MCP_LIST_ENABLED=true`, `list_allowed_folders` also has a `remote` member with the API's own storage
+Unless `SUBTITLE_MCP_LIST_ENABLED=false`, `list_allowed_folders` also has a `remote` member with the API's own storage
 locations, but only when the API has `STORAGE_LIST_ENABLED=true` too. The two lists are different places:
 
 - `folders` are on the machine running this MCP server. Use them as `path`, `outputPath` / `outputDir`, and as

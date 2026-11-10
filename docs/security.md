@@ -60,8 +60,9 @@ There is no separate operator gate. Details: [writing-files.md](writing-files.md
 - API `input` / `output` URIs (filesystem, S3-compatible, HTTPS) are checked by the API with its own allowlists,
   separately from this server's local folders. Storage credentials belong to the API runtime, never to a tool call.
 - Job metadata cannot replay subtitle bytes; prefer an API output location for work that may outlast the wait.
-  `preview_text` reads a stored input or output for a known job id. Reading by location and `list_files` exist only
-  when `SUBTITLE_MCP_LIST_ENABLED=true`; API locations also need `STORAGE_LIST_ENABLED=true` on the API, which
+  `preview_text` reads a stored input or output for a known job id. Reading by location and `list_files` are on unless
+  `SUBTITLE_MCP_LIST_ENABLED=false`, and cover only the allowed folders; API locations follow the API's own
+  `STORAGE_LIST_ENABLED`, which the API
   checks it on every request and applies the same allowlists, traversal, symbolic-link and decoding guards as for
   conversion inputs. The API's allowlists are never shown while its switch is off, and locations never carry
   credentials or query strings. HTTPS can't be listed or read by location.
