@@ -123,11 +123,13 @@ export function readSecretFile(file: string, what: string): string[] {
   let text: string;
   try {
     text = fs.readFileSync(file, "utf8");
-  } catch {
-    throw new ConfigError(`${what}: file is missing or unreadable`);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    const why = code === "ENOENT" ? "does not exist" : code === "EACCES" || code === "EPERM" ? "is not readable by this user" : code === "EISDIR" ? "is a folder, not a file" : `can't be read (${code ?? "error"})`;
+    throw new ConfigError(`${what}: the file ${file} ${why}.`);
   }
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
-  if (lines.length === 0) throw new ConfigError(`${what}: file is empty`);
+  if (lines.length === 0) throw new ConfigError(`${what}: the file ${file} has no key (it is empty or only comments).`);
   return lines;
 }
 

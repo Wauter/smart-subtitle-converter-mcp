@@ -181,6 +181,20 @@ listings and reads on its own, within `SUBTITLE_MCP_RETRY_*`; if the error still
 
 ## Startup fails
 
+**`mcp-misconfigured`, or instructions starting with `NOT CONFIGURED`**
+
+- **What:** Over stdio, the server started with a configuration problem, so every tool returns `mcp-misconfigured`.
+  The error's `detail` names the problem (for example "SUBTITLE_API_KEY_FILE: the file /Users/me/key.txt does not
+  exist") and its `hint` the fix; the server's stderr log has the same line (`not configured: …`).
+- **Why:** Recoverable problems no longer stop the process, which most clients would only show as "failed":
+  `SUBTITLE_API_URL` missing or invalid, an API key file that is missing, unreadable, a folder or empty, both
+  `SUBTITLE_API_KEY` and `SUBTITLE_API_KEY_FILE`, an allowed folder that doesn't exist, or a mistyped setting.
+- **What to do:** Fix the setting in the server's environment (Claude Code: `claude mcp add --env`, or the `env`
+  block), then restart the server (Claude Code: `/mcp`, reconnect). An API that isn't running yet is not a
+  configuration problem: tools return `api-unreachable` until it answers.
+
+In HTTP mode the same problems stop startup with exit code 2 and the message on stderr:
+
 - `SUBTITLE_API_URL` is required.
 - Unknown `SUBTITLE_MCP_*` variables fail startup on purpose (typo protection); check the spelling against
   [configuration.md](configuration.md).

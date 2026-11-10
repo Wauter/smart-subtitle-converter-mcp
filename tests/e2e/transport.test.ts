@@ -80,15 +80,40 @@ describe("startup validation", () => {
   it.each([
     [["--http", "0"], {}, /inbound access token/],
     [["--http", "0"], { SUBTITLE_MCP_HTTP_TOKEN: "short" }, /at least 32/],
-    [["--http", "0"], { SUBTITLE_MCP_HTTP_TOKEN_FILE: "/nonexistent/token" }, /missing or unreadable/],
-    [[], { SUBTITLE_API_KEY: "a", SUBTITLE_API_KEY_FILE: "/x" }, /not both/],
-    [[], { SUBTITLE_API_KEY_FILE: "/nonexistent/key" }, /missing or unreadable/],
-    [[], { SUBTITLE_MCP_ALLOWED_DIRS: "/nonexistent-root-dir" }, /does not exist/],
-  ])("%j %j fails", async (args, env, msg) => {
+    [["--http", "0"], { SUBTITLE_MCP_HTTP_TOKEN_FILE: "/nonexistent/token" }, /\/nonexistent\/token does not exist/],
+    [["--http", "0"], { SUBTITLE_MCP_HTTP_TOKEN: TOKEN_A, SUBTITLE_MCP_ALLOWED_DIRS: "/nonexistent-root-dir" }, /does not exist/],
+  ])("HTTP mode: %j %j still fails", async (args, env, msg) => {
     const p = run(args as string[], env as Record<string, string>);
     expect(await p.exited).not.toBe(0);
     expect(p.stderr()).toMatch(msg as RegExp);
     expect(p.stderr()).not.toContain("short\n");
+  });
+
+  it.each([
+    [{ SUBTITLE_API_KEY: "secret-value-x", SUBTITLE_API_KEY_FILE: "/x" }, /not both/, /only one of SUBTITLE_API_KEY/],
+    [{ SUBTITLE_API_KEY_FILE: "/nonexistent/key" }, /\/nonexistent\/key does not exist/, /api_keys\.txt/],
+    [{ SUBTITLE_MCP_ALLOWED_DIRS: "/nonexistent-root-dir" }, /allowed folder does not exist: \/nonexistent-root-dir/, /SUBTITLE_MCP_ALLOWED_DIRS/],
+    [{ SUBTITLE_API_URL: "not a url" }, /SUBTITLE_API_URL: not a valid URL/, /http:\/\/localhost:8080/],
+    [{ SUBTITLE_MCP_LIST_ENABLE: "true" }, /unknown environment variable SUBTITLE_MCP_LIST_ENABLE/, /spelling/],
+  ])("stdio: %j starts not configured and every tool explains it", async (env, problem, fix) => {
+    const p = run([], env as Record<string, string>);
+    const send = (m: unknown) => p.child.stdin!.write(JSON.stringify(m) + "\n");
+    send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } } });
+    send({ jsonrpc: "2.0", method: "notifications/initialized" });
+    send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+    send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "convert_subtitle", arguments: { content: "x", target: "vtt" } } });
+    const responses = () => p.stdout().split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((m) => m.id !== undefined);
+    await waitFor(() => responses().length >= 3);
+    p.child.stdin!.end();
+    expect(await p.exited).toBe(0);
+    const [init, list, call] = responses();
+    expect(init.result.instructions).toMatch(/^NOT CONFIGURED/); expect(init.result.instructions).toMatch(problem); expect(init.result.instructions).toMatch(fix);
+    expect(list.result.tools.map((t: any) => t.name)).toContain("convert_subtitle");
+    expect(call.result.isError).toBe(true);
+    const e = call.result.structuredContent.error;
+    expect(e.code).toBe("mcp-misconfigured"); expect(e.detail).toMatch(problem); expect(e.hint).toMatch(fix); expect(e.hint).toMatch(/restart/);
+    expect(p.stderr()).toMatch(/not configured: /); expect(p.stderr()).toMatch(problem);
+    expect(p.stdout() + p.stderr()).not.toContain("secret-value-x");
   });
 });
 
