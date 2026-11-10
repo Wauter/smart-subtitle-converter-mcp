@@ -23,21 +23,34 @@ through staging, and structured errors and warnings the agent can act on. It doe
 - **Results with a verdict:** binary outputs carry the API's `verification` verdict, and warnings carry a `hint`
   and structured `details` (such as a `remedy` for lost characters). Errors have a stable `code`, a `hint` and,
   for path errors, the allowed folders.
+- **Subtitle files only, no shortcuts:** it reads, lists and writes only files with a subtitle extension, never
+  touches hidden files or folders (names starting with `.`), and never follows symbolic links
+  ([security](docs/security.md#allowed-folders)).
 - **Content stays on your machine:** files go by `path`, so their contents don't pass through the model's context;
   content, keys and tokens are never logged.
 
 ## Quick start (Claude Code)
 
 Start the API first (its [quick start](https://github.com/Wauter/smart-subtitle-converter-api#quick-start) serves
-`http://localhost:8080`), then:
+`http://localhost:8080` and writes an API key to `api_keys.txt`), then:
 
 ```bash
 claude mcp add \
   --env SUBTITLE_API_URL=http://localhost:8080 \
+  --env SUBTITLE_API_KEY_FILE=/Users/me/subtitle-api-key.txt \
   --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/Subtitles \
   --transport stdio \
   smart-subtitle-convert -- npx -y smart-subtitle-converter-mcp
 ```
+
+The API asks for a key by default and keeps it in its `api_keys.txt`, readable only by the API's container user.
+Copy the key once for the MCP (the MCP sends the first key in the file and picks up changes):
+
+```bash
+sudo grep -v -e '^#' -e '^$' api_keys.txt | head -n 1 > ~/subtitle-api-key.txt && chmod 600 ~/subtitle-api-key.txt
+```
+
+`SUBTITLE_API_KEY=<key>` works too. Without a key, conversions fail with `unauthorized`.
 
 Point `SUBTITLE_MCP_ALLOWED_DIRS` at the folder that holds your subtitles, then ask:
 

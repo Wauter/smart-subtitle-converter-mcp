@@ -51,24 +51,24 @@ in its buckets, even when they look alike. In a sidecar deployment the two are u
 
 ### Hidden files and folders
 
-Hidden files and folders are never read or listed, by any tool, with browsing on or off. A path is hidden when any
+Hidden files and folders are never read, listed or written, by any tool, with browsing on or off. A path is hidden when any
 of its components starts with `.`: a dotfile (`.env`), anything inside a dot-named folder at any depth
 (`.git/config`), and everything in an allowed folder that is itself hidden or inside a hidden folder
 (`/home/me/.subtitles`). Dots inside names are fine: `show.en.v2.srt` and `v1.2/ep.srt` are ordinary files.
 
-- **Local (this MCP server):** applies to `preview_text {location}`, `list_files`, and the `path` and `profilePath`
-  of `convert_subtitle`, `detect_format` and `validate_profile`. The requested path is checked before any filesystem
-  call, and its real path is checked again, so a symbolic link to a hidden file or folder is refused too. The answer
-  is `path-not-allowed` whether the hidden file exists or not. Plain paths are taken literally: `%2Eenv` is a file
-  named `%2Eenv`, not `.env`.
+- **Local (this MCP server):** applies to `preview_text {location}`, `list_files` (and its `prefix`), the `path` and
+  `profilePath` of `convert_subtitle`, `detect_format` and `validate_profile`, and to `outputPath` / `outputDir` and
+  the names of the files written there. A path outside the allowed folders is `path-not-allowed` first; a hidden
+  path inside them is `hidden-path`, whether the file exists or not. The requested path is checked before any
+  filesystem call. Plain paths are taken literally: `%2Eenv` is a file named `%2Eenv`, not `.env`.
 - **API locations:** the API applies the same rule to `file://` and `s3://` locations (percent-decoded first, so
-  `%2Eenv` is `.env`), for reads, listings, conversion inputs and job file reads, and answers
-  `storage-location-rejected`.
+  `%2Eenv` is `.env`), for reads, listings, writes, conversion inputs and job file reads, and answers `hidden-path`.
+  HTTPS URLs are not affected.
 - **Hidden allowed folders** aren't named in `list_allowed_folders`, tool descriptions or error hints;
   `list_allowed_folders` reports how many there are as `hiddenFolders`. The API leaves hidden roots and prefixes out
   of its locations.
-- **Writes** keep their rules: `outputPath` / `outputDir` (and an API `output`) may still name a dot-named file or a
-  hidden allowed folder, but nothing reads the result back.
+- **Writes** follow the same rule: a dot-named output, an output in a hidden folder, or a hidden allowed folder is
+  refused before anything is converted or written. (The MCP's own `.subtitle-mcp-staging/` folder is internal.)
 - **Limits:** the rule is name-based on every platform. Windows hidden or system attributes and macOS `UF_HIDDEN`
   aren't consulted.
 
@@ -86,9 +86,10 @@ truncated, `next`. Each item has `name` (folders end in `/`), `location` (pass i
 
 A page has up to 200 items, in name order (local folders and the API filesystem sort by UTF-8 bytes; S3 uses the
 bucket's key order). There is no total count, no sorting by date and no offsets. Hidden entries (names starting with
-`.`) and special files are skipped, and a hidden folder can't be listed ([hidden files](#hidden-files-and-folders)).
-Local symbolic links are listed only when their target stays inside the allowed folders and isn't hidden; the API
-skips symbolic links.
+`.`), symbolic links, special files and files without a subtitle extension are skipped, and a hidden folder or
+prefix can't be listed ([hidden files](#hidden-files-and-folders)). Sub-folders are listed whatever their names.
+A folder (or prefix) with more than 5000 such entries fails with `folder-too-large`; list it with a narrower
+`prefix`. The API does the same with its own cap (`GET /v1/limits` `storage.listMaxEntries`).
 
 Paging is stateless and there is no snapshot. A file that exists for the whole walk and isn't renamed appears
 exactly once. A file added or removed during the walk may or may not appear. A cursor belongs to one location,
@@ -153,7 +154,7 @@ Errors come back as `isError: true` with a structured `error`: `source` (`api` o
 `requestId`, and where they apply `errors[]` (pointer, message, hint), `candidates` and `probe` (strings for `ambiguous-format` and PAC code pages; `{encoding, language, hits, sample}` objects for `ambiguous-encoding` with probe `text-encoding`), `jobId` /
 `jobUrl`, a redacted `location`, `limit`, `retryAfterSeconds`, and for local write failures `path` + `osError`.
 API codes are on the API's [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page
-(what happened, why, what to do). MCP codes (`path-not-allowed`, `output-exists`, `cross-device`, …) are in
+(what happened, why, what to do). MCP codes (`path-not-allowed`, `hidden-path`, `extension-not-allowed`, `folder-too-large`, `output-exists`, `cross-device`, …) are in
 [troubleshooting.md](troubleshooting.md). `path-not-allowed` hints include the current allowed folders.
 
 ## Warnings
@@ -236,8 +237,14 @@ Paging is stateless: there is nothing to close or expire on the server. Each cal
 the cursor carries a fingerprint (a SHA-256 hash) of the stored bytes. If the file changed between pages, the call
 fails with `preview-source-changed`, and you start again without `cursor`. Any other cursor problem is
 `preview-cursor-invalid`: a value that isn't one `preview_text` returned (empty, altered, too long), or a cursor
-used with another job, `which` or location. Every page re-reads the whole file (and converts a binary file
-again), so prefer larger pages for long files when your context allows.
+used with another job, `which` or location.
+
+The decoded text is cached in memory (`SUBTITLE_MCP_PREVIEW_CACHE_BYTES`, default 64 MiB, least recently used first,
+dropped after `SUBTITLE_MCP_PREVIEW_CACHE_TTL_MS` unused), so later pages don't read or convert the file again. Each
+call still checks that the file hasn't changed: locally by its size, modification time and inode, for API files by
+asking with the cached `ETag` (`If-None-Match`; a `304` means unchanged). A changed file is read again, and a cursor
+from before the change gives `preview-source-changed`. Older APIs without an `ETag` mean every page reads the file
+again, as before.
 
 ### Result
 

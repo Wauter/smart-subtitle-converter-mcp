@@ -11,6 +11,39 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
 
 ## Unreleased
 
+### Security hardening
+
+- **The API asks for a key by default.** Set `SUBTITLE_API_KEY_FILE` to a file holding the key from the API's
+  `api_keys.txt` (or `SUBTITLE_API_KEY`). The `unauthorized` hint says so; README, client and sidecar docs show how.
+- **Hidden files and folders are never written either.** Reads and listings already refused them; now a dot-named
+  `outputPath`, an output in a hidden folder, an `outputDir` in a hidden allowed folder, or an API-chosen output name
+  starting with `.` is refused before anything is converted. The error is the new `hidden-path` (it was
+  `path-not-allowed`). A path outside the allowed folders still gets `path-not-allowed` first.
+- **Symbolic links are never followed.** A link anywhere below an allowed folder is refused for reads, listings and
+  writes, even when it points inside (`path-not-allowed`, "Symlinks are not followed"); `list_files` leaves links out;
+  `ifExists: "replace"` never replaces a link or a special file. Files are opened without following links and checked
+  again after opening (Linux: the opened file's path; elsewhere: device and inode), so a folder swapped for a link
+  mid-call is caught. FIFOs and other special files are never opened. An allowed folder reached through a link (such
+  as `/var` on macOS) still works.
+- **Subtitle files only.** Local reads, listings and writes accept only names ending in a subtitle extension the
+  engine reads (the API's list from `GET /v1/limits` `storage.extensions`, or a built-in copy). Anything else,
+  including names without an extension, is the new `extension-not-allowed`, with a one-line message. A chosen
+  `outputPath` must end in the target format's extension (`out.vtt` for WebVTT). Sub-folders are listed whatever their
+  names.
+- **Folder cap.** `list_files` on a local folder (or prefix) with more than 5000 subtitle files and sub-folders fails
+  with `folder-too-large` and a `limit`; narrow it with `prefix`. The API has the same cap for its storage.
+- **Preview cache.** `preview_text` keeps decoded texts in memory (`SUBTITLE_MCP_PREVIEW_CACHE_BYTES`, default
+  67108864, least recently used first; `SUBTITLE_MCP_PREVIEW_CACHE_TTL_MS`, default 300000; `0` bytes turns it off),
+  so later pages don't read or convert the file again. Every call still checks for changes: local files by size,
+  modification time and inode; API files by `ETag` / `If-None-Match` (a `304` means unchanged). Changed files are read
+  again and old cursors give `preview-source-changed`, as before.
+- **Busy API.** `browse-busy` and `conversion-engine-stuck` (503 with `Retry-After`) are retried for reads and
+  listings like `queue-full`, with progress messages saying why; hints for these and for `host-not-allowed` /
+  `origin-not-allowed`. OpenAPI snapshot and types refreshed.
+- Contract suite: run 1 starts the API with `API_AUTH_DISABLED=true` (needed for APIs that require a key; older
+  images ignore it). New feature-detected contract tests for the extension list, `ETag` change checks feeding the
+  preview cache, and (on a shared filesystem) symbolic links.
+
 ### Breaking changes
 
 These change tool names, result shapes and configuration. The project is still an early alpha, so there are no aliases or compatibility shims; update clients and settings when you upgrade.

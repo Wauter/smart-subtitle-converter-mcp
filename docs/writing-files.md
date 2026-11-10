@@ -16,6 +16,12 @@ Writes through a staging file in `<output-root>/.subtitle-mcp-staging/` and comm
 
 Nothing is ever suffixed (`_2`).
 
+Before anything is converted, the output is checked: a dot-named file or folder is `hidden-path`, a name without a
+subtitle extension is `extension-not-allowed`, and an `outputPath` must end in the extension of the target format
+(`out.vtt` for WebVTT; `out.srt` is refused). File names the API picks for `outputDir` get the same checks before they
+are written. `ifExists: "replace"` never replaces a symbolic link or anything that isn't a regular file
+(`path-not-allowed`), and output folders reached through a symbolic link are refused.
+
 ## Staging rules
 
 - The staging folder must be on the same filesystem as the destination. A mount inside an allowed folder fails with

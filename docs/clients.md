@@ -8,11 +8,19 @@ Name the folders the server may use with `SUBTITLE_MCP_ALLOWED_DIRS` (read-write
 `SUBTITLE_MCP_READONLY_DIRS` (read-only). Without those, local `path` / `outputPath` / `outputDir` calls have
 nowhere to work.
 
+The API asks for an API key by default. Put the key in a file your user can read (the API's `api_keys.txt` is
+readable only by its container user, so copy it:
+`sudo grep -v -e '^#' -e '^$' api_keys.txt | head -n 1 > ~/subtitle-api-key.txt && chmod 600 ~/subtitle-api-key.txt`)
+and point `SUBTITLE_API_KEY_FILE` at it; the MCP uses the first key and re-reads the file when it changes. Or set
+`SUBTITLE_API_KEY`. In JSON configs, add it to
+`"env"` next to `SUBTITLE_API_URL`.
+
 ## Claude Code
 
 ```bash
 claude mcp add \
   --env SUBTITLE_API_URL=http://localhost:8080 \
+  --env SUBTITLE_API_KEY_FILE=/Users/me/subtitle-api-key.txt \
   --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/Subtitles \
   --transport stdio \
   smart-subtitle-convert -- npx -y smart-subtitle-converter-mcp

@@ -35,8 +35,36 @@ If you did update and still see an older MCP version in the warning, the client 
 - `state: none` or `roots-empty`: no configured folders (and no client extras). Name them in the settings.
 - `state: waiting-for-roots`: a client that still offers the older roots feature hasn't sent them yet; the tool
   descriptions update once it does. Prefer configured folders so you don't wait on that.
-- `path-not-allowed`: the path is outside the allowed folders, relative, or inside a read-only folder for a write.
-  The hint lists the folders in effect.
+- `path-not-allowed`: the path is outside the allowed folders, relative, inside a read-only folder for a write, or
+  goes through a symbolic link. The hint lists the folders in effect.
+
+**`hidden-path`**
+
+- **What:** The file or one of its folders starts with `.` (for example `.env`, `.git/…`, or an allowed folder that
+  is itself hidden). Nothing was read, listed or written.
+- **Why:** Hidden files often hold settings or secrets, so they are off limits for every tool, reads and writes alike.
+- **What to do:** Copy or rename the file to a name and folder without a leading dot, or pick a visible output name.
+
+**`extension-not-allowed`**
+
+- **What:** The file name doesn't end in a subtitle extension (for example `notes.pdf`, or `README` with none), or
+  an `outputPath` doesn't match the format being written (`out.srt` for WebVTT).
+- **Why:** Only subtitle files are read, listed or written, so a mistaken path can't expose other files.
+- **What to do:** Use the subtitle file itself, or rename it with the right extension. For outputs, name the file
+  after the target format, as the error says.
+
+**`folder-too-large`**
+
+- **What:** The folder (or the `prefix` you gave) holds more than 5000 subtitle files and sub-folders, so it wasn't
+  listed. The error's `limit` says the cap.
+- **Why:** Very large folders would take long to walk and fill the agent's context.
+- **What to do:** List it with a `prefix` (for example the first letters of the names) or a sub-folder.
+
+**Symbolic links: `path-not-allowed` "Symlinks are not followed"**
+
+- **What:** The path, or a folder on it, is a symbolic link. Links are never followed, even when they point inside an
+  allowed folder, and `list_files` doesn't show them.
+- **What to do:** Use the real path, or add the target folder to the allowed folders.
 
 ## Local file errors
 
@@ -109,6 +137,13 @@ system failures.
 
 Auth failures from the API are on that
 [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page; the MCP sends `SUBTITLE_API_KEY` (or `_FILE`).
+The API asks for a key by default: `unauthorized` usually means `SUBTITLE_API_KEY_FILE` isn't set, isn't readable by
+the MCP, or holds another key than the API's `api_keys.txt`. `host-not-allowed` means the host name in `SUBTITLE_API_URL` isn't in the
+API's `ALLOWED_HOSTS` (add it there, for example the Compose service name).
+
+When the API is busy it answers `503` with `Retry-After`: `queue-full` (conversions), `browse-busy` (listings and
+file reads) or `conversion-engine-stuck` (a conversion hung and the API is restarting). The MCP waits and retries
+listings and reads on its own, within `SUBTITLE_MCP_RETRY_*`; if the error still reaches you, try again later.
 
 **`mcp-timeout`**
 
@@ -223,10 +258,10 @@ attached file and read it locally, or convert again with an API `output`. A sour
 - **What:** The `list_files` `cursor` is altered, or belongs to another location, prefix or side (local or API).
 - **What to do:** Pass `next` unchanged with the same `location` and `prefix`, or start again without `cursor`.
 
-**Hidden files: `path-not-allowed` or `storage-location-rejected` for a dotfile or dot-named folder**
+**Hidden files: `hidden-path` for a dotfile or dot-named folder**
 
-- **What:** The path, or one of its folders, starts with `.` (also through a symbolic link, or because the allowed
-  folder itself is hidden). Hidden files are never read or listed.
+- **What:** The path, or one of its folders, starts with `.` (also because the allowed folder itself is hidden).
+  Hidden files are never read, listed or written, locally or by the API.
 - **What to do:** Copy or rename the file to a name and folder without a leading dot
   ([tools.md](tools.md#hidden-files-and-folders)).
 
