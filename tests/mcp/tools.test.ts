@@ -351,9 +351,10 @@ describe("convert_subtitle", () => {
     mswServer.use(http.get(`${API}/v1/limits`, () => problem(404, "not-found")));
     const r = await callTool(h, "convert_subtitle", { content: SRT, fileName: "movie.srt", target: "webvtt" });
     expect(r.structuredContent.error).toMatchObject({ code: "precheck-too-large", limit: { name: "json.maxDecodedContentBytes", value: 10 } });
-    // Local files need the API's extension list, which an API without /v1/limits can't give.
+    // Local files: the same pre-check applies (the extension check is skipped with a warning, the API has no list).
     const local = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "webvtt", outputDir: path.join(dir, "out") });
-    expect(local.structuredContent.error.code).toBe("api-too-old");
+    expect(local.structuredContent.error.code).toBe("precheck-too-large");
+    expect(local.structuredContent.warnings.map((w: any) => w.code)).toContain("mcp-extension-check-skipped");
     expect(recorded.some((x) => x.path === "/v1/convert" || x.path === "/v1/convert/json")).toBe(false);
     expect(h.logs.some((l) => /\/v1\/limits returned 404/.test(l))).toBe(true);
   });

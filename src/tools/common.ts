@@ -11,6 +11,7 @@ import { isValidBase64, decodedBase64Length } from "../base64.js";
 import { readFileChecked } from "../fs/guard.js";
 import { mcpErrorFromZod } from "./zodError.js";
 import { apiInfo, mismatchWarning } from "../api/info.js";
+import { extensionCheckSkippedWarning } from "../fs/extensions.js";
 import { probeApi } from "../probe.js";
 
 export { FieldError, Warning };
@@ -112,14 +113,15 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
         if (!parsed.success) throw mcpErrorFromZod(parsed.error, def.shape, rawArgs);
         const out = await def.handler(parsed.data as any, call);
         Object.assign(call.log, out.logFields ?? {});
-        const mm = mismatchWarning();
-        if (mm) {
-          // §10 [DC]: the short version-mismatch warning rides on results while the mismatch persists.
+        // §10 [DC]: the short version-mismatch warning rides on results while the mismatch persists; likewise the
+        // skipped extension check (an older API without storage.extensions).
+        for (const w of [mismatchWarning(), call.extensionCheckSkipped ? extensionCheckSkippedWarning(apiInfo.version) : undefined]) {
+          if (!w) continue;
           if (def.warningArray) {
             if (!Array.isArray(out.structured.warnings)) out.structured.warnings = [];
-            (out.structured.warnings as WarningT[]).push(mm);
+            (out.structured.warnings as WarningT[]).push(w);
           }
-          out.summary += `\nWarning ${mm.code}: ${mm.message}`;
+          out.summary += `\nWarning ${w.code}: ${w.message}`;
         }
         z.object(def.output).passthrough().parse(out.structured);
         return {
@@ -134,8 +136,8 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
         code = tf.toolError.code;
         apiStatus = tf.toolError.status;
         const structured: Record<string, unknown> = { error: tf.toolError, ...((tf as any).partial ?? {}) };
-        const mm = mismatchWarning();
-        if (mm && !tf.warnings.some((w) => w.code === mm.code)) tf.warnings.push(mm);
+        for (const mm of [mismatchWarning(), call.extensionCheckSkipped ? extensionCheckSkippedWarning(apiInfo.version) : undefined])
+          if (mm && !tf.warnings.some((w) => w.code === mm.code)) tf.warnings.push(mm);
         if (tf.warnings.length) structured.warnings = tf.warnings;
         let text = errorText(tf.toolError);
         if (tf.warnings.length) text += "\n" + tf.warnings.map((w) => `Warning ${w.code}: ${w.message}`).join("\n");

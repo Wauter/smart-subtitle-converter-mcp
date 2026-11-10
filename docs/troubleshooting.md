@@ -10,7 +10,7 @@ the client's MCP log). Every error carries a `code`, a `hint` and a `source`:
   below.
 
 Warnings from the API are passed through unchanged; they are on that same page. The MCP adds only
-`mcp-api-version-mismatch`, `mcp-ebu-size` and `max-bytes-clamped`.
+`mcp-api-version-mismatch`, `mcp-extension-check-skipped`, `mcp-ebu-size` and `max-bytes-clamped`.
 
 ## Version mismatch
 
@@ -27,6 +27,14 @@ If you did update and still see an older MCP version in the warning, the client 
 - Client in a VM or container: it runs the copy **inside** that environment. If you copied `dist/` there, copy it
   again after every update ([clients.md](clients.md#clients-in-a-vm-or-container)).
 - Restart the client completely afterwards.
+
+**`mcp-extension-check-skipped`**
+
+- **What:** A local file was read, listed or written without checking that its name has a subtitle extension.
+- **Why:** The MCP takes the list of subtitle extensions from the API (`GET /v1/limits`), and an older API doesn't
+  send it. Rather than block your work, the MCP goes ahead and says so. Allowed folders, hidden files and symbolic
+  links are still checked.
+- **What to do:** Update the API to the release that matches this MCP; the warning then goes away.
 
 ## No allowed folders, or `path-not-allowed`
 
@@ -52,14 +60,6 @@ If you did update and still see an older MCP version in the warning, the client 
 - **Why:** Only subtitle files are read, listed or written, so a mistaken path can't expose other files.
 - **What to do:** Use the subtitle file itself, or rename it with the right extension. For outputs, name the file
   after the target format, as the error says.
-
-**`api-too-old`**
-
-- **What:** A local file wasn't read, listed or written because the API doesn't report which files are subtitle files.
-- **Why:** The MCP takes that list from the API (`GET /v1/limits`) so it never goes stale, and an older API doesn't
-  send it. Rather than guess, the MCP refuses local file access.
-- **What to do:** Update the API to the latest release (same major.minor as this MCP). Inline `content` and API
-  `input`/`output` locations keep working meanwhile.
 
 **`folder-too-large`**
 

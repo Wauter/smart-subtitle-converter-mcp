@@ -27,8 +27,9 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
   as `/var` on macOS) still works.
 - **Subtitle files only.** Local reads, listings and writes accept only names ending in a subtitle extension the
   engine reads, always from the API (`GET /v1/limits` `storage.extensions`; the MCP keeps no copy that could go stale).
-  **Breaking:** with an API too old to report the list, local files are not read, listed or written: the new
-  `api-too-old` error says to update the API. Inline content and API locations still work. Anything else,
+  With an older API that doesn't report the list, local files are read, listed and written without this check, and
+  the result carries the warning `mcp-extension-check-skipped` (update the API); the allowed-folder, hidden and
+  symbolic-link rules still apply. Anything else,
   including names without an extension, is the new `extension-not-allowed`, with a one-line message. A chosen
   `outputPath` must end in the target format's extension (`out.vtt` for WebVTT). Sub-folders are listed whatever their
   names.

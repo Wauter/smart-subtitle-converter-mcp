@@ -9,8 +9,9 @@ import { withSuffix } from "../ids.js";
 /**
  * H3: only subtitle files are listed, read or written in this server's local folders. The allowed extensions always come
  * from the converter API (GET /v1/limits `storage.extensions`, derived from libse and cached with the other limits);
- * there is no built-in copy that could go stale. An API that doesn't report them is too old: local file access is
- * refused with api-too-old. The list is never shown to the model or put in tool descriptions; a refusal is one short line.
+ * there is no built-in copy that could go stale. An older API that doesn't report them: the check is skipped and the
+ * tool result carries the mcp-extension-check-skipped warning (allowed folders, hidden-path and no-symlink rules still
+ * apply). The list is never shown to the model or put in tool descriptions; a refusal is one short line.
  */
 
 /** Lower-case extension with its dot ("" when there is none; a leading-dot name alone has none). */
@@ -50,10 +51,11 @@ export class ExtensionPolicy {
   }
 
   /**
-   * The API's allowed set (cached with limits). An API that answers without a list (or without /v1/limits) is too old:
-   * api-too-old. When the limits can't be read at all, the real cause (unauthorized, api-unreachable, ...) is raised.
+   * The API's allowed set (cached with limits), or undefined when the API doesn't report one (older API): the caller
+   * then skips the check and the call is marked so the result carries a warning. When the limits can't be read at all,
+   * the real cause (unauthorized, api-unreachable, ...) is raised.
    */
-  async allowed(call?: CallCtx): Promise<Set<string>> {
+  async allowed(call?: CallCtx): Promise<Set<string> | undefined> {
     let st = await this.limits.get(this.ctx(call));
     if (st.kind === "unknown") {
       // Fetch once more without the cache's error swallowing, so the caller sees why (key, URL, network).
@@ -61,14 +63,15 @@ export class ExtensionPolicy {
       st = res.status === 404 ? { kind: "unsupported" } : { kind: "ok", limits: { raw: res.json } as any };
     }
     const list = st.kind === "ok" ? cleanList((st.limits.raw as any)?.storage?.extensions) : undefined;
-    if (!list) throw apiTooOld();
+    if (!list && call) call.extensionCheckSkipped = true;
     return list;
   }
 
   /** Throws extension-not-allowed (one short line) when the file name doesn't have a subtitle extension. */
   async check(name: string, purpose: Purpose, call?: CallCtx): Promise<void> {
     const ext = extOf(name);
-    if (ext && (await this.allowed(call)).has(ext)) return;
+    const allowed = await this.allowed(call);
+    if (!allowed || (ext && allowed.has(ext))) return;
     throw notSubtitle(name, purpose);
   }
 
@@ -109,6 +112,12 @@ export function notSubtitle(name: string, purpose: Purpose): ToolFailure {
   return mcpError("extension-not-allowed", `${base} is not a subtitle file, so it isn't ${verb}.`, undefined, { path: name });
 }
 
-export function apiTooOld(): ToolFailure {
-  return mcpError("api-too-old", "The converter API is too old to say which files are subtitle files, so local files aren't read, listed or written; update the API.");
+export const EXTENSION_CHECK_SKIPPED = "mcp-extension-check-skipped";
+
+/** The tool-result warning when the check was skipped (aligned with mcp-api-version-mismatch). */
+export function extensionCheckSkippedWarning(apiVersion?: string): { code: string; message: string } {
+  return {
+    code: EXTENSION_CHECK_SKIPPED,
+    message: `Subtitle extension check skipped: the API${apiVersion ? ` (version ${apiVersion})` : ""} doesn't report its subtitle extensions, so file names weren't checked; update the API.`,
+  };
 }

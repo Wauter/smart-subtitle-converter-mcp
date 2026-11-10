@@ -60,39 +60,53 @@ describe("H3 extension allowlist (local)", () => {
     expect(names).toEqual(["a.srt"]);
   });
 
-  it("an API that reports no list is too old: local reads, listings and writes are refused with api-too-old", async () => {
-    let posts = 0;
+  it("an older API without a list: local reads, listings and writes go ahead unchecked, with a warning on the result", async () => {
+    fs.writeFileSync(path.join(dir, "notes.pdf"), SRT);
+    fs.writeFileSync(path.join(dir, ".hidden.srt"), SRT);
+    fs.symlinkSync(path.join(dir, "a.srt"), path.join(dir, "link.srt"));
     mswServer.use(
       http.get(`${API}/v1/limits`, () => HttpResponse.json({ ...LIMITS, storage: { inputSchemes: ["file"] } })),
-      http.post(`${API}/v1/convert/json`, () => { posts++; return HttpResponse.json(convertOk([{ fileName: "a.vtt", content: "WEBVTT\n" }])); }),
+      http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.vtt", content: "WEBVTT\n", formatId: "webvtt" }]))),
     );
     h = await mk();
-    const src = path.join(dir, "a.srt");
-    for (const [tool, args] of [
-      ["preview_text", { location: src }], ["list_files", { location: dir }], ["detect_format", { path: src }],
-      ["convert_subtitle", { path: src, target: "vtt" }],
-      ["convert_subtitle", { content: SRT, fileName: "x.srt", target: "vtt", outputPath: path.join(dir, "out.vtt") }],
-    ] as const) {
-      const r = await callTool(h, tool, args);
-      expect(r.structuredContent.error, tool).toMatchObject({ source: "mcp", code: "api-too-old" });
-      expect(r.structuredContent.error.detail).toMatch(/too old.*update the API\.$/);
-      expect(r.structuredContent.error.hint).toBeUndefined();
-    }
-    expect(posts).toBe(0);
-    expect(fs.existsSync(path.join(dir, "out.vtt"))).toBe(false);
-    // Outside the allowed folders still answers path-not-allowed first; inline conversions don't need the list.
+    const warned = (r: any) => {
+      expect(r.isError, JSON.stringify(r.structuredContent?.error)).toBeFalsy();
+      expect(r.content[0].text).toContain("Warning mcp-extension-check-skipped: Subtitle extension check skipped");
+      expect(r.content[0].text).toMatch(/doesn't report its subtitle extensions.*update the API\./);
+    };
+    warned(await callTool(h, "preview_text", { location: path.join(dir, "notes.pdf") }));
+    const list = await callTool(h, "list_files", { location: dir });
+    warned(list);
+    expect(list.structuredContent.items.map((i: any) => i.name)).toEqual(["a.srt", "notes.pdf"]); // hidden and links still left out
+    const conv = await callTool(h, "convert_subtitle", { path: path.join(dir, "a.srt"), target: "vtt", outputPath: path.join(dir, "out.vtt") });
+    warned(conv);
+    expect(conv.structuredContent.warnings.map((w: any) => w.code)).toContain("mcp-extension-check-skipped");
+    expect(fs.readFileSync(path.join(dir, "out.vtt"), "utf8")).toBe("WEBVTT\n");
+    // The other rules still apply.
     expect(code(await callTool(h, "preview_text", { location: path.join(outside, "secret.srt") }))).toBe("path-not-allowed");
-    expect((await callTool(h, "convert_subtitle", { content: SRT, fileName: "x.srt", target: "vtt" })).isError).toBeFalsy();
+    expect(code(await callTool(h, "preview_text", { location: path.join(dir, ".hidden.srt") }))).toBe("hidden-path");
+    expect(code(await callTool(h, "preview_text", { location: path.join(dir, "link.srt") }))).toBe("path-not-allowed");
+    // Calls that touch no local file carry no such warning.
+    const inline = await callTool(h, "convert_subtitle", { content: SRT, fileName: "x.srt", target: "vtt" });
+    expect(inline.content[0].text).not.toContain("mcp-extension-check-skipped");
   });
 
-  it("no /v1/limits at all is api-too-old; an unreadable /v1/limits reports the real cause", async () => {
+  it("no /v1/limits at all also skips with the warning; an unreadable /v1/limits reports the real cause", async () => {
     mswServer.use(http.get(`${API}/v1/limits`, () => problem(404, "not-found")));
     h = await mk();
-    expect(code(await callTool(h, "preview_text", { location: path.join(dir, "a.srt") }))).toBe("api-too-old");
+    const r = await callTool(h, "preview_text", { location: path.join(dir, "a.srt") });
+    expect(r.isError).toBeFalsy();
+    expect(r.content[0].text).toContain("mcp-extension-check-skipped");
     await h.close();
     mswServer.use(http.get(`${API}/v1/limits`, () => problem(401, "unauthorized")));
     h = await mk();
     expect(code(await callTool(h, "preview_text", { location: path.join(dir, "a.srt") }))).toBe("unauthorized");
+  });
+
+  it("with the API's list there is no skipped-check warning", async () => {
+    h = await mk();
+    const r = await callTool(h, "preview_text", { location: path.join(dir, "a.srt") });
+    expect(r.content[0].text).not.toContain("mcp-extension-check-skipped");
   });
 
   it("outputs: a non-subtitle name is refused before converting; an outputPath must use the produced format's extension", async () => {

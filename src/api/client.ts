@@ -21,6 +21,8 @@ export interface CallCtx {
   signal?: AbortSignal;
   onProgress?: (message: string) => void | Promise<void>;
   stats: CallStats;
+  /** Set when a local extension check was skipped because the API doesn't report its list (older minor version). */
+  extensionCheckSkipped?: boolean;
 }
 
 export interface ApiRequest {

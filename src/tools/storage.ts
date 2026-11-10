@@ -132,7 +132,7 @@ async function listLocal(deps: Deps, call: Call, location: string, prefix: strin
       const kind = d.isDirectory() ? "folder" : d.isFile() ? "file" : d.isFIFO() || d.isSocket() || d.isCharacterDevice() || d.isBlockDevice() ? undefined : "unknown";
       if (!kind) continue;
       if (matching.length >= LIST_MAX_ENTRIES) throw folderTooLarge(location + sub, prefix.length > 0);
-      if (kind === "file" && !allowed.has(extOf(name))) continue; // H3: only subtitle files are listed
+      if (kind === "file" && allowed && !allowed.has(extOf(name))) continue; // H3: only subtitle files are listed
       matching.push({ key: Buffer.from(name, "utf8"), name, kind });
     }
   } finally {
@@ -146,7 +146,7 @@ async function listLocal(deps: Deps, call: Call, location: string, prefix: strin
     let st;
     try { st = await fs.lstat(full); } catch { continue; } // vanished
     if (st.isSymbolicLink() || (!st.isFile() && !st.isDirectory())) continue;
-    if (st.isFile() && !allowed.has(extOf(c.name))) continue;
+    if (st.isFile() && allowed && !allowed.has(extOf(c.name))) continue;
     if (items.length === LIST_PAGE_SIZE) return { dir: dir.real, items, more: true };
     items.push(st.isDirectory()
       ? { name: c.name + "/", location: full + path.sep, type: "folder" }
