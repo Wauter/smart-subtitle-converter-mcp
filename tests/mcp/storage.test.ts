@@ -8,7 +8,7 @@ import path from "node:path";
 import { beforeAll, afterAll, beforeEach, afterEach, describe, it, expect } from "vitest";
 import { http, HttpResponse } from "msw";
 import { Ajv } from "ajv";
-import { API, LIMITS, SRT, baseHandlers, callTool, convertOk, harness, mswServer, problem, recorded, tmpDir, type Harness } from "../helpers/harness.js";
+import { API, EXTENSIONS, LIMITS, SRT, baseHandlers, callTool, convertOk, harness, mswServer, problem, recorded, tmpDir, type Harness } from "../helpers/harness.js";
 import { realpathRoots } from "../../src/fs/guard.js";
 import { apiInfo } from "../../src/api/info.js";
 import { longSrt, occurrences, probe } from "../helpers/fixtures.js";
@@ -21,7 +21,7 @@ const LOCATIONS = [
   { uri: "s3://subs/out/", scheme: "s3", listable: true, readable: true, prefix: "show" },
   { uri: "https://mam.example.com/", scheme: "https", listable: false, readable: false, note: "Convert input/output only." },
 ];
-const limits = (list: boolean | undefined) => ({ ...LIMITS, storage: { inputSchemes: ["file", "s3"], outputSchemes: ["file", "s3"], ...(list === undefined ? {} : { list, listSchemes: list ? ["file", "s3"] : [] }) } });
+const limits = (list: boolean | undefined) => ({ ...LIMITS, storage: { extensions: EXTENSIONS, inputSchemes: ["file", "s3"], outputSchemes: ["file", "s3"], ...(list === undefined ? {} : { list, listSchemes: list ? ["file", "s3"] : [] }) } });
 const enc = (s: string) => Buffer.from(s).toString("base64url");
 
 /** API storage mock: 450 keys under s3://subs/in/, pages of 200 with an opaque cursor; files served by /v1/storage/file. */

@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, beforeEach, afterEach, describe, it, expect } from "vitest";
 import { http, HttpResponse } from "msw";
-import { API, SRT, baseHandlers, callTool, harness, mswServer, recorded, convertOk, problem, type Harness } from "../helpers/harness.js";
+import { API, EXTENSIONS, SRT, baseHandlers, callTool, harness, mswServer, recorded, convertOk, problem, type Harness } from "../helpers/harness.js";
 import { apiInfo } from "../../src/api/info.js";
 let h: Harness | undefined;
 const id = "ab0123456789abcdef0123456789abcdef";
@@ -210,7 +210,7 @@ describe("preview_text", () => {
     const tools = (await h.client.listTools()).tools; expect((tools.find(t => t.name === "convert_subtitle")!.inputSchema.properties!.ifExists as any).enum).toEqual(["error", "replace"]);
   });
   it.each([[5000, 2, 2], [1000, 60, 1], [120000, undefined, 60]])("negotiates wait using timeout %s and API max %s", async (timeoutMs, maxWait, expected) => {
-    h = await harness({ timeoutMs }); mswServer.use(http.get(`${API}/v1/limits`, () => HttpResponse.json({ requestMaxWaitSeconds: maxWait, storage: { inputSchemes: ["file", "s3", "https"], outputSchemes: ["file", "s3", "https"] } })));
+    h = await harness({ timeoutMs }); mswServer.use(http.get(`${API}/v1/limits`, () => HttpResponse.json({ requestMaxWaitSeconds: maxWait, storage: { extensions: EXTENSIONS, inputSchemes: ["file", "s3", "https"], outputSchemes: ["file", "s3", "https"] } })));
     await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
     expect(recorded.find(x => x.path === "/v1/convert/json")?.headers.prefer).toBe(`wait=${expected}`);
     const tools = (await h.client.listTools()).tools; expect(tools.find(t => t.name === "convert_subtitle")!.description).toContain("API storage enabled: file, s3, https");

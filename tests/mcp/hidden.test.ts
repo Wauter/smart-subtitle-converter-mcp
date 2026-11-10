@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { beforeAll, afterAll, beforeEach, afterEach, describe, it, expect } from "vitest";
 import { http, HttpResponse } from "msw";
-import { API, LIMITS, SRT, baseHandlers, callTool, convertOk, harness, mswServer, problem, recorded, tmpDir, type Harness } from "../helpers/harness.js";
+import { API, EXTENSIONS, LIMITS, SRT, baseHandlers, callTool, convertOk, harness, mswServer, problem, recorded, tmpDir, type Harness } from "../helpers/harness.js";
 import { isHiddenPath, realpathRoots } from "../../src/fs/guard.js";
 import { apiInfo } from "../../src/api/info.js";
 
@@ -16,7 +16,7 @@ const SENTINEL = "HIDDEN_SENTINEL_P9";
 const HIDDEN = `1\n00:00:01,000 --> 00:00:02,000\n${SENTINEL}\n`;
 let h: Harness | undefined;
 let dir: string, hiddenRoot: string, parent: string;
-const limits = (list: boolean) => ({ ...LIMITS, storage: { inputSchemes: ["file", "s3"], outputSchemes: ["file", "s3"], list, listSchemes: list ? ["file", "s3"] : [] } });
+const limits = (list: boolean) => ({ ...LIMITS, storage: { extensions: EXTENSIONS, inputSchemes: ["file", "s3"], outputSchemes: ["file", "s3"], list, listSchemes: list ? ["file", "s3"] : [] } });
 const w = (p: string, s: string) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, s); };
 
 beforeAll(() => mswServer.listen({ onUnhandledFrame: "error" })); afterAll(() => mswServer.close());

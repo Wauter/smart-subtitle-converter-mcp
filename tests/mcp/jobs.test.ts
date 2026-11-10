@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import fs from "node:fs";
 import path from "node:path";
 import { http, HttpResponse } from "msw";
-import { API, baseHandlers, callTool, convertOk, harness, mswServer, recorded, SRT, tmpDir, type Harness } from "../helpers/harness.js";
+import { API, EXTENSIONS, baseHandlers, callTool, convertOk, harness, mswServer, recorded, SRT, tmpDir, type Harness } from "../helpers/harness.js";
 import { realpathRoots } from "../../src/fs/guard.js";
 import { apiInfo } from "../../src/api/info.js";
 
@@ -46,7 +46,7 @@ describe("API locations and jobs", () => {
   });
   it("advertises distinct input/output schemes after limits, not MCP folder roots", async () => {
     h = await harness();
-    mswServer.use(http.get(`${API}/v1/limits`, () => HttpResponse.json({ requestWaitSeconds: 30, requestMaxWaitSeconds: 60, storage: { inputSchemes: ["file", "azure"], outputSchemes: ["s3", "ftp"] } })));
+    mswServer.use(http.get(`${API}/v1/limits`, () => HttpResponse.json({ requestWaitSeconds: 30, requestMaxWaitSeconds: 60, storage: { extensions: EXTENSIONS, inputSchemes: ["file", "azure"], outputSchemes: ["s3", "ftp"] } })));
     await h.client.readResource({ uri: "subtitleedit://limits" });
     const { tools } = await h.client.listTools();
     for (const name of ["convert_subtitle", "detect_format"]) {
@@ -56,7 +56,7 @@ describe("API locations and jobs", () => {
     }
   });
   it("omits scheme descriptions when either limits array is missing", async () => {
-    h = await harness(); mswServer.use(http.get(`${API}/v1/limits`, () => HttpResponse.json({ storage: { inputSchemes: ["file"] } })));
+    h = await harness(); mswServer.use(http.get(`${API}/v1/limits`, () => HttpResponse.json({ storage: { extensions: EXTENSIONS, inputSchemes: ["file"] } })));
     await h.client.readResource({ uri: "subtitleedit://limits" });
     for (const tool of (await h.client.listTools()).tools.filter(t => ["convert_subtitle", "detect_format"].includes(t.name)))
       expect(tool.description).not.toContain("API storage enabled:");

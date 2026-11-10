@@ -53,6 +53,14 @@ If you did update and still see an older MCP version in the warning, the client 
 - **What to do:** Use the subtitle file itself, or rename it with the right extension. For outputs, name the file
   after the target format, as the error says.
 
+**`api-too-old`**
+
+- **What:** A local file wasn't read, listed or written because the API doesn't report which files are subtitle files.
+- **Why:** The MCP takes that list from the API (`GET /v1/limits`) so it never goes stale, and an older API doesn't
+  send it. Rather than guess, the MCP refuses local file access.
+- **What to do:** Update the API to the latest release (same major.minor as this MCP). Inline `content` and API
+  `input`/`output` locations keep working meanwhile.
+
 **`folder-too-large`**
 
 - **What:** The folder (or the `prefix` you gave) holds more than 5000 subtitle files and sub-folders, so it wasn't

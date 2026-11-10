@@ -26,7 +26,9 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
   mid-call is caught. FIFOs and other special files are never opened. An allowed folder reached through a link (such
   as `/var` on macOS) still works.
 - **Subtitle files only.** Local reads, listings and writes accept only names ending in a subtitle extension the
-  engine reads (the API's list from `GET /v1/limits` `storage.extensions`, or a built-in copy). Anything else,
+  engine reads, always from the API (`GET /v1/limits` `storage.extensions`; the MCP keeps no copy that could go stale).
+  **Breaking:** with an API too old to report the list, local files are not read, listed or written: the new
+  `api-too-old` error says to update the API. Inline content and API locations still work. Anything else,
   including names without an extension, is the new `extension-not-allowed`, with a one-line message. A chosen
   `outputPath` must end in the target format's extension (`out.vtt` for WebVTT). Sub-folders are listed whatever their
   names.

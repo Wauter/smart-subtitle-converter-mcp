@@ -20,6 +20,10 @@ const srt = (n: number, text = "Hello") =>
 
 describe.skipIf(!URL_)("contract: real API", () => {
   let dir: string, h: Harness;
+  // Local files need the API's extension list (GET /v1/limits storage.extensions); older APIs give api-too-old instead.
+  let localOk = false;
+  const itLocal = (name: string, fn: () => Promise<void>, timeout?: number) =>
+    it(name, async (ctx) => { if (!localOk) ctx.skip(); await fn(); }, timeout);
   const mk = async (cfg = {}) => harness({ apiUrl: URL_!, apiKey: KEY, ...cfg }, { roots: await realpathRoots([dir], []) });
   const put = (rel: string, content: string | Buffer = SRT) => {
     const p = path.join(dir, ...rel.split("/"));
@@ -35,6 +39,15 @@ describe.skipIf(!URL_)("contract: real API", () => {
     dir = fs.realpathSync(tmpDir("contract-"));
     h = await mk();
     await probeApi(h.deps.cfg, h.deps.log);
+    const limits: any = await (await fetch(`${URL_}/v1/limits`, { headers: KEY ? { authorization: `Bearer ${KEY}` } : {} })).json().catch(() => undefined);
+    localOk = Array.isArray(limits?.storage?.extensions);
+  });
+
+  it("local files: allowed with the API's extension list, api-too-old without one", async () => {
+    const p = put("local/check.srt");
+    const r = await callTool(h, "detect_format", { path: p });
+    if (localOk) expect(r.isError, JSON.stringify(r.structuredContent?.error)).toBeFalsy();
+    else expect(r.structuredContent.error).toMatchObject({ source: "mcp", code: "api-too-old" });
   });
   afterAll(async () => {
     await h.close();
@@ -77,7 +90,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
   });
 
   describe("single file", () => {
-    it("SRT→VTT inline and to disk byte-exact vs direct API output", async () => {
+    itLocal("SRT→VTT inline and to disk byte-exact vs direct API output", async () => {
       const inline = await callTool(h, "convert_subtitle", { content: SRT, fileName: "a.srt", target: "webvtt" });
       expect(inline.isError).toBeFalsy();
       const res = inline.content.find((c: any) => c.type === "resource")?.resource;
@@ -93,7 +106,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
       expect(Buffer.from(res.text, "utf8").equals(Buffer.from(ref.outputs[0].content, "base64"))).toBe(true); // inline resource = stored/written bytes, BOM included
       expect(fs.readdirSync(path.dirname(out)).filter((n) => n.endsWith(".partial"))).toEqual([]);
     });
-    it("target.additional: multiple-outputs with outputPath, success with outputDir", async () => {
+    itLocal("target.additional: multiple-outputs with outputPath, success with outputDir", async () => {
       const src = put("multi/a.srt");
       const profile = { target: { format: "webvtt", additional: ["ttml"] } };
       const e = await callTool(h, "convert_subtitle", { path: src, profile, outputPath: path.join(dir, "multi", "x.vtt") });
@@ -102,7 +115,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
       expect(ok.isError).toBeFalsy();
       expect(ok.structuredContent.outputs).toHaveLength(2);
     });
-    it("write flow: existing outputPath under error → no request; replace", async () => {
+    itLocal("write flow: existing outputPath under error → no request; replace", async () => {
       const src = put("wf/a.srt");
       const out = put("wf/a.vtt", "old");
       const e = await callTool(h, "convert_subtitle", { path: src, target: "webvtt", outputPath: out });
@@ -115,7 +128,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
       expect(r.structuredContent.outputs[0].action).toBe("replaced");
       expect(fs.readFileSync(out, "utf8")).toMatch(/^\uFEFF?WEBVTT/);
     });
-    it.skipIf(SMALL)("8.5 MB SRT by path goes through JSON", async () => {
+    (SMALL ? it.skip : itLocal)("8.5 MB SRT by path goes through JSON", async () => {
       let big = "";
       let i = 0;
       while (big.length < 8.5 * 1024 * 1024) big += `${++i}\n00:00:01,000 --> 00:00:02,000\n${"x".repeat(200)}\n\n`;
@@ -212,7 +225,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
   describe("1.2.0: verification, actionable warnings, source diagnostics, ambiguous-format", () => {
     const GREEK = "1\n00:00:01,000 --> 00:00:02,500\nΚαλημέρα κόσμε\n\n2\n00:00:03,000 --> 00:00:04,000\nΕίναι μια δοκιμή\n\n3\n00:00:05,000 --> 00:00:06,000\nΤέλος της δοκιμής\n";
     const ZERO = "1\n00:00:00,000 --> 00:00:00,000\nmeta\n\n2\n00:00:01,000 --> 00:00:02,000\nHello\n\n3\n00:00:03,000 --> 00:00:04,000\nWorld\n";
-    it("SRT→PAC Greek: lossy verification with replaced chars by cue/code point, actionable hint; codePage greek → quantised", async () => {
+    itLocal("SRT→PAC Greek: lossy verification with replaced chars by cue/code point, actionable hint; codePage greek → quantised", async () => {
       const src = put("v12/greek.srt", GREEK);
       const r = await callTool(h, "convert_subtitle", { path: src, target: "pac", outputDir: path.join(dir, "v12", "pac-latin") });
       expect(r.isError).toBeFalsy();
@@ -244,7 +257,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
       const pl = await callTool(h, "convert_subtitle", { content: "1\n00:00:01,000 --> 00:00:02,000\nZażółć gęślą jaźń\n", fileName: "pl.srt", target: "pac" });
       expect(pl.structuredContent.outputs[0].verification.verdict).toBe("lossless");
     });
-    it("zero-length cue → EBU STL: zero-length-cue warning and verification.zeroLengthCues", async () => {
+    itLocal("zero-length cue → EBU STL: zero-length-cue warning and verification.zeroLengthCues", async () => {
       const src = put("v12/zero.srt", ZERO);
       const r = await callTool(h, "convert_subtitle", { path: src, target: "ebustl", outputDir: path.join(dir, "v12", "ebu") });
       expect(r.isError).toBeFalsy();
@@ -261,7 +274,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
       expect(d.structuredContent.lineEndings).toBe("crlf");
       expect(d.structuredContent.warnings.map((x: any) => x.code)).toContain("zero-length-cue");
     });
-    it("PAC/FPC ambiguity: no deciding name → ambiguous-format with candidates; .fpc name or source.format decides", async () => {
+    itLocal("PAC/FPC ambiguity: no deciding name → ambiguous-format with candidates; .fpc name or source.format decides", async () => {
       const bytes = fs.readFileSync(new URL("./fixtures/sample.fpc.bin", import.meta.url));
       // A local .bin file is not a subtitle file name, so the MCP never reads it (H3); inline content has no such rule.
       expect((await callTool(h, "convert_subtitle", { path: put("v12/amb.bin", bytes), target: "subrip" })).structuredContent.error.code).toBe("extension-not-allowed");
@@ -280,7 +293,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
   });
 
   describe("binary milestone (feature-detected)", () => {
-    it("SRT→EBU STL→SRT round trip by path", async () => {
+    itLocal("SRT→EBU STL→SRT round trip by path", async () => {
       const src = put("bin/a.srt", srt(3, "Round trip"));
       const stl = path.join(dir, "bin", "a.stl");
       const w = await callTool(h, "convert_subtitle", { path: src, target: "ebustl", outputPath: stl });
@@ -290,7 +303,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
       expect(back.isError).toBeFalsy();
       expect(back.content.map((c: any) => c.resource?.text ?? "").join("")).toMatch(/Round trip 3/);
     });
-    it("invalid-binary-input", async () => {
+    itLocal("invalid-binary-input", async () => {
       const p = put("bin/bad.stl", Buffer.alloc(100, 0x41)); // shorter than the 1024-byte GSI block
       const r = await callTool(h, "convert_subtitle", { path: p, profile: { source: { format: "ebustl" }, target: { format: "subrip" } } });
       expect(r.isError).toBe(true);

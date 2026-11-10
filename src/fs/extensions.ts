@@ -7,19 +7,11 @@ import type { Logger } from "../log.js";
 import { withSuffix } from "../ids.js";
 
 /**
- * H3: only subtitle files are listed, read or written in this server's local folders. The allowed extensions come from
- * the converter API (GET /v1/limits `storage.extensions`, derived from libse and cached with the other limits); when the
- * API doesn't report them (older API, unreachable, 401), this built-in copy of the same list is used, so the rule always
- * applies. The list is never shown to the model or put in tool descriptions; a refusal is one short line.
+ * H3: only subtitle files are listed, read or written in this server's local folders. The allowed extensions always come
+ * from the converter API (GET /v1/limits `storage.extensions`, derived from libse and cached with the other limits);
+ * there is no built-in copy that could go stale. An API that doesn't report them is too old: local file access is
+ * refused with api-too-old. The list is never shown to the model or put in tool descriptions; a refusal is one short line.
  */
-export const BUILTIN_EXTENSIONS: readonly string[] = [
-  ".890", ".aqt", ".asc", ".ass", ".ats", ".aya", ".bcc", ".c", ".cac", ".cap", ".caption", ".chk", ".cin", ".cip", ".cmft", ".crk", ".csv",
-  ".ctm", ".dat", ".detx", ".dfxp", ".dtc", ".dv", ".edl", ".elr", ".eztxml", ".fcpxml", ".flc", ".fpc", ".gst", ".html", ".imscr", ".imtpro",
-  ".inqscr", ".ismt", ".itt", ".json", ".jss", ".lrc", ".mcc", ".mvt", ".pac", ".pjs", ".pns", ".psl", ".pst", ".rt", ".rtf", ".sbv", ".scc",
-  ".sif", ".smi", ".spt", ".sptx", ".srt", ".ssa", ".stl", ".stp", ".sub", ".subtitle", ".tek", ".titl", ".tmm", ".tmx", ".trs", ".tsv", ".tt",
-  ".ttml", ".tts", ".ttxt", ".txt", ".uld", ".ult", ".usf", ".utx", ".vid", ".vtt", ".w32", ".webvtt", ".wsrt", ".xif", ".xml", ".xmp",
-  ".xsubtitle", ".zeg",
-];
 
 /** Lower-case extension with its dot ("" when there is none; a leading-dot name alone has none). */
 export function extOf(name: string): string {
@@ -44,7 +36,6 @@ function cleanList(v: unknown): Set<string> | undefined {
 export type Purpose = "read" | "listed" | "written";
 
 export class ExtensionPolicy {
-  private builtin = new Set(BUILTIN_EXTENSIONS);
   private formats?: { at: number; byId: Map<string, string[]> };
   constructor(
     private readonly limits: LimitsCache,
@@ -58,13 +49,20 @@ export class ExtensionPolicy {
     return { requestId: withSuffix(call?.requestId ?? "mcp", ".e"), signal: call?.signal, stats: newStats() };
   }
 
-  /** The allowed set: the API's (cached with limits), else the built-in copy. */
+  /**
+   * The API's allowed set (cached with limits). An API that answers without a list (or without /v1/limits) is too old:
+   * api-too-old. When the limits can't be read at all, the real cause (unauthorized, api-unreachable, ...) is raised.
+   */
   async allowed(call?: CallCtx): Promise<Set<string>> {
-    const st = await this.limits.get(this.ctx(call)).catch((e) => {
-      if (e instanceof ToolFailure && e.toolError.code === "cancelled") throw e;
-      return undefined;
-    });
-    return (st?.kind === "ok" ? cleanList((st.limits.raw as any)?.storage?.extensions) : undefined) ?? this.builtin;
+    let st = await this.limits.get(this.ctx(call));
+    if (st.kind === "unknown") {
+      // Fetch once more without the cache's error swallowing, so the caller sees why (key, URL, network).
+      const res = await this.api.request({ method: "GET", path: "/v1/limits", kind: "metadata", passStatuses: [404] }, this.ctx(call));
+      st = res.status === 404 ? { kind: "unsupported" } : { kind: "ok", limits: { raw: res.json } as any };
+    }
+    const list = st.kind === "ok" ? cleanList((st.limits.raw as any)?.storage?.extensions) : undefined;
+    if (!list) throw apiTooOld();
+    return list;
   }
 
   /** Throws extension-not-allowed (one short line) when the file name doesn't have a subtitle extension. */
@@ -109,4 +107,8 @@ export function notSubtitle(name: string, purpose: Purpose): ToolFailure {
   const base = nodePath.basename(name.replace(/[\\/]+$/, "")) || name;
   const verb = purpose === "written" ? "written" : purpose === "listed" ? "listed" : "read";
   return mcpError("extension-not-allowed", `${base} is not a subtitle file, so it isn't ${verb}.`, undefined, { path: name });
+}
+
+export function apiTooOld(): ToolFailure {
+  return mcpError("api-too-old", "The converter API is too old to say which files are subtitle files, so local files aren't read, listed or written; update the API.");
 }

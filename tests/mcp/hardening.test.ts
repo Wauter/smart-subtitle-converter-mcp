@@ -7,15 +7,14 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { beforeAll, afterAll, beforeEach, afterEach, describe, it, expect } from "vitest";
 import { http, HttpResponse } from "msw";
-import { API, LIMITS, SRT, baseHandlers, callTool, convertOk, harness, mswServer, problem, recorded, tmpDir, type Harness } from "../helpers/harness.js";
+import { API, EXTENSIONS, LIMITS, SRT, baseHandlers, callTool, convertOk, harness, mswServer, problem, recorded, tmpDir, type Harness } from "../helpers/harness.js";
 import { fdPath, readFileChecked, realpathRoots } from "../../src/fs/guard.js";
-import { BUILTIN_EXTENSIONS } from "../../src/fs/extensions.js";
 import { LIST_MAX_ENTRIES } from "../../src/tools/storage.js";
 import { apiInfo } from "../../src/api/info.js";
 
 let h: Harness | undefined;
 let dir: string, outside: string;
-const limits = (extra: Record<string, unknown> = {}) => ({ ...LIMITS, storage: { inputSchemes: ["file", "s3"], outputSchemes: ["file", "s3"], list: true, listSchemes: ["file", "s3"], ...extra } });
+const limits = (extra: Record<string, unknown> = {}) => ({ ...LIMITS, storage: { extensions: EXTENSIONS, inputSchemes: ["file", "s3"], outputSchemes: ["file", "s3"], list: true, listSchemes: ["file", "s3"], ...extra } });
 const mk = async (cfg: Record<string, unknown> = {}) => harness({ listEnabled: true, ...cfg }, { roots: await realpathRoots([dir], []) });
 const code = (r: any) => r.structuredContent?.error?.code;
 const cues = (n: number, word = "Line") => Array.from({ length: n }, (_, i) => `${i + 1}\n00:00:${String(i % 60).padStart(2, "0")},000 --> 00:00:${String(i % 60).padStart(2, "0")},500\n${word} ${i}\n`).join("\n");
@@ -51,7 +50,7 @@ describe("H3 extension allowlist (local)", () => {
     expect(code(await callTool(h, "preview_text", { location: path.join(dir, ".x.pdf") }))).toBe("hidden-path");
   });
 
-  it("uses the API's list when /v1/limits reports it, else the built-in copy", async () => {
+  it("uses the API's reported list", async () => {
     fs.writeFileSync(path.join(dir, "b.vtt"), "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n");
     mswServer.use(http.get(`${API}/v1/limits`, () => HttpResponse.json(limits({ extensions: [".srt"] }))));
     h = await mk();
@@ -59,7 +58,41 @@ describe("H3 extension allowlist (local)", () => {
     expect((await callTool(h, "preview_text", { location: path.join(dir, "a.srt") })).isError).toBeFalsy();
     const names = (await callTool(h, "list_files", { location: dir })).structuredContent.items.map((i: any) => i.name);
     expect(names).toEqual(["a.srt"]);
-    expect(BUILTIN_EXTENSIONS).toContain(".vtt"); expect(BUILTIN_EXTENSIONS).not.toContain(".pdf");
+  });
+
+  it("an API that reports no list is too old: local reads, listings and writes are refused with api-too-old", async () => {
+    let posts = 0;
+    mswServer.use(
+      http.get(`${API}/v1/limits`, () => HttpResponse.json({ ...LIMITS, storage: { inputSchemes: ["file"] } })),
+      http.post(`${API}/v1/convert/json`, () => { posts++; return HttpResponse.json(convertOk([{ fileName: "a.vtt", content: "WEBVTT\n" }])); }),
+    );
+    h = await mk();
+    const src = path.join(dir, "a.srt");
+    for (const [tool, args] of [
+      ["preview_text", { location: src }], ["list_files", { location: dir }], ["detect_format", { path: src }],
+      ["convert_subtitle", { path: src, target: "vtt" }],
+      ["convert_subtitle", { content: SRT, fileName: "x.srt", target: "vtt", outputPath: path.join(dir, "out.vtt") }],
+    ] as const) {
+      const r = await callTool(h, tool, args);
+      expect(r.structuredContent.error, tool).toMatchObject({ source: "mcp", code: "api-too-old" });
+      expect(r.structuredContent.error.detail).toMatch(/too old.*update the API\.$/);
+      expect(r.structuredContent.error.hint).toBeUndefined();
+    }
+    expect(posts).toBe(0);
+    expect(fs.existsSync(path.join(dir, "out.vtt"))).toBe(false);
+    // Outside the allowed folders still answers path-not-allowed first; inline conversions don't need the list.
+    expect(code(await callTool(h, "preview_text", { location: path.join(outside, "secret.srt") }))).toBe("path-not-allowed");
+    expect((await callTool(h, "convert_subtitle", { content: SRT, fileName: "x.srt", target: "vtt" })).isError).toBeFalsy();
+  });
+
+  it("no /v1/limits at all is api-too-old; an unreadable /v1/limits reports the real cause", async () => {
+    mswServer.use(http.get(`${API}/v1/limits`, () => problem(404, "not-found")));
+    h = await mk();
+    expect(code(await callTool(h, "preview_text", { location: path.join(dir, "a.srt") }))).toBe("api-too-old");
+    await h.close();
+    mswServer.use(http.get(`${API}/v1/limits`, () => problem(401, "unauthorized")));
+    h = await mk();
+    expect(code(await callTool(h, "preview_text", { location: path.join(dir, "a.srt") }))).toBe("unauthorized");
   });
 
   it("outputs: a non-subtitle name is refused before converting; an outputPath must use the produced format's extension", async () => {

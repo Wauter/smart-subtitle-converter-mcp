@@ -13,12 +13,23 @@ import type { Root } from "../../src/fs/guard.js";
 
 export const API = "http://api.test";
 
+/** The API's storage.extensions as reported by a current API (the MCP has no built-in copy). */
+export const EXTENSIONS: readonly string[] = [
+  ".890", ".aqt", ".asc", ".ass", ".ats", ".aya", ".bcc", ".c", ".cac", ".cap", ".caption", ".chk", ".cin", ".cip", ".cmft", ".crk", ".csv",
+  ".ctm", ".dat", ".detx", ".dfxp", ".dtc", ".dv", ".edl", ".elr", ".eztxml", ".fcpxml", ".flc", ".fpc", ".gst", ".html", ".imscr", ".imtpro",
+  ".inqscr", ".ismt", ".itt", ".json", ".jss", ".lrc", ".mcc", ".mvt", ".pac", ".pjs", ".pns", ".psl", ".pst", ".rt", ".rtf", ".sbv", ".scc",
+  ".sif", ".smi", ".spt", ".sptx", ".srt", ".ssa", ".stl", ".stp", ".sub", ".subtitle", ".tek", ".titl", ".tmm", ".tmx", ".trs", ".tsv", ".tt",
+  ".ttml", ".tts", ".ttxt", ".txt", ".uld", ".ult", ".usf", ".utx", ".vid", ".vtt", ".w32", ".webvtt", ".wsrt", ".xif", ".xml", ".xmp",
+  ".xsubtitle", ".zeg",
+];
+
 export const LIMITS = {
   maxUploadBytes: 10485760,
   maxRequestBodyBytes: { multipart: 10747904, json: 14112088 },
   json: { maxDecodedContentBytes: 10485760, base64: "x" },
   maxProfileBytes: 65536, maxCues: 200000, maxLineChars: 10000,
   conversionTimeoutSeconds: 30, queue: { capacity: 32, depth: 0 }, rateLimitPerMinute: 0, auth: { required: false }, binary: { ebuStlMaxBytes: 2047999 },
+  storage: { extensions: EXTENSIONS } as Record<string, unknown>,
 };
 
 export const FORMATS = [

@@ -36,7 +36,8 @@ the API's [security notes](https://github.com/Wauter/smart-subtitle-converter-ap
   for a link mid-call doesn't help. An allowed folder that is itself reached through a link (for example
   `/var` → `/private/var` on macOS) still works.
 - Only subtitle files are read, listed or written: the file name must end in a subtitle extension that the engine can
-  read (`.srt`, `.vtt`, `.stl`, …; the API's list from `GET /v1/limits`, or a built-in copy of it). Anything else,
+  read (`.srt`, `.vtt`, `.stl`, …; always the API's list from `GET /v1/limits`; there is no built-in copy). With an API too old to report it, local
+  files aren't read, listed or written at all (`api-too-old`). Anything else,
   including names without an extension, is `extension-not-allowed`. A chosen `outputPath` must also end in the
   extension of the format it produces.
 - A local folder with more than 5000 subtitle files and sub-folders isn't listed (`folder-too-large`); narrow it with

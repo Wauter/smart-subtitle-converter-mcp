@@ -349,8 +349,11 @@ describe("convert_subtitle", () => {
   it("D-36: /v1/limits 404 → documented defaults + mismatch warning; no multipart path exists", async () => {
     await setup({ jsonMaxDecodedBytes: 10 });
     mswServer.use(http.get(`${API}/v1/limits`, () => problem(404, "not-found")));
-    const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "webvtt", outputDir: path.join(dir, "out") });
+    const r = await callTool(h, "convert_subtitle", { content: SRT, fileName: "movie.srt", target: "webvtt" });
     expect(r.structuredContent.error).toMatchObject({ code: "precheck-too-large", limit: { name: "json.maxDecodedContentBytes", value: 10 } });
+    // Local files need the API's extension list, which an API without /v1/limits can't give.
+    const local = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "webvtt", outputDir: path.join(dir, "out") });
+    expect(local.structuredContent.error.code).toBe("api-too-old");
     expect(recorded.some((x) => x.path === "/v1/convert" || x.path === "/v1/convert/json")).toBe(false);
     expect(h.logs.some((l) => /\/v1\/limits returned 404/.test(l))).toBe(true);
   });
