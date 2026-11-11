@@ -3,48 +3,46 @@
 [![CI](https://github.com/Wauter/smart-subtitle-converter-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Wauter/smart-subtitle-converter-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**An MCP server that lets Claude, Cursor and other AI agents convert and check subtitles with Subtitle Edit's
-proven engine, with verified output, honest warnings, and access only to the folders you allow.**
+**An MCP server for converting and checking subtitles from Claude, Cursor or any other MCP client.**
 
-Ask your AI client to convert between SRT, WebVTT, TTML, ASS and broadcast formats such as EBU STL, PAC and
-Cavena 890, and to tell you whether anything was lost. The agent gets a verdict and a suggested fix it can act on,
-and your subtitle content never passes through the model.
+It handles SRT, WebVTT, TTML, ASS and broadcast formats such as EBU STL, PAC and Cavena 890. The agent is told
+whether anything was lost in the conversion and which setting fixes it. Files are passed by path, so subtitle
+text never enters the model's context.
 
 > **Built on Subtitle Edit.** Conversions run in the
 > [Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api), which wraps `libse`, the
 > library behind [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit) by **Nikolaj Olsson** (MIT).
 > This is a community project, **not an official Subtitle Edit project**.
 >
-> **Early software.** It works and is tested, but hasn't been through real-world use yet.
-> Expect changes, and please [report issues](https://github.com/Wauter/smart-subtitle-converter-mcp/issues).
+> **Early software.** Expect changes, and please
+> [report issues](https://github.com/Wauter/smart-subtitle-converter-mcp/issues).
 
-## How it fits together
+## How it works
 
 ```text
-AI client or agent  -->  Smart Subtitle Converter MCP  -->  Smart Subtitle Converter API  -->  libse
-(Claude, Cursor, ...)    (this repo; your local folders)    (one container; storage, jobs)     (Subtitle Edit's engine)
+AI client  -->  this MCP server  -->  Smart Subtitle Converter API  -->  libse (Subtitle Edit's engine)
 ```
 
-This [Model Context Protocol](https://modelcontextprotocol.io) server does no conversion itself. It gives AI agents
-the [Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api) and adds what an agent
-working on your files needs. To call the API from your own platform or automation instead, use the API directly.
+The MCP server does no conversion itself. It passes requests to the API, which runs in a container,
+and handles the files on your machine. If you want to call the converter from your own platform instead of an AI
+client, use the [API](https://github.com/Wauter/smart-subtitle-converter-api) directly.
 
-## Why use it
+## What you get
 
-- **The agent can tell you whether the output is right.** Binary broadcast outputs (EBU STL, PAC and others)
-  carry the API's `verification` verdict, and warnings carry a `hint` and structured `details`, such as a `remedy`
-  for lost characters.
-- **Subtitle content stays out of the model.** Files travel by `path`, so their contents don't pass through the
-  model's context. Content, keys and tokens are never logged.
-- **The agent only sees the folders you name.** It reads and writes only inside the folders in your settings
+- **A verdict on every broadcast output.** EBU STL, PAC and the other binary outputs are read back and reported
+  as `lossless`, `quantised`, `lossy` or `unverified`. Warnings carry a `hint` and structured `details`, such as a
+  `remedy` for lost characters.
+- **Subtitle text stays out of the model.** Files go by `path`. Content, keys and tokens are never logged.
+- **Access to named folders only.** The server reads and writes inside the folders you set
   (`SUBTITLE_MCP_ALLOWED_DIRS` / `SUBTITLE_MCP_READONLY_DIRS`). Read-only folders stay read-only.
 - **Subtitle files only.** It reads, lists and writes only files with a subtitle extension, never touches hidden
   files or folders (names starting with `.`), and never follows symbolic links
   ([security](docs/security.md#allowed-folders)).
-- **Writes are atomic.** Single files are staged and committed with a rename, and existing files are never
-  overwritten unless you allow it.
-- **Errors an agent can act on.** Errors have a stable `code`, a `hint` and, for path errors, the allowed folders.
-  If the setup is wrong, the agent is told what is wrong and how to fix it instead of seeing a closed connection.
+- **Atomic writes.** Single files are staged and committed with a rename. Existing files are never overwritten
+  unless you allow it.
+- **Errors the agent can act on.** Each has a stable `code`, a `hint` and, for path errors, the allowed folders.
+  With a broken setup the server still starts and every tool reports what to fix, so the agent doesn't just see a
+  closed connection.
 
 ## Quick start (Claude Code)
 
@@ -115,11 +113,9 @@ See [tools](docs/tools.md#api-storage-and-job-ids),
 
 ## Safeguards
 
-The usual setup is stdio: the server talks to one local client, not the network. It reaches only the folders you
-name, and the API applies its own key, host name and storage allowlist checks.
-
-**It has not been independently audited.** It is meant for a trusted environment, not for exposure to the public
-internet. Details: [docs/security.md](docs/security.md) and the API's
+The usual setup is stdio: the server talks to one local client, not the network. It has not been independently
+audited, and it is meant for a trusted environment, not the public internet. Details:
+[docs/security.md](docs/security.md) and the API's
 [security notes](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/security.md).
 
 ## Documentation
@@ -143,12 +139,11 @@ server adds an `mcp-api-version-mismatch` warning.
 
 ## Feedback and author
 
-This is early software, and reports from real files and real agent sessions are the most useful thing you can
-send. Please [open an issue](https://github.com/Wauter/smart-subtitle-converter-mcp/issues) for a bug, a confusing
-tool result, or a client that doesn't work.
+Bug reports are welcome, especially with the file and the client involved:
+[open an issue](https://github.com/Wauter/smart-subtitle-converter-mcp/issues).
 
-Built and maintained by [Wauter De Bruyne](https://www.linkedin.com/in/wauterdebruyne/), a hands-on solution
-architect working on media workflow automation for broadcasters, sports organisations and streaming platforms.
+Built by [Wauter De Bruyne](https://www.linkedin.com/in/wauterdebruyne/), a solution architect working on media
+workflow automation for broadcasters, sports organisations and streaming platforms.
 
 ## Credits and license
 
