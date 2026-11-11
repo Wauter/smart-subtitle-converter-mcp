@@ -16,6 +16,25 @@
     "type": "git",
     "url": "git+https://github.com/Wauter/smart-subtitle-converter-mcp.git"
   },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "ai-agents",
+    "claude",
+    "cursor",
+    "subtitles",
+    "subtitle-converter",
+    "closed-captions",
+    "srt",
+    "webvtt",
+    "ttml",
+    "ebu-stl",
+    "pac",
+    "subtitle-edit",
+    "broadcast",
+    "media-workflow"
+  ],
   "author": "Wauter De Bruyne",
   "license": "MIT",
   "bugs": {
