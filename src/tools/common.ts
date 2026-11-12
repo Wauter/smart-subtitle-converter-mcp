@@ -1,7 +1,7 @@
 import { z, type ZodTypeAny } from "zod";
 import type { McpServer, RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult, ContentBlock, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
-import { errorText, FieldError, mcpError, ToolFailure, ToolErrorSchema, Warning, type ToolError, type WarningT } from "../errors.js";
+import { FieldError, mcpError, ToolFailure, ToolErrorSchema, Warning, type ToolError, type WarningT } from "../errors.js";
 import { newCallId, withSuffix } from "../ids.js";
 import { newStats, type CallCtx } from "../api/client.js";
 import { capsFrom, type Caps } from "../api/limits.js";
@@ -13,12 +13,14 @@ import { mcpErrorFromZod } from "./zodError.js";
 import { apiInfo, mismatchWarning } from "../api/info.js";
 import { extensionCheckSkippedWarning } from "../fs/extensions.js";
 import { probeApi } from "../probe.js";
+import { toolResult } from "../result.js";
 
 export { FieldError, Warning };
 
 export interface ToolOutcome {
+  /** The whole result: sent as structuredContent and/or as its JSON in a text block (SUBTITLE_MCP_RESULT_IN). */
   structured: Record<string, unknown>;
-  summary: string;
+  /** Extra content blocks kept in every mode (an attached file, a resource_link). */
   blocks?: ContentBlock[];
   logFields?: Record<string, unknown>;
 }
@@ -31,7 +33,10 @@ export interface ToolDef<S extends Record<string, z.ZodType>> {
   shape: S;
   output: Record<string, z.ZodType>;
   annotations: ToolAnnotations;
-  /** structured.warnings is a Warning[] ({code,message}); the version-mismatch warning may be added there. */
+  /**
+   * structured.warnings is a Warning[] ({code,message}); the version-mismatch warning is added there. Without it, that
+   * warning goes in `warnings` when the tool has no warnings of its own, otherwise in `serverWarnings`.
+   */
   warningArray?: boolean;
   handler: (args: z.infer<z.ZodObject<S>>, call: Call) => Promise<ToolOutcome>;
 }
@@ -79,11 +84,16 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
       inputSchema: strict as unknown as S,
       // The client SDK validates structured errors too, even when isError=true. Advertise
       // both shapes; success is still validated against the original required shape below.
-      outputSchema: {
-        ...Object.fromEntries(Object.entries(def.output).map(([key, value]) => [key, value.optional()])),
-        error: ToolErrorSchema.optional(),
-        warnings: errorWarnings(def.output.warnings),
-      },
+      // SUBTITLE_MCP_RESULT_IN=content sends no structuredContent, so no outputSchema is declared (the spec requires
+      // structured results that conform to it when one is).
+      ...(deps.cfg.resultIn === "content" ? {} : {
+        outputSchema: {
+          ...Object.fromEntries(Object.entries(def.output).map(([key, value]) => [key, value.optional()])),
+          error: ToolErrorSchema.optional(),
+          warnings: errorWarnings(def.output.warnings),
+          ...(serverWarningsKey(def) === "serverWarnings" ? { serverWarnings: z.array(Warning).optional().describe("MCP server warnings (e.g. an API version mismatch), separate from the tool's own warnings") } : {}),
+        },
+      }),
       annotations: { title: def.title, openWorldHint: false, ...def.annotations },
     },
     (async (rawArgs: unknown, extra: any): Promise<CallToolResult> => {
@@ -117,17 +127,12 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
         // skipped extension check (an older API without storage.extensions).
         for (const w of [mismatchWarning(), call.extensionCheckSkipped ? extensionCheckSkippedWarning(apiInfo.version) : undefined]) {
           if (!w) continue;
-          if (def.warningArray) {
-            if (!Array.isArray(out.structured.warnings)) out.structured.warnings = [];
-            (out.structured.warnings as WarningT[]).push(w);
-          }
-          out.summary += `\nWarning ${w.code}: ${w.message}`;
+          const key = serverWarningsKey(def);
+          if (!Array.isArray(out.structured[key])) out.structured[key] = [];
+          (out.structured[key] as WarningT[]).push(w);
         }
         z.object(def.output).passthrough().parse(out.structured);
-        return {
-          content: [{ type: "text", text: out.summary }, ...(out.blocks ?? [])],
-          structuredContent: out.structured,
-        };
+        return toolResult(deps.cfg.resultIn, out.structured, out.blocks);
       } catch (err) {
         outcome = "error";
         const tf = err instanceof ToolFailure ? err : internalFailure(err, deps);
@@ -139,10 +144,7 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
         for (const mm of [mismatchWarning(), call.extensionCheckSkipped ? extensionCheckSkippedWarning(apiInfo.version) : undefined])
           if (mm && !tf.warnings.some((w) => w.code === mm.code)) tf.warnings.push(mm);
         if (tf.warnings.length) structured.warnings = tf.warnings;
-        let text = errorText(tf.toolError);
-        if (tf.warnings.length) text += "\n" + tf.warnings.map((w) => `Warning ${w.code}: ${w.message}`).join("\n");
-        if ((tf as any).partialText) text += "\n" + (tf as any).partialText;
-        return { isError: true, content: [{ type: "text", text }], structuredContent: structured };
+        return toolResult(deps.cfg.resultIn, structured, [], true);
       } finally {
         deps.log.info("tool", {
           tool: def.name,
@@ -168,6 +170,11 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
   }
 }
 
+/** Where server warnings (version mismatch, skipped extension check) go on a success result. */
+function serverWarningsKey(def: ToolDef<any>): "warnings" | "serverWarnings" {
+  return def.warningArray || !def.output.warnings ? "warnings" : "serverWarnings";
+}
+
 /**
  * Error results carry Warning[] in `warnings`. A success shape that already is Warning[] keeps its own schema (once,
  * not listed twice); a different success shape (e.g. profile FieldError[]) is unioned with Warning[].
@@ -184,10 +191,9 @@ function internalFailure(err: unknown, deps: Deps): ToolFailure {
   return mcpError("internal-error", `Unexpected MCP error: ${(err as Error)?.message ?? String(err)}`, "This is an MCP bug; report it with the requestId.");
 }
 
-/** Attaches already-committed outputs to an error result (structured + text). */
-export function withPartial(tf: ToolFailure, partial: Record<string, unknown>, text?: string): ToolFailure {
+/** Attaches already-committed outputs to an error result. */
+export function withPartial(tf: ToolFailure, partial: Record<string, unknown>): ToolFailure {
   (tf as any).partial = partial;
-  if (text) (tf as any).partialText = text;
   return tf;
 }
 
@@ -271,11 +277,6 @@ export function logSource(deps: Deps, call: Call, src: SourceInput): void {
   if (src.input !== undefined) call.log.inputHash = deps.log.p(redactInput(src.input));
   else if (src.callerPath) call.log.inputHash = deps.log.p(src.callerPath);
   else if (src.fileName) call.log.inputHash = deps.log.p(src.fileName);
-}
-
-/** Human name of the source for summaries: the file name, else the API input's last segment, else "content". */
-export function sourceLabel(src: SourceInput): string {
-  return src.fileName ?? (src.input !== undefined ? inputBaseName(src.input) ?? redactInput(src.input) : undefined) ?? "content";
 }
 
 /** §4.2: path → base64 of raw bytes with fileName=basename; inline content validated. */
@@ -399,24 +400,6 @@ export function mapVerification(v: any): VerificationT | undefined {
   return out;
 }
 
-const cuesText = (l: { total: number; cues: number[] }) => `${l.cues.join(", ")}${l.total > l.cues.length ? ", …" : ""}`;
-
-/** One compact line, e.g. "lossy: 3/3 cues read back; 50 chars replaced in cues 1, 2, 3 (U+03B1×5, …); timing max 13 ms (frame 41.7 ms)". */
-export function verificationText(v: VerificationT): string {
-  if (v.verdict === "unverified") return `unverified (${v.reason ?? "the read-back failed"})`;
-  const parts = [`${v.cuesReadBack ?? "?"}/${v.cuesWritten} cues read back`];
-  if (v.missingCues?.total) parts.push(`${v.missingCues.total} cue(s) missing: ${cuesText(v.missingCues)}`);
-  if (v.replacedChars?.total) {
-    const r = v.replacedChars;
-    const cps = r.codePoints.slice(0, 3).map((c) => `${c.codePoint}×${c.count}`).join(", ");
-    parts.push(`${r.total} char(s) replaced in cue(s) ${cuesText({ total: r.cueCount, cues: r.cues })}${cps ? ` (${cps}${r.distinctCodePoints > 3 ? ", …" : ""})` : ""}`);
-  }
-  if (v.truncatedCues?.total) parts.push(`text truncated in cue(s) ${cuesText(v.truncatedCues)}`);
-  if (v.zeroLengthCues?.total) parts.push(`zero-length cue(s) ${cuesText(v.zeroLengthCues)} not stored at their own time`);
-  if (v.timing) parts.push(`timing max ${v.timing.maxShiftMs} ms, mean ${v.timing.meanShiftMs} ms (frame ${v.timing.frameMs} ms${v.timing.cuesOverOneFrame ? `; ${v.timing.cuesOverOneFrame} cue(s) moved more than a frame` : ""})`);
-  return `${v.verdict}: ${parts.join("; ")}`;
-}
-
 export function mapDetected(d: any): z.infer<typeof DetectedOutput> | null {
   if (!d || typeof d !== "object") return null;
   const out: z.infer<typeof DetectedOutput> = {
@@ -478,13 +461,6 @@ function mapRemedy(r: any): NonNullable<WarningT["details"]>["remedy"] | undefin
     if (v) out[k] = v;
   }
   return out;
-}
-
-/** "code: message (hint: …)" for summaries. */
-export function warningText(w: WarningT): string {
-  const r = w.details?.remedy;
-  const opts = !w.hint && r?.option && r.candidates?.length ? ` (options for ${r.option}: ${r.candidates.join(", ")}; or target ${r.unicodeAlternative})` : "";
-  return `${w.code}: ${w.message}${w.hint ? ` (hint: ${w.hint})` : opts}`;
 }
 
 export function fieldErrors(v: unknown): z.infer<typeof FieldError>[] {

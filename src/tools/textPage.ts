@@ -148,14 +148,6 @@ export function checkCursor(c: Cursor, key: string, fp: string, s: Segments): vo
     throw mcpError("preview-cursor-invalid", "`cursor` does not point into this file's text (its unit or position was not issued by preview_text for these bytes).", `Pass the \`next\` value from the previous page unchanged. ${RESTART}`);
 }
 
-/** One summary sentence for a partial page, e.g. "Showing cues 1–402 of 5020 (65431 of 812004 bytes)." */
-export function pageText(p: { unit: Unit; from: number; to: number; total: number; returnedBytes: number; totalBytes: number; truncated: boolean }): string {
-  if (p.total === 0) return " The file is empty.";
-  const all = p.from === 1 && !p.truncated;
-  if (all) return ` Showing all ${p.total} ${p.unit}${p.total === 1 ? "" : "s"} (${p.totalBytes} bytes).`;
-  return ` Showing ${p.unit}s ${p.from}–${p.to} of ${p.total} (${p.returnedBytes} of ${p.totalBytes} bytes).${p.truncated ? " MORE TEXT FOLLOWS: pass `next` as `cursor` to read the next page." : " This is the last page."}`;
-}
-
 /** Last path segment of an API location (bare path, file:, s3: or https: URI), decoded; undefined if none. */
 export function locationBaseName(location: string): string | undefined {
   let pathname: string;

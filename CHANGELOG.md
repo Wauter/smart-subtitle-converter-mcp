@@ -11,6 +11,17 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
 
 ## Unreleased
 
+- Tool results carry the same information in both parts by default: `structuredContent`, and that object as JSON
+  in the first text block (the spec's backwards-compatibility recommendation). The text block used to be a short
+  human-readable summary; it is now the JSON for every tool, success and error. Attached files and
+  `resource_link` blocks are unchanged. Why: [docs/tools.md](docs/tools.md#why-results-are-sent-twice).
+- New setting `SUBTITLE_MCP_RESULT_IN` (`both`, the default; `structured`; `content`) keeps one part only. With
+  `content`, tools declare no `outputSchema`. An invalid value fails startup with the accepted values. The startup
+  instructions mention it when results are sent in both parts.
+- Information that was only in the summary is now in the result object: `detect_format` and `list_formats` have a
+  `hint` (a guessed encoding, an empty format list), and the API version-mismatch warning goes in `warnings`, or
+  in `serverWarnings` for tools whose own `warnings` are profile field warnings (`validate_profile`,
+  `get_profile`).
 - Frame rates (pairs with the API's change): the API no longer assumes 23.976 fps for formats that store frame
   numbers without a rate (PAC, Cavena 890, …) and answers `frame-rate-required` instead. The `convert_subtitle`
   description explains `profile.source.fps` / `profile.target.fps`, and the MCP adds a hint not to guess the rate.

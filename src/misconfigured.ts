@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { errorText, type ToolError } from "./errors.js";
+import type { ToolError } from "./errors.js";
+import type { ResultIn } from "./config.js";
+import { toolResult } from "./result.js";
 
 /**
  * "Not configured" mode (stdio only): a recoverable configuration problem (API URL, API key file, allowed folders,
@@ -23,13 +24,13 @@ export function misconfiguredInstructions(m: Misconfig): string {
   return `NOT CONFIGURED: this subtitle converter MCP server started without a working configuration, so every tool returns mcp-misconfigured. Problem: ${m.problem} Fix: ${m.fix}${RESTART} Tell the user this before trying any tool.`;
 }
 
-export function createMisconfiguredServer(m: Misconfig, version: string): McpServer {
+export function createMisconfiguredServer(m: Misconfig, version: string, resultIn: ResultIn = "both"): McpServer {
   const server = new McpServer(
     { name: "smart-subtitle-converter-mcp", title: "Smart Subtitle Converter MCP (not configured)", version },
     { capabilities: { tools: {} }, instructions: misconfiguredInstructions(m) },
   );
   const error = misconfiguredError(m);
-  const result = (): CallToolResult => ({ isError: true, content: [{ type: "text", text: errorText(error) }], structuredContent: { error } });
+  const result = () => toolResult(resultIn, { error }, [], true);
   for (const name of TOOL_NAMES)
     server.registerTool(name, { title: name, description: `Unavailable: this MCP server is not configured (${m.problem}) Every call returns mcp-misconfigured with the fix.` }, result);
   return server;
@@ -42,6 +43,7 @@ export function fixFor(message: string): string {
     return "Point SUBTITLE_API_KEY_FILE at a file your user can read that holds the API key: copy the first key from the API's api_keys.txt, e.g. `sudo grep -v -e '^#' -e '^$' api_keys.txt | head -n 1 > ~/subtitle-api-key.txt && chmod 600 ~/subtitle-api-key.txt`, or set SUBTITLE_API_KEY instead.";
   if (/SUBTITLE_API_URL/.test(message)) return "Set SUBTITLE_API_URL to the converter API's base URL without a path, query or fragment, e.g. http://localhost:8080 (the host port the API publishes).";
   if (/allowed folder/.test(message)) return "Fix SUBTITLE_MCP_ALLOWED_DIRS / SUBTITLE_MCP_READONLY_DIRS (or --allow-dir / --allow-dir-ro): each entry must be an absolute path to an existing folder, separated by ':' (';' on Windows) or as a JSON array.";
+  if (/SUBTITLE_MCP_RESULT_IN/.test(message)) return "Set SUBTITLE_MCP_RESULT_IN to both (the default), structured or content, or remove it.";
   if (/unknown environment variable/.test(message)) return "Check the spelling against docs/configuration.md, or remove the variable from this server's environment.";
   return "Correct this setting in this server's environment (Claude Code: `claude mcp add --env`, or the server's `env` block in the MCP settings); every setting is in docs/configuration.md.";
 }

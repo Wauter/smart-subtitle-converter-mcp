@@ -244,31 +244,3 @@ export function mapCandidates(v: unknown[]): CandidateT[] {
   return out;
 }
 
-/** "windows-1256 (ar, 12 words): \"sample\"" for an object candidate; strings as they are. */
-export function candidateText(c: CandidateT): string {
-  if (typeof c === "string") return c;
-  const facts = [c.language, c.hits !== undefined ? `${c.hits} word${c.hits === 1 ? "" : "s"}` : undefined].filter(Boolean).join(", ");
-  return `${c.encoding}${facts ? ` (${facts})` : ""}${c.sample ? `: ${JSON.stringify(c.sample)}` : ""}`;
-}
-
-/** Text block for an error result: "<code>: <detail>\nHint: <hint>\nrequestId: <id>". */
-export function errorText(e: ToolError): string {
-  let s = `${e.code}: ${e.detail ?? e.title ?? "error"}`;
-  // A single field error is already spelled out in detail ("Invalid arguments: /which: …"); don't repeat it.
-  const single = e.errors?.length === 1 && e.detail?.includes(`${e.errors[0].pointer}: ${e.errors[0].message}`);
-  if (e.errors?.length && !single) s += "\n" + e.errors.slice(0, 10).map((x) => `  ${x.pointer}: ${x.message}${x.hint ? ` (${x.hint})` : ""}`).join("\n");
-  if (e.candidates?.length) {
-    s += e.candidates.some((c) => typeof c !== "string")
-      ? `\nCandidates:\n${e.candidates.map((c) => `  - ${candidateText(c)}`).join("\n")}`
-      : `\nCandidates: ${e.candidates.join(", ")}`;
-  }
-  if (e.probe) s += `\nProbe: ${e.probe}`;
-  if (e.osError) s += `\nOS error: ${e.osError.code}${e.osError.syscall ? ` (${e.osError.syscall})` : ""}`;
-  if (e.limit) s += `\nLimit ${e.limit.name}=${e.limit.value}, actual ${e.limit.actual}`;
-  if (e.retryAfterSeconds !== undefined) s += `\nRetry after: ${e.retryAfterSeconds}s`;
-  if (e.hint) s += `\nHint: ${e.hint}`;
-  if (e.location) s += `\nLocation: ${e.location}`;
-  if (e.jobId) s += `\njobId: ${e.jobId}${e.jobUrl ? ` (${e.jobUrl})` : ""}`;
-  if (e.requestId) s += `\nrequestId: ${e.requestId}`;
-  return s;
-}

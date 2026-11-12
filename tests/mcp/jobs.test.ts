@@ -66,12 +66,12 @@ describe("API locations and jobs", () => {
     const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
     expect(r.structuredContent.jobId).toBe(id); expect(r.content[1].resource.text).toBe("\uFEFFWEBVTT\n");
   });
-  it("logs API inputs by scheme and names them in the summary, never as inline content", async () => {
+  it("logs API inputs by scheme, never as inline content", async () => {
     h = await harness(); mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.vtt", content: "WEBVTT\n" }], { id }))));
     for (const [input, kind] of [["s3://subs/in/show.srt", "s3"], ["file:///data/in/show.srt", "file"], ["/data/in/show.srt", "file"], ["https://mam.example.com/in/show.srt?X-Amz-Signature=secret", "https"]]) {
       h.logs.length = 0;
       const r = await callTool(h, "convert_subtitle", { input, target: "vtt" });
-      expect(r.content[0].text).toMatch(/^Converted show\.srt \(/);
+      expect(r.structuredContent.outputs[0].fileName).toBe("a.vtt");
       const line = h.logs.map((l) => JSON.parse(l)).find((l: any) => l.tool === "convert_subtitle");
       expect(line).toMatchObject({ source: kind, inputExt: ".srt" }); expect(line.attempts).toBe(1);
     }

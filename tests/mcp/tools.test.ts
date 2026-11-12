@@ -34,7 +34,7 @@ describe("metadata tools", () => {
     expect(r.structuredContent.formats.map((f: any) => f.id)).toEqual(["subrip", "webvtt", "ebustl", "avidstl"]);
     expect(recorded.at(-1)!.path).toBe("/v1/formats");
     expect(recorded.at(-1)!.url).toContain("kind=text%2Cbinary");
-    expect(r.content[0].text).toMatch(/ebustl \| EBU STL \(\.stl\) \| binary \| read\/write/);
+    expect(r.structuredContent.formats.find((f: any) => f.id === "ebustl")).toMatchObject({ name: "EBU STL", kind: "binary", canRead: true, canWrite: true });
     r = await callTool(h, "list_formats", { includeBinary: false });
     expect(r.structuredContent.formats.map((f: any) => f.id)).toEqual(["subrip", "webvtt"]);
     expect(recorded.at(-1)!.url).toMatch(/kind=text(&|$)/);
@@ -49,9 +49,9 @@ describe("metadata tools", () => {
   it("list_formats: empty text-only result suggests dropping includeBinary: false", async () => {
     mswServer.use(http.get(`${API}/v1/formats`, () => HttpResponse.json([])));
     let r = await callTool(h, "list_formats", { includeBinary: false, query: "stl" });
-    expect(r.content[0].text).toMatch(/No formats matching 'stl'\. Try a broader query or drop includeBinary: false\./);
+    expect(r.structuredContent).toMatchObject({ formats: [], total: 0, hint: "No formats matching 'stl'. Try a broader query or drop includeBinary: false." });
     r = await callTool(h, "list_formats", { query: "zzz" });
-    expect(r.content[0].text).toMatch(/No formats matching 'zzz'\. Try a broader query\.$/m);
+    expect(r.structuredContent.hint).toBe("No formats matching 'zzz'. Try a broader query.");
   });
 
   it("D-36 sanity check: items without `kind` → version-mismatch log warning, treated as text, no fallback mode", async () => {
@@ -67,14 +67,14 @@ describe("metadata tools", () => {
     apiInfo.version = "1.0.0";
     apiInfo.versionMismatch = true;
     const r = await callTool(h, "list_formats", {});
-    expect(r.content[0].text).toMatch(/mcp-api-version-mismatch: API version 1\.0\.0 is not compatible with this MCP \(1\.4\.x\)/);
+    expect(r.structuredContent.warnings).toEqual([expect.objectContaining({ code: "mcp-api-version-mismatch", message: expect.stringMatching(/API version 1\.0\.0 is not compatible with this MCP \(1\.4\.x\)/) })]);
 
     // Tools whose `warnings` are FieldErrors keep a valid output schema (found by the contract run).
     mswServer.use(http.post(`${API}/v1/profiles/validate`, () => HttpResponse.json({ valid: true, errors: [], warnings: [{ pointer: "/target/format", message: "No target format" }], resolved: {} })));
     const v = await callTool(h, "validate_profile", { profile: {} });
     expect(v.isError).toBeFalsy();
     expect(v.structuredContent.warnings).toEqual([{ pointer: "/target/format", message: "No target format" }]);
-    expect(v.content[0].text).toMatch(/mcp-api-version-mismatch/);
+    expect(v.structuredContent.serverWarnings).toEqual([expect.objectContaining({ code: "mcp-api-version-mismatch" })]);
   });
 
   it("list_presets + get_profile (+ preset-not-found)", async () => {
@@ -89,10 +89,10 @@ describe("metadata tools", () => {
       ),
     );
     let r = await callTool(h, "list_presets", {});
-    expect(r.content[0].text).toBe("srt-to-vtt → webvtt (builtin)\nbroken → ? (mounted) INVALID: bad");
+    expect(r.structuredContent.presets).toEqual([expect.objectContaining({ name: "srt-to-vtt", target: "webvtt", origin: "builtin", valid: true }), expect.objectContaining({ name: "broken", target: null, origin: "mounted", valid: false, errors: [{ pointer: "/target", message: "bad" }] })]);
     expect(r.structuredContent.profilesDir).toBe("/profiles");
     r = await callTool(h, "get_profile", { name: "srt-to-vtt" });
-    expect(r.content[0].text).toBe("srt-to-vtt (builtin) → webvtt, valid. Operations: FixCommonErrors.");
+    expect(r.structuredContent).toMatchObject({ name: "srt-to-vtt", origin: "builtin", target: "webvtt", valid: true, resolved: { operations: [{ id: "FixCommonErrors" }] } });
     r = await callTool(h, "get_profile", { name: "a/b c" });
     expect(r.isError).toBe(true);
     expect(r.structuredContent.error).toMatchObject({ source: "api", status: 404, code: "preset-not-found" });
@@ -104,7 +104,7 @@ describe("metadata tools", () => {
     mswServer.use(http.post(`${API}/v1/profiles/validate`, () => HttpResponse.json({ valid: false, errors: [{ pointer: "/target/format", message: "Unknown format 'x'.", hint: "Did you mean 'webvtt'?" }], warnings: [], resolved: null })));
     const r = await callTool(h, "validate_profile", { profile: { target: { format: "x" } } });
     expect(r.isError).toBeFalsy();
-    expect(r.content[0].text).toBe("The profile is INVALID (1 error):\n  /target/format: Unknown format 'x'. (Did you mean 'webvtt'?)");
+    expect(r.structuredContent).toMatchObject({ valid: false, errors: [{ pointer: "/target/format", message: "Unknown format 'x'.", hint: "Did you mean 'webvtt'?" }] });
   });
 
   it("detect_format 1.2.0: bom, lineEndings and source warnings", async () => {
@@ -113,19 +113,17 @@ describe("metadata tools", () => {
     expect(r.structuredContent.bom).toBe(true);
     expect(r.structuredContent.lineEndings).toBe("crlf");
     expect(r.structuredContent.warnings[0]).toMatchObject({ code: "zero-length-cue", hint: "Remove them.", details: { cueCount: 1, cues: [1] } });
-    expect(r.content[0].text).toContain("BOM, line endings crlf.");
-    expect(r.content[0].text).toContain("\nWarning zero-length-cue: 1 cue(s) …: cue(s) 1. (count 1) (hint: Remove them.)");
   });
 
-  it("detect_format: summary, heuristic note, format-not-detected hint", async () => {
+  it("detect_format: fields, heuristic hint, format-not-detected hint", async () => {
     mswServer.use(http.post(`${API}/v1/detect`, () => HttpResponse.json({ format: "SubRip", id: "subrip", encoding: "windows-1252", encodingConfidence: "heuristic", language: "en", paragraphs: "812", candidates: ["MicroDvd"], kind: "text" })));
     let r = await callTool(h, "detect_format", { content: SRT, fileName: "m.srt" });
     expect(r.structuredContent.paragraphs).toBe(812);
-    expect(r.content[0].text).toBe("SubRip (subrip), windows-1252 (heuristic), en, 812 cues. Other candidates: MicroDvd. Encoding was guessed; if characters look wrong, convert with `profile.encoding.input` set.");
+    expect(r.structuredContent).toMatchObject({ format: "SubRip", id: "subrip", encoding: "windows-1252", encodingConfidence: "heuristic", language: "en", candidates: ["MicroDvd"], hint: "Encoding was guessed; if characters look wrong, convert with `profile.encoding.input` set." });
     mswServer.use(http.post(`${API}/v1/detect`, () => problem(422, "format-not-detected")));
     r = await callTool(h, "detect_format", { content: "garbage" });
     expect(r.structuredContent.error.code).toBe("format-not-detected");
-    expect(r.content[0].text).toMatch(/Hint: API hint\. Set profile\.source\.format/);
+    expect(r.structuredContent.error.hint).toMatch(/^API hint\. Set profile\.source\.format/);
   });
 
   it("invalid arguments come back as invalid-arguments tool errors", async () => {
@@ -160,7 +158,7 @@ describe("convert_subtitle", () => {
     mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "movie.vtt", content: "WEBVTT\n" }]))));
     const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "webvtt" });
     expect(r.isError).toBeFalsy();
-    expect(r.content[0].text).toBe("Converted movie.srt (SubRip, utf-8, en) → movie.vtt (WebVTT, utf-8): 1 → 1 cues in 4 ms. The whole converted file is attached as an embedded resource; use outputPath/outputDir to write it to disk instead.");
+    expect(r.structuredContent).toMatchObject({ detected: { format: "SubRip", encoding: "utf-8", language: "en" }, outputs: [{ fileName: "movie.vtt", format: "WebVTT", encoding: "utf-8", attached: true }], stats: { paragraphsIn: 1, paragraphsOut: 1 } });
     // This mock answers in text form, which (like the real API) has no BOM; utf-8 means with BOM, so it is restored.
     expect(r.content[1]).toMatchObject({ type: "resource", resource: { mimeType: "text/vtt", text: "\uFEFFWEBVTT\n" } });
     expect(r.content).toHaveLength(2);
@@ -193,7 +191,6 @@ describe("convert_subtitle", () => {
     expect(JSON.stringify(r.structuredContent)).not.toMatch(/AQID|Hello world/);
     expect(r.structuredContent.jobId).toBe("job123");
     expect(r.structuredContent.hint).toBe("The whole file is in the attached embedded resource; save it to disk and read it locally if you need the text. To preview it with preview_text instead, convert with an API `output` location.");
-    expect(r.content[0].text).toContain("whole converted file is attached as an embedded resource");
     expect(r.content[0].text).not.toMatch(/TRUNCATED|Hello world/);
   });
 
@@ -249,7 +246,6 @@ describe("convert_subtitle", () => {
     const r = await callTool(h, "convert_subtitle", { input: "s3://in/show.stl", output: "s3://broadcast-delivery/qa-p6/test2-145152.srt", target: "srt" });
     expect(r.structuredContent.outputs[0]).toMatchObject({ fileName: "test2-145152.srt", output: "s3://broadcast-delivery/qa-p6/test2-145152.srt", bytes: 271 });
     expect(r.structuredContent.outputs[0].text).toBeUndefined();
-    expect(r.content[0].text).toContain("→ test2-145152.srt (");
   });
 
   it("outputDir: writes the API's bytes verbatim via base64, resource_link, warnings passed through", async () => {
@@ -262,7 +258,6 @@ describe("convert_subtitle", () => {
     expect(r.structuredContent.outputs[0]).toMatchObject({ writtenTo: path.join(dir, "out", "movie.vtt"), action: "written" });
     expect(r.structuredContent.warnings).toEqual([{ code: "frame-rate-changed", message: "29.97 → 30 fps" }]);
     expect(r.content[1]).toMatchObject({ type: "resource_link", name: "movie.vtt" });
-    expect(r.content[0].text).toMatch(/1 warning: frame-rate-changed: 29.97 → 30 fps/);
   });
 
   it("explicit existing outputPath under error → output-exists with zero conversion calls", async () => {
@@ -381,15 +376,15 @@ describe("convert_subtitle", () => {
     expect(convertCalls()).toHaveLength(1);
   });
 
-  it("frame-rate-changed is passed through and gets its own summary line", async () => {
+  it("frame-rate-changed is passed through", async () => {
     await setup();
     mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.stl", content: "AAAA", contentEncoding: "base64" }], { warnings: [{ code: "frame-rate-changed", message: "29.97 → 30 fps (STL30.01); set formatOptions.ebuStl.frameRate or headerFromSource:false." }] }))));
     const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "ebustl", outputDir: path.join(dir, "out") });
     expect(r.structuredContent.warnings[0].code).toBe("frame-rate-changed");
-    expect(r.content[0].text.split("\n")[1]).toMatch(/^Frame rate changed: 29\.97 → 30 fps/);
+    expect(r.structuredContent.warnings[0].message).toMatch(/^29\.97 → 30 fps/);
   });
 
-  it("1.2.0: verification is passed through and summarised; warnings keep hint and details", async () => {
+  it("1.2.0: verification is passed through; warnings keep hint and details", async () => {
     await setup();
     const verification = {
       verdict: "lossy", cuesWritten: 3, cuesReadBack: 3,
@@ -412,12 +407,9 @@ describe("convert_subtitle", () => {
     expect(r.isError).toBeFalsy();
     expect(r.structuredContent.outputs[0].verification).toEqual(verification);
     expect(r.structuredContent.warnings[0]).toEqual({ code: "characters-replaced", message: `${warning.message} (count 50)`, hint: warning.hint, details: warning.details });
-    const text = r.content[0].text;
-    expect(text).toContain("Verification of movie.pac: lossy: 3/3 cues read back; 50 char(s) replaced in cue(s) 1, 2, 3 (U+03B1×5, U+03B9×4, U+03B5×3, …); timing max 13 ms, mean 4.3 ms (frame 41.7 ms).");
-    expect(text).toContain('(hint: Set formatOptions.pac.codePage to "greek".)');
   });
 
-  it("1.2.1: remedy without a hint renders the candidates; null members are dropped", async () => {
+  it("1.2.1: remedy without a hint keeps the candidates; null members are dropped", async () => {
     await setup();
     const warning = {
       code: "characters-replaced", message: "4 character(s) lost", count: 4,
@@ -429,18 +421,17 @@ describe("convert_subtitle", () => {
     const rm = r.structuredContent.warnings[0].details.remedy;
     expect(rm.suggested).toBeUndefined();
     expect(rm.candidates).toEqual(["chinese-traditional", "chinese-simplified"]);
-    expect(r.content[0].text).toContain("(options for formatOptions.pac.codePage: chinese-traditional, chinese-simplified; or target fpc)");
   });
 
-  it("1.2.0: unverified verdict shows its reason; zero-length cues are named", async () => {
+  it("1.2.0: unverified verdict keeps its reason; zero-length cues are listed", async () => {
     await setup();
     mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([
       { fileName: "a.stl", content: "AAAA", contentEncoding: "base64", verification: { verdict: "lossy", cuesWritten: 3, cuesReadBack: 3, timing: { maxShiftMs: 0, meanShiftMs: 0, frameMs: 40, cuesOverOneFrame: 0 }, zeroLengthCues: { total: 1, cues: [1] } } },
       { fileName: "a.pac", content: "AAAA", contentEncoding: "base64", verification: { verdict: "unverified", cuesWritten: 3, reason: "read-back failed: IndexOutOfRangeException" } },
     ]))));
     const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "ebustl", outputDir: path.join(dir, "out") });
-    expect(r.content[0].text).toContain("Verification of a.stl: lossy: 3/3 cues read back; zero-length cue(s) 1 not stored at their own time;");
-    expect(r.content[0].text).toContain("Verification of a.pac: unverified (read-back failed: IndexOutOfRangeException).");
+    expect(r.structuredContent.outputs[0].verification).toMatchObject({ verdict: "lossy", zeroLengthCues: { total: 1, cues: [1] } });
+    expect(r.structuredContent.outputs[1].verification).toMatchObject({ verdict: "unverified", reason: "read-back failed: IndexOutOfRangeException" });
   });
 
   it("1.2.0: ambiguous-format becomes a ToolError with candidates and a profile.source.format hint", async () => {
@@ -460,7 +451,6 @@ describe("convert_subtitle", () => {
     expect(r.isError).toBe(true);
     expect(r.structuredContent.error).toMatchObject({ code: "ambiguous-encoding", candidates: ["pac-latin", "pac-czech"], probe: "pac-code-page" });
     expect(r.content[0].text).toMatch(/profile\.formatOptions\.pac\.inputCodePage/);
-    expect(r.content[0].text).toContain("\nCandidates: pac-latin, pac-czech\n");
   });
 
   it("follow-up source/header warnings pass through with their details (no MCP-only codes)", async () => {
@@ -484,7 +474,7 @@ describe("convert_subtitle", () => {
     expect(out[2].details).toEqual({ timecode: "10:00:00:00" });
     expect(out[3].details).toEqual({ cueCount: 2 });
     expect(out[4]).toMatchObject({ code: "format-defaults-applied", message: "filled in (count 2)", details: { fields: { originalProgrammeTitle: "No Title", countryOfOrigin: "USA" } } });
-    expect(r.content[0].text).toContain("format-defaults-applied: filled in (count 2) (hint: Set formatOptions.ebuStl.originalProgrammeTitle, countryOfOrigin)");
+    expect(out[4].hint).toBe("Set formatOptions.ebuStl.originalProgrammeTitle, countryOfOrigin");
   });
 
   it("D-38: staging happens in <root>/.subtitle-mcp-staging/, never in the output folder", async () => {

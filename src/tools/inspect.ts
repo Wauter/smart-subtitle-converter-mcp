@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Deps } from "../context.js";
 import { mcpError } from "../errors.js";
 import { readFileChecked } from "../fs/guard.js";
-import { apiStorageDescription, DetectedOutput, defineTool, logSource, ebuSizeWarning, exactlyOne, fieldErrors, FieldError, getCaps, loadSource, refreshToolDescriptions, mapDetected, mapWarnings, requirePathsAllowed, Warning, warningText } from "./common.js";
+import { apiStorageDescription, DetectedOutput, defineTool, logSource, ebuSizeWarning, exactlyOne, fieldErrors, FieldError, getCaps, loadSource, refreshToolDescriptions, mapDetected, mapWarnings, requirePathsAllowed, Warning } from "./common.js";
 
 const RO = { readOnlyHint: true, idempotentHint: true } as const;
 
@@ -40,10 +40,7 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
       const res = await deps.api.request({ method: "POST", path: "/v1/profiles/validate", kind: "conversion", raw: { body, contentType: "application/json" } }, call);
       const v: any = res.json ?? {};
       const out = { valid: !!v.valid, errors: fieldErrors(v.errors), warnings: fieldErrors(v.warnings), resolved: v.resolved && typeof v.resolved === "object" ? v.resolved : null };
-      const lines = [out.valid ? "The profile is valid." : `The profile is INVALID (${out.errors.length} error${out.errors.length === 1 ? "" : "s"}):`];
-      for (const e of out.errors) lines.push(`  ${e.pointer}: ${e.message}${e.hint ? ` (${e.hint})` : ""}`);
-      if (out.warnings.length) lines.push(`Warnings:`, ...out.warnings.map((w) => `  ${w.pointer}: ${w.message}`));
-      return { structured: out, summary: lines.join("\n") };
+      return { structured: out };
     },
   });
 
@@ -65,7 +62,7 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
       fileName: z.string().max(255).optional().describe("File name hint; its extension helps detection"),
       encoding: z.string().max(64).optional().describe("Force the input text encoding, e.g. 'windows-1252'"),
     },
-    output: { ...DetectedOutput.shape, requestId: z.string().optional(), warnings: z.array(Warning).optional() },
+    output: { ...DetectedOutput.shape, hint: z.string().optional().describe("Set when the encoding was guessed: what to do if characters look wrong"), requestId: z.string().optional(), warnings: z.array(Warning).optional() },
     annotations: RO,
     handler: async (a: any, call) => {
       requirePathsAllowed(deps, a, ["path"]);
@@ -81,13 +78,8 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
       const d = mapDetected(res.json);
       if (!d) throw mcpError("api-protocol-error", "The detect response has no format.", "Report this with the requestId.", { requestId: res.requestId });
       const warnings = [...mapWarnings((res.json as any)?.warnings), ...ebuSizeWarning(src, caps)];
-      let summary = `${d.format} (${d.id}), ${d.encoding} (${d.encodingConfidence})${d.language ? `, ${d.language}` : ""}, ${d.paragraphs} cue${d.paragraphs === 1 ? "" : "s"}.`;
-      if (d.codePage) summary += ` Code page ${d.codePage}.`;
-      if (d.bom !== undefined || d.lineEndings) summary += ` ${d.bom ? "BOM" : "No BOM"}${d.lineEndings ? `, line endings ${d.lineEndings}` : ""}.`;
-      if (d.candidates?.length) summary += ` Other candidates: ${d.candidates.join(", ")}.`;
-      if (d.encodingConfidence === "heuristic") summary += " Encoding was guessed; if characters look wrong, convert with `profile.encoding.input` set.";
-      for (const w of warnings) summary += `\nWarning ${warningText(w)}`;
-      return { structured: { ...d, ...(res.requestId ? { requestId: res.requestId } : {}), ...(warnings.length ? { warnings } : {}) }, summary };
+      const hint = d.encodingConfidence === "heuristic" ? "Encoding was guessed; if characters look wrong, convert with `profile.encoding.input` set." : undefined;
+      return { structured: { ...d, ...(hint ? { hint } : {}), ...(res.requestId ? { requestId: res.requestId } : {}), ...(warnings.length ? { warnings } : {}) } };
     },
   });
 }

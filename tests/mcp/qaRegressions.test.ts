@@ -68,17 +68,17 @@ describe("QA p7/p8: long-file paging (1,569-cue fixture)", () => {
     for (const p of pages) expect(p.text.endsWith("\r\n\r\n")).toBe(true);
     expect(pages[0]).toMatchObject({ unit: "cue", fromCue: 1, totalCues: LONG_CUES });
   });
-  it("p6b/p7i: preview text is sent once per page and the response stays close to the text size", async () => {
+  it("p6b/p7i: each page's text is in structuredContent and in the identical JSON text block, never more", async () => {
     h = await harness(); const text = longSrt(); serve(() => Buffer.from(text));
     let seen = 0;
     for (const r of await walk({ jobId: id, which: "output" })) {
       const raw = JSON.stringify(r);
-      expect(r.content).toHaveLength(1); expect(r.content[0].type).toBe("text");
-      expect(r.content[0].text).not.toContain(probe(1));
+      expect(r.content).toHaveLength(1); expect(r.content[0]).toEqual({ type: "text", text: JSON.stringify(r.structuredContent) });
       const inPage = occurrences(r.structuredContent.text, probe(1234) + "\n");
-      expect(occurrences(raw, probe(1234) + "\\n")).toBe(inPage); seen += inPage;
-      // JSON escaping adds about one byte per line; the old duplicate-content shape was about twice the text.
-      expect(raw.length).toBeLessThan(r.structuredContent.returnedBytes * 1.15 + 4096);
+      // Twice: structuredContent, and its JSON in the text block (escaped once more inside the outer JSON).
+      expect(occurrences(raw, probe(1234) + "\\n")).toBe(inPage); expect(occurrences(raw, probe(1234) + "\\\\n")).toBe(inPage); seen += inPage;
+      // Each part is about the page size plus JSON escaping; the whole result stays close to twice the text.
+      expect(raw.length).toBeLessThan(r.structuredContent.returnedBytes * 2.4 + 8192);
     }
     expect(seen).toBe(1);
   });
@@ -198,11 +198,11 @@ describe("QA p6b/p7j: every tool result validates against its advertised outputS
     }
     expect([...seen].sort()).toEqual(tools.map((t) => t.name).sort()); // every registered tool exercised
   });
-  it("p6b item 2: a missing argument is stated once in the error text", async () => {
+  it("p6b item 2: a missing argument is stated once in the error detail", async () => {
     h = await harness();
     for (const [name, args, field] of [["preview_text", { jobId: id }, "which"], ["get_profile", {}, "name"]] as const) {
-      const text = (await callTool(h, name, args)).content[0].text as string;
-      expect(occurrences(text, `\`${field}\` is required`), text).toBe(1);
+      const detail = (await callTool(h, name, args)).structuredContent.error.detail as string;
+      expect(occurrences(detail, `\`${field}\` is required`), detail).toBe(1);
     }
   });
 });

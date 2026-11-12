@@ -44,16 +44,9 @@ export function registerFoldersTool(server: McpServer, deps: Deps): void {
     annotations: { readOnlyHint: true, idempotentHint: true },
     handler: async (_a, call) => {
       const r = foldersReport(deps.guard.roots.snapshot());
-      const lines = [listing ? `Local (this MCP server): ${r.summary}` : r.summary, `State: ${r.state} (client roots: ${r.clientRoots}).`];
-      if (r.hint) lines.push(r.hint);
-      if (!listing) return { structured: r, summary: lines.join("\n") };
+      if (!listing) return { structured: r };
       const remote = await remoteLocations(deps, call);
-      if (remote.state === "on") {
-        lines.push(remote.locations.length
-          ? `API locations (on the converter API's side): ${remote.locations.map((l) => `${l.location}${l.prefix ? ` (prefix ${l.prefix})` : ""}${l.listable ? "" : " (not listable)"}`).join(", ")}.`
-          : "API locations: none configured on the converter API.");
-      } else lines.push(`API locations: ${remote.state}. ${remote.hint}`);
-      return { structured: { ...r, remote }, summary: lines.join("\n") };
+      return { structured: { ...r, remote } };
     },
   });
 }

@@ -11,15 +11,14 @@ beforeEach(() => { recorded.length = 0; apiInfo.probedAt = Date.now(); mswServer
 afterEach(async () => { await h?.close(); h = undefined; mswServer.resetHandlers(); });
 
 describe("preview_text", () => {
-  it("reads input text into structuredContent.text once (no repeated text block), with no detect/convert", async () => {
+  it("reads input text into structuredContent.text and the identical JSON text block, with no detect/convert", async () => {
     h = await harness(); await h.client.listTools();
     mswServer.use(http.get(`${endpoint}/input`, () => new HttpResponse(SRT, { headers: { "content-type": "application/x-subrip" } })));
     const r = await callTool(h, "preview_text", { jobId: id, which: "input" });
     expect(r.isError).toBeFalsy();
     expect(r.structuredContent).toEqual({ source: "job", jobId: id, which: "input", fileName: "show.srt", mediaType: "application/x-subrip", bytes: Buffer.byteLength(SRT), location: "file:///data/in/show.srt",
       text: SRT, unit: "cue", maxBytes: 65536, truncated: false, returnedBytes: Buffer.byteLength(SRT), totalBytes: Buffer.byteLength(SRT), fromCue: 1, toCue: 1, returnedCues: 1, totalCues: 1, warnings: [] });
-    expect(r.content).toHaveLength(1); expect(r.content[0].text).not.toContain("Hello");
-    expect(r.content[0].text).toContain("Showing all 1 cue"); expect(r.content[0].text).toContain("`text` field (sent once");
+    expect(r.content).toEqual([{ type: "text", text: JSON.stringify(r.structuredContent) }]);
     expect(recorded.every(x => x.method === "GET")).toBe(true);
     expect(h.logs.join("\n")).not.toContain("Hello");
   });
@@ -52,9 +51,8 @@ describe("preview_text", () => {
     const body = recorded.find(x => x.path === "/v1/convert/json")!.body;
     expect(body).toEqual({ content: STL.toString("base64"), contentEncoding: "base64", fileName: "show.stl", target: "srt", profile: { encoding: { output: "utf-8-no-bom" }, source: { format: "ebustl" } } });
     expect(body.output).toBeUndefined();
-    expect(r.content).toHaveLength(1); expect(r.content[0].text).not.toContain("World");
+    expect(r.content).toEqual([{ type: "text", text: JSON.stringify(r.structuredContent) }]);
     expect(JSON.stringify(r)).not.toContain(STL.toString("base64")); expect(JSON.stringify(r)).not.toMatch(/resourceUri|"inline"|subtitleedit:/);
-    expect(r.content[0].text).toMatch(/binary ebustl file, so its text is shown converted to SRT; the stored file is unchanged\. Showing all 2 cues.*styling-dropped/);
   });
   const PAC = Buffer.from([1, 0, 0, 0, 0, 0, 0, 0, 0x80, 0x81]);
   const pacJob = (profile: any) => ({ ...job(), input: "s3://subs/in/show.pac", output: "s3://subs/out/show.pac", result: { profile, detected: { kind: "binary", encoding: "utf-8", id: "pac" }, outputs: [{ kind: "binary", encoding: "utf-8", formatId: "pac" }] } });
@@ -102,7 +100,6 @@ describe("preview_text", () => {
     expect(r.isError).toBe(true);
     expect(r.structuredContent.error).toMatchObject({ code: "ambiguous-encoding", candidates, probe: "text-encoding", jobId: id });
     expect(r.structuredContent.error.hint).toContain('call convert_subtitle with input "s3://subs/in/show.stl", target "srt"');
-    expect(r.content[0].text).toContain('\nCandidates:\n  - windows-1256 (ar, 12 words): "مرحبا"\n  - windows-1255 (3 words): "שלום"');
     expect(r.content[0].text).not.toContain("[object Object]");
   });
   const cueOf = (n: number, text: string) => `${n}\n00:00:${String(n % 60).padStart(2, "0")},000 --> 00:00:${String(n % 60).padStart(2, "0")},500\n${text}\n\n`;
@@ -142,7 +139,7 @@ describe("preview_text", () => {
     const small = await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 1 });
     expect(small.structuredContent.maxBytes).toBe(4096);
     expect(small.structuredContent.warnings).toEqual([expect.objectContaining({ code: "max-bytes-clamped", details: { fields: { requested: "1", applied: "4096" } } })]);
-    expect(small.content[0].text).toContain("Warning max-bytes-clamped: maxBytes 1 is outside the allowed range 4096..9000; pages use 4096 bytes.");
+    expect(small.structuredContent.warnings[0].message).toBe("maxBytes 1 is outside the allowed range 4096..9000; pages use 4096 bytes.");
     const bigR = await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 10_000_000 }); const big = bigR.structuredContent;
     expect(big.maxBytes).toBe(9000); expect(big.returnedBytes).toBeLessThanOrEqual(9000);
     expect(big.warnings[0]).toMatchObject({ code: "max-bytes-clamped", details: { fields: { requested: "10000000", applied: "9000" } } }); expect(big.warnings[0].hint).toContain("SUBTITLE_MCP_PREVIEW_MAX_BYTES");
@@ -194,8 +191,7 @@ describe("preview_text", () => {
     h = await harness({ listEnabled: false });
     const missing = (await callTool(h, "preview_text", { jobId: id })).structuredContent.error;
     expect(missing.code).toBe("invalid-arguments"); expect(missing.detail).toBe('Invalid arguments: /which: `which` is required (valid values: "input" | "output").');
-    const text = (await callTool(h, "preview_text", { jobId: id })).content[0].text;
-    expect(text.split("`which` is required")).toHaveLength(2); // said once, not repeated as a field line
+    expect(missing.detail.split("`which` is required")).toHaveLength(2); // said once
     const bad = (await callTool(h, "preview_text", { jobId: id, which: "both" })).structuredContent.error;
     expect(bad.detail).toBe('Invalid arguments: /which: `which` must be one of the valid values: "input" | "output"; got "both".');
     const none = (await callTool(h, "preview_text", {})).structuredContent.error;

@@ -71,8 +71,8 @@ describe("H3 extension allowlist (local)", () => {
     h = await mk();
     const warned = (r: any) => {
       expect(r.isError, JSON.stringify(r.structuredContent?.error)).toBeFalsy();
-      expect(r.content[0].text).toContain("Warning mcp-extension-check-skipped: Subtitle extension check skipped");
-      expect(r.content[0].text).toMatch(/doesn't report its subtitle extensions.*update the API\./);
+      const w = [...(r.structuredContent.warnings ?? []), ...(r.structuredContent.serverWarnings ?? [])].find((x: any) => x.code === "mcp-extension-check-skipped");
+      expect(w?.message).toMatch(/^Subtitle extension check skipped.*doesn't report its subtitle extensions.*update the API\./);
     };
     warned(await callTool(h, "preview_text", { location: path.join(dir, "notes.pdf") }));
     const list = await callTool(h, "list_files", { location: dir });

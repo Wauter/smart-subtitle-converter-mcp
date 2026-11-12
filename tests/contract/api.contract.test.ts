@@ -44,7 +44,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
     const r = await callTool(h, "detect_format", { path: put("local/check.srt") });
     expect(r.isError, JSON.stringify(r.structuredContent?.error)).toBeFalsy();
     if (hasList) expect(r.content[0].text).not.toContain("mcp-extension-check-skipped");
-    else expect(r.content[0].text).toContain("Warning mcp-extension-check-skipped");
+    else expect(r.structuredContent.warnings).toEqual(expect.arrayContaining([expect.objectContaining({ code: "mcp-extension-check-skipped" })]));
   });
   afterAll(async () => {
     await h.close();
@@ -239,7 +239,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
       // 1.2.1: remedy facts
       expect(w.details.remedy).toMatchObject({ option: "formatOptions.pac.codePage", currentValue: "latin", suggested: "greek", candidates: ["greek"], candidatesTested: true, unicodeAlternative: "fpc" });
       expect(w.details.remedy.allowedValues).toEqual(expect.arrayContaining(["latin", "greek", "czech", "turkish"]));
-      expect(r.content[0].text).toMatch(/Verification of greek\.pac: lossy: 3\/3 cues read back; \d+ char\(s\) replaced in cue\(s\) 1, 2, 3/);
+      expect(r.structuredContent.outputs[0].verification).toMatchObject({ verdict: "lossy", cuesWritten: 3, cuesReadBack: 3 });
       const g = await callTool(h, "convert_subtitle", { path: src, profile: { target: { format: "pac", fps: 25 }, formatOptions: { pac: { codePage: "greek" } } }, outputDir: path.join(dir, "v12", "pac-greek") });
       expect(g.structuredContent.outputs[0].verification.verdict).toMatch(/^(quantised|lossless)$/);
     });

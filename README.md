@@ -110,7 +110,9 @@ describes the formats themselves.
 | `list_files` | List a local folder or an API storage location, page by page (`SUBTITLE_MCP_LIST_ENABLED=false` hides it) |
 | `list_allowed_folders` | The folders in effect right now, with mode and source; with browsing on, also the API's storage locations |
 
-Inputs, results and warning fields: [docs/tools.md](docs/tools.md).
+Inputs, results and warning fields: [docs/tools.md](docs/tools.md). Each result is sent both as structured data
+and as the same JSON in a text block, because apps differ in which part they pass to the model;
+`SUBTITLE_MCP_RESULT_IN` keeps one ([why](docs/tools.md#why-results-are-sent-twice)).
 
 ## API storage and job tracking
 

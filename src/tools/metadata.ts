@@ -32,6 +32,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
       ),
       total: z.number().int(),
       truncated: z.boolean(),
+      hint: z.string().optional().describe("Set when nothing matched: how to widen the search"),
     },
     annotations: RO,
     handler: async (a, call) => {
@@ -58,10 +59,8 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
       if (a.writableOnly) formats = formats.filter((f) => f.canWrite);
       const total = formats.length;
       const shown = formats.slice(0, a.limit);
-      const head = total === 0 ? `No formats${a.query ? ` matching '${a.query}'` : ""}. Try a broader query${a.includeBinary ? "" : " or drop includeBinary: false"}.` : `${total} format${total === 1 ? "" : "s"}${a.query ? ` matching '${a.query}'` : ""}${total > shown.length ? ` (showing ${shown.length})` : ""}:`;
-      const lines = shown.map((f) => `${f.id} | ${f.name} (${f.extension}) | ${f.kind} | ${f.canRead && f.canWrite ? "read/write" : f.canRead ? "read-only" : "write-only"}${f.lossy ? " | lossy" : ""}`);
-      const summary = [head, ...lines].join("\n");
-      return { structured: { formats: shown, total, truncated: total > shown.length }, summary };
+      const hint = total === 0 ? `No formats${a.query ? ` matching '${a.query}'` : ""}. Try a broader query${a.includeBinary ? "" : " or drop includeBinary: false"}.` : undefined;
+      return { structured: { formats: shown, total, truncated: total > shown.length, ...(hint ? { hint } : {}) } };
     },
   });
 
@@ -93,10 +92,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
       });
       const structured: any = { presets, mountError: body.mountError ?? null };
       if (!hosted) structured.profilesDir = body.profilesDir ?? null;
-      const lines = presets.map((p) => `${p.name} → ${p.target ?? "?"} (${p.origin})${p.valid ? "" : ` INVALID: ${p.errors?.[0]?.message ?? "see errors"}`}`);
-      let summary = presets.length ? lines.join("\n") : "No presets on this server.";
-      if (body.mountError) summary = `Mounted presets folder problem: ${body.mountError}\n${summary}`;
-      return { structured, summary };
+      return { structured };
     },
   });
 
@@ -120,11 +116,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
         raw: p.raw && typeof p.raw === "object" ? p.raw : null, resolved: p.resolved && typeof p.resolved === "object" ? p.resolved : null,
       };
       if (!hosted) out.path = p.path ?? null;
-      const ops = Array.isArray(out.resolved?.operations) ? out.resolved.operations.map((o: any) => o?.id).filter(Boolean) : null;
-      let summary = `${out.name} (${out.origin}) → ${out.target ?? "no target"}, ${out.valid ? "valid" : "INVALID"}.`;
-      if (ops) summary += ` Operations: ${ops.length ? ops.join(", ") : "none"}.`;
-      if (out.errors.length) summary += `\nErrors: ${out.errors.map((e: any) => `${e.pointer}: ${e.message}`).join("; ")}`;
-      return { structured: out, summary };
+      return { structured: out };
     },
   });
   void toInt;

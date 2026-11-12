@@ -149,7 +149,7 @@ describe("preview_text missing `which` keeps the pointer and hint (p9 minor)", (
       hint: "Fix the arguments as described and call again.",
       errors: [{ pointer: "/which", message: '`which` is required (valid values: "input" | "output").' }],
     });
-    expect(r.content[0].text.split("`which` is required")).toHaveLength(2);
+    expect(r.structuredContent.error.detail.split("`which` is required")).toHaveLength(2);
     if (listEnabled) {
       expect((await callTool(h, "preview_text", {})).structuredContent.error.errors).toEqual([expect.objectContaining({ pointer: "/location" })]);
       expect((await callTool(h, "preview_text", { location: path.join(dir, "plain.srt"), jobId: "j1" })).structuredContent.error.errors).toEqual([expect.objectContaining({ pointer: "/jobId" })]);

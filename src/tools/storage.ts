@@ -219,14 +219,8 @@ export function registerListFilesTool(server: McpServer, deps: Deps): void {
   });
 
   function result(location: string, where: "local" | "remote", prefix: string, items: Item[], next?: string, requestId?: string) {
-    const files = items.filter((i) => i.type === "file").length;
-    const lines = [`${where === "local" ? "Local folder" : "API location"} ${location}${prefix ? ` (prefix "${prefix}")` : ""}: ${items.length} item${items.length === 1 ? "" : "s"} on this page (${files} file${files === 1 ? "" : "s"}, ${items.length - files} folder${items.length - files === 1 ? "" : "s"}).`];
-    for (const i of items) lines.push(`${i.type === "folder" ? "[folder] " : ""}${i.name}${i.size !== undefined ? ` (${i.size} bytes)` : ""}`);
-    if (files) lines.push(`To read a file, pass its full items[].location as preview_text \`location\` (e.g. ${items.find((i) => i.type === "file")!.location}).`);
-    lines.push(next ? "MORE ITEMS FOLLOW: pass `next` as `cursor` (same location and prefix)." : "End of listing.");
     return {
       structured: { location, where, prefix, items, returned: items.length, truncated: Boolean(next), ...(next ? { next } : {}), ...(requestId ? { requestId } : {}) },
-      summary: lines.join("\n"),
       logFields: { returned: items.length, truncated: Boolean(next) },
     };
   }

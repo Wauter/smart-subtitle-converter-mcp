@@ -12,8 +12,8 @@ import { finishConversion } from "../api/jobs.js";
 import { toInt } from "../api/coerce.js";
 import { locationBaseName } from "./textPage.js";
 import {
-  apiStorageDescription, DetectedOutput, logSource, sourceLabel, defineTool, ebuSizeWarning, exactlyOne, getCaps, loadProfile, loadSource, mapDetected, mapWarnings,
-  mapVerification, mutuallyExclusive, requirePathsAllowed, refreshToolDescriptions, tooLarge, Verification, verificationText, Warning, warningText, withPartial,
+  apiStorageDescription, DetectedOutput, logSource, defineTool, ebuSizeWarning, exactlyOne, getCaps, loadProfile, loadSource, mapDetected, mapWarnings,
+  mapVerification, mutuallyExclusive, requirePathsAllowed, refreshToolDescriptions, tooLarge, Verification, Warning, withPartial,
   type SourceInput, type VerificationT,
 } from "./common.js";
 
@@ -230,7 +230,7 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
         if (e instanceof ToolFailure) {
           if (!e.toolError.requestId && result.requestId) e.toolError.requestId = result.requestId;
           if (outputs.length) {
-            throw withPartial(e, { outputs }, `Already written: ${outputs.map((x) => x.writtenTo).join(", ")}. Failed: ${nodePath.join(dir, name)}.`);
+            throw withPartial(e, { outputs });
           }
         }
         throw e;
@@ -275,7 +275,7 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
     attempts: call.stats.attempts,
   };
   call.log.actions = countActions(written);
-  return { structured, summary: convertSummary(src, result, outputs, warnings, deps, toDisk), blocks };
+  return { structured, blocks };
 }
 
 /**
@@ -331,28 +331,4 @@ export function countActions(ws: { action: string }[]) {
   const c = { written: 0, replaced: 0 };
   for (const w of ws) (c as any)[w.action]++;
   return c;
-}
-
-function convertSummary(src: SourceInput, r: any, outputs: any[], warnings: WarningT[], deps: Deps, toDisk: boolean): string {
-  const d = r.detected;
-  const from = `${sourceLabel(src)}${d ? ` (${d.format}, ${d.encoding}${d.language ? `, ${d.language}` : ""})` : ""}`;
-  const to = outputs.map((o) => `${o.fileName} (${o.format}, ${o.encoding})`).join(", ");
-  let s = `Converted ${from} → ${to}: ${r.stats.paragraphsIn} → ${r.stats.paragraphsOut} cues${r.stats.elapsedMs !== undefined ? ` in ${r.stats.elapsedMs} ms` : ""}.`;
-  for (const o of outputs) {
-    if (o.output) s += ` Stored at ${o.output}.`;
-    if (!o.writtenTo) continue;
-    if (o.action === "replaced") s += ` Replaced ${o.writtenTo}.`;
-    else s += ` Wrote ${o.writtenTo}.`;
-  }
-  if (!toDisk && outputs.some((o) => o.attached)) s += deps.pathsInSchema ? " The whole converted file is attached as an embedded resource; use outputPath/outputDir to write it to disk instead." : " The whole converted file is attached as an embedded resource.";
-  for (const o of outputs) if (o.verification) s += ` Verification of ${o.fileName}: ${verificationText(o.verification)}.`;
-  if (warnings.length) s += ` ${warnings.length} warning${warnings.length === 1 ? "" : "s"}: ${warnings.map(warningText).join("; ")}`;
-  // §5.6.5: frame-rate-changed goes on its own line right after the first line, before everything else.
-  const frc = warnings.filter((w) => w.code === "frame-rate-changed");
-  if (frc.length) {
-    const nl = s.indexOf("\n");
-    const line = frc.map((w) => `Frame rate changed: ${w.message}`).join("\n");
-    s = nl === -1 ? `${s}\n${line}` : `${s.slice(0, nl)}\n${line}${s.slice(nl)}`;
-  }
-  return s;
 }

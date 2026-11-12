@@ -126,5 +126,10 @@ export async function callTool(h: Harness, name: string, args: Record<string, un
     ...(extra.progress ? { onprogress: (p: any) => extra.progress!(p.message) } : {}),
     ...(extra.signal ? { signal: extra.signal } : {}),
   });
+  // Default SUBTITLE_MCP_RESULT_IN=both: the first text block is exactly the structured result as JSON.
+  if (h.deps.cfg.resultIn === "both" && r.structuredContent !== undefined) {
+    if (r.content?.[0]?.type !== "text" || r.content[0].text !== JSON.stringify(r.structuredContent))
+      throw new Error(`${name}: content[0] is not the serialized structuredContent: ${JSON.stringify(r.content?.[0])?.slice(0, 300)}`);
+  }
   return r as { isError?: boolean; content: any[]; structuredContent: any };
 }

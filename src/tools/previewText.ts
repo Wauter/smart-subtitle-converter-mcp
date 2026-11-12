@@ -4,7 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Call, Deps } from "../context.js";
 import { ToolFailure, mcpError, type WarningT } from "../errors.js";
 import path from "node:path";
-import { defineTool, getCaps, inputCap, inputScheme, mapWarnings, redactInput, tooLarge, Warning, warningText } from "./common.js";
+import { defineTool, getCaps, inputCap, inputScheme, mapWarnings, redactInput, tooLarge, Warning } from "./common.js";
 import { readFileChecked } from "../fs/guard.js";
 import type { PreviewEntry } from "./previewCache.js";
 import { isRemote, remoteState, remoteUnavailable, staleGate } from "./storage.js";
@@ -12,7 +12,7 @@ import { sanitizeOutputName } from "../fs/write.js";
 import { withSuffix } from "../ids.js";
 import { finishConversion } from "../api/jobs.js";
 import type { Caps } from "../api/limits.js";
-import { checkCursor, clampPageBytes, decodeCursor, encodeCursor, fingerprint, hashKey, locationBaseName, pageText, PREVIEW_HARD_CEILING_BYTES, PREVIEW_MIN_BYTES, segment, sourceChanged, stripBom, takePage } from "./textPage.js";
+import { checkCursor, clampPageBytes, decodeCursor, encodeCursor, fingerprint, hashKey, locationBaseName, PREVIEW_HARD_CEILING_BYTES, PREVIEW_MIN_BYTES, segment, sourceChanged, stripBom, takePage } from "./textPage.js";
 
 export function describePreviewText(deps: Deps): string {
   const c = deps.cfg;
@@ -155,15 +155,7 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
           returnedBytes: page.returnedBytes, totalBytes: seg.totalBytes, ...pos,
           ...(convertedFrom ? { convertedFrom, convertedTo: "srt" } : {}), warnings: [...clampWarning, ...warnings], ...(requestId ? { requestId } : {}),
         };
-        let summary = byJob
-          ? `Preview of ${a.which} for job ${a.jobId}: ${fileName}, ${bytes} bytes (${mediaType}).`
-          : `Preview of ${src.source === "local" ? "local file" : "API location"} ${location}: ${bytes} bytes (${mediaType}).`;
-        if (convertedFrom) summary += ` It is a binary ${convertedFrom} file, so its text is shown converted to SRT; the ${byJob ? "stored " : ""}file is unchanged.`;
-        summary += pageText({ unit: seg.unit, from: page.start + 1, to: page.end, total, returnedBytes: page.returnedBytes, totalBytes: seg.totalBytes, truncated: page.more });
-        summary += ` The text is in the structured result's \`text\` field (sent once, not repeated here). Current ${byJob ? "storage" : "file"} contents, not an archived copy.`;
-        if (clampWarning.length) summary += ` Warning max-bytes-clamped: ${clampWarning[0].message}`;
-        if (warnings.length) summary += ` ${warnings.length} conversion warning${warnings.length === 1 ? "" : "s"}: ${warnings.map(warningText).join("; ")}`;
-        return { structured, summary, logFields: { unit: seg.unit, pageBytes: page.returnedBytes, paged: Boolean(cursor) || page.more } };
+        return { structured, logFields: { unit: seg.unit, pageBytes: page.returnedBytes, paged: Boolean(cursor) || page.more } };
       } catch (e) {
         if (e instanceof ToolFailure && byJob) { e.toolError.jobId = a.jobId; e.toolError.jobUrl = jobPath; explainNotStored(e, a.jobId); }
         throw e;

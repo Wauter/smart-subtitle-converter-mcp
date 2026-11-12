@@ -19,6 +19,42 @@ sees are the authoritative, live version of this page (they include the allowed 
 `list_allowed_folders` stays registered even when paths are unavailable (empty folders, state none). With browsing
 off (the default) it covers MCP-local folders only, never API input/output URIs.
 
+## Result format
+
+Every tool result, success or error, is one JSON object. By default it is sent in two forms with the same
+information: as `structuredContent`, and as that object serialized to JSON in the first text content block.
+Errors set `isError: true` and carry the object `{ "error": … }`. A converted file attached by `convert_subtitle`,
+or a `resource_link` to a written file, follows as an extra content block. `SUBTITLE_MCP_RESULT_IN`
+([configuration.md](configuration.md)) can keep one form only:
+
+| Value | `structuredContent` | JSON text block | `outputSchema` on tools |
+|---|---|---|---|
+| `both` (default) | yes | yes | yes |
+| `structured` | yes | no | yes |
+| `content` | no | yes | no (the spec requires `structuredContent` when a tool declares one) |
+
+Extra blocks (an attached file, a `resource_link`) are sent in every mode. With `structured`, a result without one
+has an empty `content` array.
+
+### Why results are sent twice
+
+An MCP tool result can carry a readable part (`content`, a list of text and other blocks) and a structured data
+part (`structuredContent`). The MCP specification describes both but doesn't say which one an AI app passes to its
+model; it only asks servers, for backwards compatibility, that "a tool that returns structured content SHOULD also
+return the serialized JSON in a TextContent block"
+([Tools, Structured Content](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#structured-content),
+same wording in later versions). Proposals to settle it, such as
+[SEP-1624](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1624) and
+[SEP-2200 (PR #2200)](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2200), were closed without
+a change to the spec.
+
+Apps differ in practice. Claude Code and VS Code pass `structuredContent` to the model when it is present; Cursor
+reportedly passes only `content`. So by default the server sends the same information in both parts, and no app
+loses a warning, hint or preview page. This only affects the local message from this server to the app; the
+requests to the converter API are the same. In apps that pass both parts to the model, the result costs extra
+tokens; there, `SUBTITLE_MCP_RESULT_IN=structured` or `content` keeps the part that app uses. The startup
+instructions mention the setting, so the model can suggest it.
+
 ## Browsing and reading by location
 
 Browsing is on by default and follows the API:
@@ -116,8 +152,7 @@ not readable with `resources/read`.
 The structured result describes the file but doesn't repeat its content: `outputs[]` has `fileName`, `format`,
 `formatId`, `kind`, `mediaType`, `encoding`, `cues`, `bytes` and `attached: true`, plus `verification` for
 binary targets. Alongside it are `jobId`, `detected`, `stats`, `warnings` and a short `hint` on reading the
-converted text. Some clients (Claude Code, for example) show the model only the structured result when there is
-one, so the model sees this metadata and the client still receives the file.
+converted text. The JSON text block holds the same object, not the file.
 
 Inline results are not stored anywhere, so `preview_text` cannot read them: the attached file is the only copy. If
 the text is needed, save the file to disk and read it locally. To preview it with `preview_text` instead, convert
@@ -129,7 +164,7 @@ Example result for an inline conversion to EBU STL:
 ```json
 {
   "content": [
-    { "type": "text", "text": "Converted show.srt (SubRip, utf-8, en) → show.stl (EBU STL, iso-6937): 412 → 412 cues in 38 ms. The whole converted file is attached as an embedded resource." },
+    { "type": "text", "text": "{\"jobId\":\"0de4707d46fe4ff9b06ae83736f7dbbb\",\"outputs\":[…],\"hint\":\"…\",\"warnings\":[],…}" },
     { "type": "resource", "resource": { "uri": "subtitleedit://outputs/mcp-…/show.stl", "mimeType": "application/octet-stream", "blob": "…" } }
   ],
   "structuredContent": {
@@ -180,8 +215,7 @@ the API's EBU STL limit) and `max-bytes-clamped` (a `preview_text` page size out
 
 ## Verification
 
-Binary outputs carry `outputs[].verification` (verdict, cue counts, timing shift, replaced characters). The
-summary shows one line per output. How to read the verdict and fields is on the same
+Binary outputs carry `outputs[].verification` (verdict, cue counts, timing shift, replaced characters). How to read the verdict and fields is on the same
 [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page.
 
 A clean round trip proves the file is self-consistent through the converter's own reader, not that a given
@@ -277,8 +311,8 @@ again, as before.
 | `convertedFrom`, `convertedTo` | Set for binary files converted to SRT |
 | `warnings` | `max-bytes-clamped` when `maxBytes` was out of range, and what the SRT conversion of a binary file lost |
 
-The text is sent once, in the structured result's `text`. The content block is a one-line summary of the page
-(which cues, how many bytes, whether more follows), without the text. Subtitle text is not logged.
+The page's text is in `text`, in the same result object as the rest ([Result format](#result-format)). Subtitle
+text is not logged.
 
 It uses the configured API key, not an owner or admin role. Job ids are unguessable capability tokens. It reads
 current storage through the API's current allowlists and limits; files can change or disappear, and a signed

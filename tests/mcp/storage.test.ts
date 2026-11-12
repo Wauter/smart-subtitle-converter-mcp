@@ -11,7 +11,7 @@ import { Ajv } from "ajv";
 import { API, EXTENSIONS, LIMITS, SRT, baseHandlers, callTool, convertOk, harness, mswServer, problem, recorded, tmpDir, type Harness } from "../helpers/harness.js";
 import { realpathRoots } from "../../src/fs/guard.js";
 import { apiInfo } from "../../src/api/info.js";
-import { longSrt, occurrences, probe } from "../helpers/fixtures.js";
+import { longSrt, occurrences } from "../helpers/fixtures.js";
 
 let h: Harness | undefined;
 let dir: string, outside: string;
@@ -72,7 +72,7 @@ describe("gates", () => {
     expect(preview.description).toContain("s3://subs/show.srt.json");
     expect((preview.inputSchema.properties as any).location.description).toMatch(/^The file's full URI or absolute path/);
     const listed = await callTool(h, "list_files", { location: "s3://subs/in/" });
-    expect(listed.content[0].text).toMatch(/pass its full items\[\]\.location as preview_text `location` \(e\.g\. s3:\/\/subs\/in\//);
+    expect(listed.structuredContent.items[0].location).toMatch(/^s3:\/\/subs\/in\//);
     await h.close();
     mswServer.resetHandlers(); mswServer.use(...baseHandlers()); apiStorage({ list: false });
     h = await harness({}, { roots: await realpathRoots([dir], []) });
@@ -281,8 +281,7 @@ describe("preview_text {location}", () => {
     do {
       const r = await callTool(h, "preview_text", { location: file, ...(cursor ? { cursor } : {}) });
       expect(r.isError, JSON.stringify(r.structuredContent?.error)).toBeFalsy();
-      expect(r.content).toHaveLength(1); expect(r.content[0].text).not.toContain(probe(1));
-      expect(occurrences(JSON.stringify(r), probe(1234) + "\\n")).toBe(occurrences(r.structuredContent.text, probe(1234) + "\n"));
+      expect(r.content).toHaveLength(1); expect(r.content[0].text).toBe(JSON.stringify(r.structuredContent));
       pages.push(r.structuredContent); cursor = r.structuredContent.next;
     } while (cursor);
     expect(pages.map((p) => p.text).join("")).toBe(text);
@@ -310,7 +309,7 @@ describe("preview_text {location}", () => {
     const none = await callTool(h, "preview_text", {});
     expect(none.structuredContent.error.code).toBe("invalid-arguments");
     const noWhich = await callTool(h, "preview_text", { jobId: "j1" });
-    expect(occurrences(noWhich.content[0].text, "`which` is required")).toBe(1);
+    expect(occurrences(noWhich.structuredContent.error.detail, "`which` is required")).toBe(1);
   });
 
   it("API location: read through /v1/storage/file with its own request id; job cursors don't fit; binary converts to SRT", async () => {

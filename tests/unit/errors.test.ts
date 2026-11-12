@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { errorText, mapProblem, ToolErrorSchema, type MapContext } from "../../src/errors.js";
+import { mapProblem, ToolErrorSchema, type MapContext } from "../../src/errors.js";
 
 const ctx: MapContext = { mode: "local", includeDebug: false };
 const p = (status: number, code: string, extra: Record<string, unknown> = {}) => ({ type: "t", title: "T", status, code, detail: "d", hint: "API hint.", requestId: "rid", ...extra });
@@ -42,7 +42,6 @@ describe("problem mapping (§8.1)", () => {
   it("retains admitted synchronous job ids without accepting arbitrary job URLs", () => {
     const te = mapProblem(422, p(422, "format-not-detected", { id: "abc123" }), ctx);
     expect(te.jobId).toBe("abc123"); expect(te.jobUrl).toBe("/v1/jobs/abc123");
-    expect(errorText(te)).toContain("jobId: abc123");
     expect(mapProblem(422, p(422, "format-not-detected", { id: "https://elsewhere.test/" }), ctx).jobUrl).toBeUndefined();
   });
   it("sidecar 401 hint names the operator", () => {
@@ -86,19 +85,16 @@ describe("problem mapping (§8.1)", () => {
     expect(te.code).toBe("ambiguous-format");
     expect(te.candidates).toEqual(["pacscreenelectronics", "pacunicodeunipac"]);
     expect(te.hint).toMatch(/^API hint\. .*profile\.source\.format \('pac' or 'fpc'\)/);
-    expect(errorText(te)).toMatch(/\nCandidates: pacscreenelectronics, pacunicodeunipac\n/);
   });
   it("ambiguous-encoding: candidates and probe pass through; the hint names the option for that probe", () => {
     const pac = mapProblem(422, p(422, "ambiguous-encoding", { candidates: ["pac-greek", "pac-czech"], probe: "pac-code-page", errors: [{ pointer: "/formatOptions/pac/inputCodePage", message: "m" }] }), ctx);
     expect(pac).toMatchObject({ code: "ambiguous-encoding", candidates: ["pac-greek", "pac-czech"], probe: "pac-code-page" });
     expect(pac.errors).toEqual([{ pointer: "/formatOptions/pac/inputCodePage", message: "m" }]);
     expect(pac.hint).toMatch(/^API hint\. Pass profile\.formatOptions\.pac\.inputCodePage/);
-    expect(errorText(pac)).toMatch(/\nCandidates: pac-greek, pac-czech\nProbe: pac-code-page\n/);
     const text = mapProblem(422, p(422, "ambiguous-encoding", { candidates: ["windows-1256", "windows-1252"], probe: "text-encoding" }), ctx);
     expect(text.hint).toMatch(/profile\.encoding\.input .*UTF-8/);
     const empty = mapProblem(422, p(422, "ambiguous-encoding", { candidates: [], probe: "pac-code-page" }), ctx);
     expect(empty.candidates).toEqual([]);
-    expect(errorText(empty)).not.toContain("Candidates:");
     const unknown = mapProblem(422, p(422, "ambiguous-encoding", {}), ctx);
     expect(unknown.hint).toMatch(/inputCodePage .*encoding\.input/);
   });
@@ -106,11 +102,5 @@ describe("problem mapping (§8.1)", () => {
     const te = mapProblem(422, p(422, "ambiguous-encoding", { probe: "text-encoding", candidates: [{ encoding: "windows-1256", language: "ar", hits: 12, sample: "مرحبا", extra: "x" }, { encoding: "windows-1252", language: null, hits: "1", sample: "Ã©" }, 42, { nope: true }] }), ctx);
     expect(te.candidates).toEqual([{ encoding: "windows-1256", language: "ar", hits: 12, sample: "مرحبا" }, { encoding: "windows-1252", language: null, hits: 1, sample: "Ã©" }, "42"]);
     expect(ToolErrorSchema.parse(te).candidates).toEqual(te.candidates);
-    const t = errorText(te);
-    expect(t).toContain('\nCandidates:\n  - windows-1256 (ar, 12 words): "مرحبا"\n  - windows-1252 (1 word): "Ã©"\n  - 42\n');
-    expect(t).not.toContain("[object Object]");
-  });
-  it("error text format", () => {
-    expect(errorText({ source: "mcp", code: "x", detail: "d", hint: "h", requestId: "r" })).toBe("x: d\nHint: h\nrequestId: r");
   });
 });
