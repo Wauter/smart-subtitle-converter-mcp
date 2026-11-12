@@ -122,6 +122,33 @@ export const MCP_HINTS: Record<string, string> = {
   "origin-not-allowed": "The API refused a browser Origin header; this MCP never sends one, so check any proxy in between.",
 };
 
+/** ISO 639-1 codes the API maps to EBU STL language codes (its BinaryOptions.EbuLanguages: the Latin-alphabet table, 01-29). */
+const EBU_ISO_CODES = "sq br ca hr cy cs da de en es eo et eu fo fr fy ga gd gl is it la lv lb lt hu mt nl nb no oc pl pt ro rm sr sk sl fi sv tr";
+
+/** EBU Tech 3264 Appendix 3 "Other languages" codes, keyed by ISO 639-1; the API accepts these only as hex. */
+export const EBU_HEX_BY_ISO: Record<string, [string, string]> = {
+  am: ["7F", "Amharic"], ar: ["7E", "Arabic"], hy: ["7D", "Armenian"], as: ["7C", "Assamese"], az: ["7B", "Azerbaijani"],
+  be: ["79", "Belarusian"], bn: ["78", "Bengali"], bg: ["77", "Bulgarian"], my: ["76", "Burmese"], zh: ["75", "Chinese"],
+  ka: ["71", "Georgian"], el: ["70", "Greek"], gu: ["6F", "Gujarati"], ha: ["6D", "Hausa"], he: ["6C", "Hebrew"],
+  hi: ["6B", "Hindi"], id: ["6A", "Indonesian"], ja: ["69", "Japanese"], kn: ["68", "Kannada"], kk: ["67", "Kazakh"],
+  km: ["66", "Khmer"], ko: ["65", "Korean"], lo: ["64", "Lao"], mk: ["63", "Macedonian"], mg: ["62", "Malagasy"],
+  ms: ["61", "Malay"], mr: ["5F", "Marathi"], ne: ["5D", "Nepali"], or: ["5C", "Oriya"], fa: ["5A", "Persian"],
+  pa: ["59", "Punjabi"], ps: ["58", "Pashto"], qu: ["57", "Quechua"], ru: ["56", "Russian"], sn: ["53", "Shona"],
+  si: ["52", "Sinhala"], so: ["51", "Somali"], sw: ["4F", "Swahili"], tg: ["4E", "Tajik"], ta: ["4D", "Tamil"],
+  tt: ["4C", "Tatar"], te: ["4B", "Telugu"], th: ["4A", "Thai"], uk: ["49", "Ukrainian"], ur: ["48", "Urdu"],
+  uz: ["47", "Uzbek"], vi: ["46", "Vietnamese"], zu: ["45", "Zulu"],
+};
+
+/** Replaces the API's shortened EBU STL language list with the full rule, and the hex code when the rejected value is a known ISO code. */
+export function ebuLanguageHint(value: string): string {
+  const known = EBU_HEX_BY_ISO[value.trim().toLowerCase()];
+  return (
+    (known ? `Use "${known[0]}" (${known[1]}, EBU Tech 3264 Appendix 3). ` : "") +
+    `ISO 639-1 codes work only for these languages: ${EBU_ISO_CODES}.` +
+    ' For any other language pass its two-digit EBU code in upper case from EBU Tech 3264 Appendix 3 (for example Greek "70", Russian "56", Arabic "7E", Hebrew "6C", Chinese "75"), or "auto".'
+  );
+}
+
 function joinHints(a?: string, b?: string): string | undefined {
   if (a && b) return `${a} ${b}`;
   return a || b || undefined;
@@ -201,6 +228,16 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
       te.code = "api-protocol-error";
       mcpHint = "Report this with the requestId.";
       break;
+    case "format-option-invalid": {
+      const lang = te.errors?.find((e) => e.pointer.endsWith("/ebuStl/language") && /has no EBU STL language code/.test(e.message));
+      const value = lang?.message.match(/^'([^']*)'/)?.[1];
+      if (lang && value !== undefined) {
+        lang.hint = ebuLanguageHint(value);
+        // The API hint describes the first invalid value; replace it only when that is the language.
+        if (typeof b.detail !== "string" || b.detail.includes("/ebuStl/language")) return finish(te, lang.hint, b);
+      }
+      break;
+    }
     case "frame-rate-required":
       mcpHint = "Don't guess the rate: take it from the user, the file name or the delivery spec, and ask the user if none says.";
       break;
@@ -209,9 +246,11 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
       break;
     case "ambiguous-encoding":
       if (b.probe === "pac-code-page")
-        mcpHint = "Pass profile.formatOptions.pac.inputCodePage (one of candidates, or the code page for the file's language, e.g. 'greek').";
+        mcpHint = Array.isArray(b.candidates) && b.candidates.length
+          ? "Pass profile.formatOptions.pac.inputCodePage set to only one of the candidates, and tell the user which one you chose."
+          : "No code page produced recognisable words. Ask the user which code page the file was written with, pass it in profile.formatOptions.pac.inputCodePage, and tell the user which one you used.";
       else if (b.probe === "text-encoding")
-        mcpHint = "Pass profile.encoding.input (one of candidates), or save the file as UTF-8.";
+        mcpHint = "Show the user the candidates' samples, pass profile.encoding.input (only one of candidates) or profile.encoding.language, and tell the user which one you chose; or save the file as UTF-8.";
       break;
     case "conversion-timeout":
       mcpHint =
@@ -220,7 +259,10 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
           : "Split the file (e.g. by time range) or simplify the operations.";
       break;
   }
-  const hint = joinHints(apiHint, mcpHint);
+  return finish(te, joinHints(apiHint, mcpHint), b);
+}
+
+function finish(te: ToolError, hint: string | undefined, b: Record<string, unknown>): ToolError {
   if (hint) te.hint = hint;
   const ra = num(b.retryAfterSeconds);
   if (ra !== undefined) te.retryAfterSeconds = ra;

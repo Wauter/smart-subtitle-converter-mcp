@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { mapProblem, ToolErrorSchema, type MapContext } from "../../src/errors.js";
+import { mapWarnings } from "../../src/tools/common.js";
 
 const ctx: MapContext = { mode: "local", includeDebug: false };
 const p = (status: number, code: string, extra: Record<string, unknown> = {}) => ({ type: "t", title: "T", status, code, detail: "d", hint: "API hint.", requestId: "rid", ...extra });
@@ -92,7 +93,9 @@ describe("problem mapping (§8.1)", () => {
     expect(pac.errors).toEqual([{ pointer: "/formatOptions/pac/inputCodePage", message: "m" }]);
     expect(pac.hint).toMatch(/^API hint\. Pass profile\.formatOptions\.pac\.inputCodePage/);
     const text = mapProblem(422, p(422, "ambiguous-encoding", { candidates: ["windows-1256", "windows-1252"], probe: "text-encoding" }), ctx);
-    expect(text.hint).toMatch(/profile\.encoding\.input .*UTF-8/);
+    expect(text.hint).toMatch(/samples.*profile\.encoding\.input \(only one of candidates\).*tell the user which one you chose.*UTF-8/);
+    expect(pac.hint).toBe("API hint. Pass profile.formatOptions.pac.inputCodePage set to only one of the candidates, and tell the user which one you chose.");
+    expect(mapProblem(422, p(422, "ambiguous-encoding", { candidates: [], probe: "pac-code-page" }), ctx).hint).toMatch(/No code page produced recognisable words\. Ask the user which code page/);
     const empty = mapProblem(422, p(422, "ambiguous-encoding", { candidates: [], probe: "pac-code-page" }), ctx);
     expect(empty.candidates).toEqual([]);
     const unknown = mapProblem(422, p(422, "ambiguous-encoding", {}), ctx);
@@ -102,5 +105,57 @@ describe("problem mapping (§8.1)", () => {
     const te = mapProblem(422, p(422, "ambiguous-encoding", { probe: "text-encoding", candidates: [{ encoding: "windows-1256", language: "ar", hits: 12, sample: "مرحبا", extra: "x" }, { encoding: "windows-1252", language: null, hits: "1", sample: "Ã©" }, 42, { nope: true }] }), ctx);
     expect(te.candidates).toEqual([{ encoding: "windows-1256", language: "ar", hits: 12, sample: "مرحبا" }, { encoding: "windows-1252", language: null, hits: 1, sample: "Ã©" }, "42"]);
     expect(ToolErrorSchema.parse(te).candidates).toEqual(te.candidates);
+  });
+});
+
+describe("characters-replaced hint", () => {
+  const w = (remedy: object) => mapWarnings([{ code: "characters-replaced", message: "m", hint: "API hint.", details: { remedy: { scripts: ["CJK"], currentEncoding: "pac-latin", candidatesTested: true, unicodeAlternative: "fpc", ...remedy } } }])[0];
+  it("asks to choose by language only when several values fit and none is suggested", () => {
+    expect(w({ candidates: ["chinese-traditional", "chinese-simplified"], suggested: null }).hint).toBe("API hint. Several values fit: choose by the text's language (ask the user if unsure), or use the Unicode alternative (`unicodeAlternative`).");
+    expect(w({ candidates: ["greek"], suggested: "greek" }).hint).toBe("API hint.");
+    expect(w({}).hint).toBe("API hint.");
+  });
+});
+
+describe("EBU STL language hint", () => {
+  const lang = (value: string, detail?: string) => mapProblem(400, p(400, "format-option-invalid", {
+    detail: detail ?? `formatOptions has 1 invalid value(s); first at '/formatOptions/ebuStl/language': '${value}' has no EBU STL language code.`,
+    hint: "Use an ISO 639-1 code (sq, br, ca, hr, cy, cs, da, de, en, es, eo, et, ...), a two-digit EBU hex code like \"0A\", or \"auto\".",
+    errors: [{ pointer: "/formatOptions/ebuStl/language", message: `'${value}' has no EBU STL language code.`, hint: "Use an ISO 639-1 code (sq, ...)." }],
+  }), ctx);
+  it("gives the hex code for a known ISO code and the full list, never a cut-off list", () => {
+    const te = lang("el");
+    expect(te.hint).toMatch(/^Use "70" \(Greek, EBU Tech 3264 Appendix 3\)\. /);
+    expect(te.hint).toContain("sq br ca hr cy cs da de en es eo et eu fo fr fy ga gd gl is it la lv lb lt hu mt nl nb no oc pl pt ro rm sr sk sl fi sv tr.");
+    expect(te.hint).not.toContain("...");
+    expect(te.errors![0].hint).toBe(te.hint);
+    expect(lang("RU").hint).toMatch(/^Use "56" \(Russian/);
+  });
+  it("points to Tech 3264 for an unknown value", () => {
+    const te = lang("xx");
+    expect(te.hint).toMatch(/^ISO 639-1 codes work only for these languages: /);
+    expect(te.hint).toContain('upper case from EBU Tech 3264 Appendix 3 (for example Greek "70"');
+  });
+  it("keeps the API hint when another field is the first invalid value", () => {
+    const te = lang("el", "formatOptions has 2 invalid value(s); first at '/formatOptions/ebuStl/frameRate': bad.");
+    expect(te.hint).toMatch(/^Use an ISO 639-1 code \(sq/);
+    expect(te.errors![0].hint).toMatch(/^Use "70"/);
+  });
+});
+
+describe("characters-replaced hint for symbols outside any script", () => {
+  const w = (codePoints: string[]) => mapWarnings([{ code: "characters-replaced", message: "m", hint: "Lost characters are outside the known scripts; use target fpc (Unicode PAC), or remove them (operations MultipleReplace).",
+    details: { codePoints: codePoints.map((codePoint) => ({ codePoint, count: 1 })), remedy: { scripts: ["other"], currentEncoding: "cp850", candidatesTested: false, unicodeAlternative: "fpc", option: "formatOptions.ebuStl.characterTable", currentValue: "latin" } } }])[0];
+  it("leads with a MultipleReplace operation to paste, then the Unicode format", () => {
+    const hint = w(["U+2014"]).hint!;
+    expect(hint).toBe('No formatOptions.ebuStl.characterTable value keeps \u2014 (U+2014). To keep this format, replace them: add {"id":"MultipleReplace","rules":[{"find":"\u2014","replace":"-"}]} to profile.operations, then convert again. Only if the delivery accepts another format, use target fpc (Unicode).');
+  });
+  it("an unknown symbol gets an empty replace and says so", () => {
+    expect(w(["U+2122"]).hint).toContain('{"find":"\u2122","replace":""}');
+    expect(w(["U+2122"]).hint).toContain("an empty replace removes the character");
+  });
+  it("a script loss keeps the API hint", () => {
+    const x = mapWarnings([{ code: "characters-replaced", message: "m", hint: "API hint.", details: { codePoints: [{ codePoint: "U+03B1", count: 1 }], remedy: { scripts: ["Greek"], currentEncoding: "cp850", candidatesTested: true, unicodeAlternative: "fpc" } } }])[0];
+    expect(x.hint).toBe("API hint.");
   });
 });

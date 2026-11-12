@@ -14,7 +14,7 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
     name: "validate_profile",
     title: "Validate a conversion profile",
     description: () =>
-      "Check a custom conversion profile without converting anything. Returns `valid`, errors with JSON pointers and hints, warnings, and the resolved profile. Always validate a profile you wrote yourself before using it in convert_subtitle . The JSON Schema is available as the resource `subtitleedit://schemas/profile.json`. A profile without `target.format` can be valid (with a warning) because it may be a base for other presets." +
+      "Check a custom conversion profile without converting. Validate every profile you write before passing it to convert_subtitle. Returns `valid`, errors with JSON pointers and hints, warnings and the resolved profile. A profile without `target.format` can be valid (with a warning): it may be a base for other presets. JSON Schema: resource `subtitleedit://schemas/profile.json`." +
       (paths ? ` Give exactly one of \`profile\` or \`path\`. ${deps.rootsText}` : ""),
     shape: {
       profile: z.record(z.string(), z.unknown()).optional().describe("Profile JSON object"),
@@ -49,10 +49,10 @@ export function registerInspectTools(server: McpServer, deps: Deps): void {
     warningArray: true,
     title: "Detect subtitle format",
     description: () =>
-      "Identify a subtitle file's format, character encoding, language and cue count without converting it. Use it when you don't know what a file is, or before converting when the file extension is missing or misleading." +
-      (paths ? " Prefer `path` (the file stays out of your context and binary files stay intact); give exactly one of `content`, `path` or server-side `input`." : " Give content (base64 for binary) or a server-side input URI.") +
-      " API input is read by the API server, not this MCP or the user's laptop unless mounted there. list_allowed_folders covers local paths only, never API input." + apiStorageDescription(deps) +
-      " If detection is ambiguous, `candidates` lists alternatives, and you can force one in a conversion with `profile.source.format`. For text files it also reports `bom` and `lineEndings`, and `warnings` flag source problems by cue number (`zero-length-cue`, `source-replacement-chars` for U+FFFD already in the file). PAC and Unicode PAC (FPC) bytes look alike: without a .pac/.fpc name the API answers `ambiguous-format`; then set `profile.source.format`. ZIP files are not accepted; submit one subtitle per request." +
+      "Identify a subtitle file's format, character encoding, language and cue count without converting it. Use it when you don't know what a file is, or before converting when its extension is missing or misleading." +
+      (paths ? " Give exactly one of `path` (preferred: the file stays out of your context and binary files stay intact), inline `content` or an API `input` URI." : " Give inline `content` (base64 for binary formats) or an API `input` URI.") +
+      " The API server reads API `input` on its own side; list_allowed_folders covers local paths only." + apiStorageDescription(deps) +
+      " `candidates` lists alternatives when detection is ambiguous; force one in a conversion with `profile.source.format`. Text files also report `bom` and `lineEndings`, and `warnings` flag source problems by cue number. One file per call; ZIP files are refused." +
       (paths ? ` ${deps.rootsText}` : ""),
     shape: {
       input: z.string().max(16384).optional().describe("Server-side input URI (file, s3 or https); mutually exclusive with content/path"),

@@ -32,6 +32,16 @@ describe("get_job", () => {
     expect(Object.keys(t.inputSchema.properties!).sort()).toEqual(["jobId", "wait"]);
   });
 
+  it.each([[[], undefined], [[{ code: "lossy-format", message: "m" }], "Tell the user about this warning before anything else; its `hint`, if any, says how to fix it. "],
+    [[{ code: "lossy-format", message: "m" }, { code: "zero-length-cue", message: "z" }], "Tell the user about these 2 warnings before anything else; a warning's `hint` says how to fix it. "]])("a succeeded job's hint starts with the warnings only when there are some (%j)", async (warnings, start) => {
+    h = await harness();
+    const rec: any = record(); rec.result.warnings = warnings;
+    mswServer.use(http.get(`${API}${path}`, () => HttpResponse.json(rec)));
+    const hint: string = (await callTool(h, "get_job", { jobId: id })).structuredContent.hint;
+    if (start) expect(hint.startsWith(start)).toBe(true); else expect(hint).not.toMatch(/warning/i);
+    expect(hint).toContain(`preview_text {jobId:"${id}", which:"output"}`);
+  });
+
   it("waits for a running job, honouring Retry-After, using only GET /v1/jobs/{id}", async () => {
     h = await harness(); let polls = 0;
     mswServer.use(http.get(`${API}${path}`, () => (++polls < 3 ? HttpResponse.json({ id, status: "running" }, { headers: { "Retry-After": "0", Location: "https://elsewhere.example/steal" } }) : HttpResponse.json(record()))));

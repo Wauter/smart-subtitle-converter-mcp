@@ -54,8 +54,8 @@ Apps differ in practice. Claude Code and VS Code pass `structuredContent` to the
 reportedly passes only `content`. So by default the server sends the same information in both parts, and no app
 loses a warning, hint or preview page. This only affects the local message from this server to the app; the
 requests to the converter API are the same. In apps that pass both parts to the model, the result costs extra
-tokens; there, `SUBTITLE_MCP_RESULT_IN=structured` or `content` keeps the part that app uses. The startup
-instructions mention the setting, so the model can suggest it.
+tokens; there, `SUBTITLE_MCP_RESULT_IN=structured` or `content` keeps the part that app uses. Set it in the
+server's configuration; the model isn't told about it.
 
 ## Browsing and reading by location
 
@@ -203,15 +203,20 @@ Errors come back as `isError: true` with a structured `error`: `source` (`api` o
 `jobUrl`, a redacted `location`, `limit`, `retryAfterSeconds`, and for local write failures `path` + `osError`.
 API codes are on the API's [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page
 (what happened, why, what to do). MCP codes (`mcp-misconfigured`, `path-not-allowed`, `hidden-path`, `extension-not-allowed`, `folder-too-large`, `output-exists`, `cross-device`, …) are in
-[troubleshooting.md](troubleshooting.md). `path-not-allowed` hints include the current allowed folders.
+[troubleshooting.md](troubleshooting.md). `path-not-allowed` hints include the current allowed folders. A rejected
+`formatOptions.ebuStl.language` hint lists every ISO 639-1 code the API maps and, for other languages, the two-digit
+EBU Tech 3264 code (for example Greek `"70"`).
 
 ## Warnings
 
 Report every warning the tools return. Each has a `code` and `message`, and may carry a `hint` (the setting
-that fixes it) and `details` (positions and settings, never cue text). What each API warning means, including
+that fixes it) and `details` (positions and settings, never cue text). When a `convert_subtitle` or `get_job`
+result has warnings, its `hint` starts by asking the model to tell the user about them first. What each API warning means, including
 `characters-replaced` remedy fields: the API's [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page.
 
-The MCP passes API warnings through unchanged. It adds only `mcp-api-version-mismatch`
+The MCP passes API warnings through unchanged, except two hints: `characters-replaced` for symbols outside any
+script (such as an em dash) leads with a `MultipleReplace` operation to add to `profile.operations`, and with
+several fitting values asks to choose by the text's language. It adds only `mcp-api-version-mismatch`
 ([troubleshooting.md](troubleshooting.md#version-mismatch)), `mcp-ebu-size` (a local `.stl` larger than
 the API's EBU STL limit) and `max-bytes-clamped` (a `preview_text` page size out of range).
 
@@ -231,7 +236,10 @@ The result surfaces `jobId`, which [`get_job`](#get_job) can check later. The MC
 
 Jobs retain metadata only, never subtitle bytes. If a conversion may take long or another system picks the file up from API storage, give an API `output`. With one, a job that outlives the call returns `job-not-ready` with its `jobId` for `get_job`; don't resubmit. Without one (an attached file or `outputPath`/`outputDir`), the call waits as long as it can, and a result it can't wait for is lost: it returns `job-output-not-stored` and writes nothing locally ([time limits](configuration.md#time-limits)). Conversion POSTs are never automatically replayed; transient I/O retries happen inside the accepted API job.
 
-Failed admitted conversions also surface `error.jobId` / `error.jobUrl` when supplied by the API. Tool output
+Failed admitted conversions also surface `error.jobId` / `error.jobUrl` when supplied by the API, except a refused
+request (HTTP 400 or 422, such as `frame-rate-required`): nothing ran or was written, so fix the input and convert
+again. With `sidecar: true`, `outputs[].sidecar` names the sidecar location (the output URI plus `.json`) unless the
+API reports `sidecar-skipped` or `sidecar-write-failed`. Tool output
 schemas permit structured errors as well as success results; required success fields are validated before
 returning a success. No external polling location is followed.
 

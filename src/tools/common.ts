@@ -421,6 +421,14 @@ export function mapDetected(d: any): z.infer<typeof DetectedOutput> | null {
   return out;
 }
 
+/** Result hint when warnings are present: they come first, before anything else the model says. */
+export function warningsHint(n: number): string | undefined {
+  if (n <= 0) return undefined;
+  return n === 1
+    ? "Tell the user about this warning before anything else; its `hint`, if any, says how to fix it."
+    : `Tell the user about these ${n} warnings before anything else; a warning's \`hint\` says how to fix it.`;
+}
+
 export function mapWarnings(ws: unknown): WarningT[] {
   if (!Array.isArray(ws)) return [];
   return ws.filter((w) => w && typeof w === "object").map((w: any) => {
@@ -442,8 +450,34 @@ export function mapWarnings(ws: unknown): WarningT[] {
       if (rm) det.remedy = rm;
       if (Object.keys(det).length) out.details = det;
     }
+    const rm = out.details?.remedy;
+    if (out.code === "characters-replaced" && rm && !rm.suggested && (rm.candidates?.length ?? 0) > 1)
+      out.hint = (out.hint ? out.hint + " " : "") + "Several values fit: choose by the text's language (ask the user if unsure), or use the Unicode alternative (`unicodeAlternative`).";
+    if (out.code === "characters-replaced" && rm && rm.scripts.length > 0 && rm.scripts.every((x) => x === "other")) {
+      const hint = symbolsHint(out.details?.codePoints ?? [], rm);
+      if (hint) out.hint = hint;
+    }
     return out;
   });
+}
+
+/** Usual plain stand-ins for typographic characters that legacy character tables lack. */
+const STAND_INS: Record<string, string> = {
+  "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-", "\u2015": "-", "\u2212": "-",
+  "\u2018": "'", "\u2019": "'", "\u201A": "'", "\u201C": '"', "\u201D": '"', "\u201E": '"', "\u2026": "...", "\u00A0": " ",
+};
+
+/**
+ * Lost symbols outside any script (dashes, quotes, ...): no character table keeps them, so lead with a replacement
+ * that keeps the delivery format, with the operation shape, before the Unicode format.
+ */
+function symbolsHint(cps: { codePoint: string }[], rm: NonNullable<NonNullable<WarningT["details"]>["remedy"]>): string | undefined {
+  const chars = cps.map((c) => /^U\+([0-9A-F]{4,6})$/i.exec(c.codePoint)).filter((m): m is RegExpExecArray => !!m).map((m) => String.fromCodePoint(parseInt(m[1], 16)));
+  if (!chars.length) return undefined;
+  const rules = chars.slice(0, 5).map((c) => ({ find: c, replace: STAND_INS[c] ?? "" }));
+  const op = JSON.stringify({ id: "MultipleReplace", rules });
+  const listed = chars.slice(0, 5).map((c) => `${c} (U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")})`).join(", ");
+  return `No ${rm.option ? `${rm.option} value` : "character table"} keeps ${listed}${chars.length > 5 ? ", ..." : ""}. To keep this format, replace them: add ${op} to profile.operations${rules.some((r) => r.replace === "") ? " (an empty replace removes the character; pick a stand-in if the user prefers)" : ""}, then convert again. Only if the delivery accepts another format, use target ${rm.unicodeAlternative} (Unicode).`;
 }
 
 const strs = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x).slice(0, 100)).slice(0, 50) : undefined);

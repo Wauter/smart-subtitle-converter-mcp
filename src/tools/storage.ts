@@ -164,10 +164,9 @@ const ItemSchema = z.object({
 });
 
 export function describeListFiles(deps: Deps): string {
-  return "List one folder, a page at a time, to find subtitle files; pass a file's items[].location (its full URI or path) unchanged as preview_text `location`. `location` is either a local folder of this MCP server (a plain absolute path from list_allowed_folders `folders`) or an API location (a file:// or s3:// folder URI from list_allowed_folders `remote.locations`)." +
-    ` Lists one level in name order (UTF-8 byte order), at most ${LIST_PAGE_SIZE} items a page: files with size and modified time, and folders (ending in '/'). \`prefix\` keeps names that start with it ('/' descends into a sub-folder, e.g. season1/ep); no globs, no time sorting, no total count.` +
-    " When `truncated` is true, call again with the same location and prefix and `cursor` set to `next`. Items that exist for the whole walk appear exactly once; files added or removed meanwhile may or may not appear. Only subtitle files and folders are listed; hidden (dot) entries, symlinks and special files are skipped." +
-    ` A folder with more than ${LIST_MAX_ENTRIES} matching entries isn't listed (folder-too-large): pass a longer prefix. HTTPS locations can't be listed.` +
+  return "List one folder to find subtitle files; pass a file's items[].location unchanged as preview_text `location`. `location` is a local folder of this server (a plain absolute path from list_allowed_folders `folders`) or an API folder (a file:// or s3:// URI from list_allowed_folders `remote.locations`)." +
+    ` Lists one level in name order, at most ${LIST_PAGE_SIZE} items a page: subtitle files with size and modified time, and folders (ending in '/'). \`prefix\` keeps names that start with it ('/' descends into a sub-folder, e.g. season1/ep); no globs, no sorting by time, no total count.` +
+    " When `truncated` is true, call again with the same `location` and `prefix` and `cursor` set to `next`. Hidden (dot) entries, symlinks and special files are skipped; HTTPS locations can't be listed." +
     (deps.pathsInSchema ? "" : " Local folders are not available on this server.");
 }
 

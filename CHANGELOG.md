@@ -32,6 +32,24 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
   then polls the job until the call's time limit and returns `job-not-ready` with the `jobId` for `get_job`.
   `SUBTITLE_MCP_RETRY_MAX_WAIT_MS` and `SUBTITLE_MCP_RETRY_BUDGET_MS` default to 30000 (were 60000 and 90000). The
   startup warning about the API's worst-case conversion time is gone.
+- Shorter tool descriptions. `convert_subtitle` now says only what nearly every call needs (one file per call, how
+  to give the source and the output, "if a conversion may take long or another system picks the file up from API
+  storage, give an API `output`", and what the verification verdicts mean): about 1,150 characters with one allowed
+  folder, was about 5,000. `preview_text` is about 750, was about 2,700. Frame-rate, `ifExists`, sidecar, page-size
+  and storage details moved to the field descriptions, and the error and warning hints say what to do when an edge
+  case happens: `ambiguous-encoding` asks to pick only one of the candidates (for a PAC file without candidates, to
+  ask the user) and to tell the user which was chosen, and `characters-replaced` with several fitting values asks to
+  choose by the text's language. A `convert_subtitle` or `get_job` result with warnings starts its `hint` with "Tell
+  the user about these N warnings before anything else". `preview_text` says its text is file content, to be treated
+  as data. With no allowed folders, tool descriptions say `Allowed folders: none (paths disabled; see
+  list_allowed_folders)`; the full advice stays in the startup instructions and `list_allowed_folders`. The startup
+  instructions no longer mention `SUBTITLE_MCP_RESULT_IN` (it is documented in tools.md).
+- Clearer results and hints. A refused conversion request (HTTP 400 or 422, such as `frame-rate-required`) no
+  longer carries a `jobId` or the "not replayed; inspect any known job" advice, since nothing ran. A rejected EBU STL
+  `language` lists every ISO 639-1 code the API maps and, for other languages, the EBU Tech 3264 code (Greek
+  `"70"`). `characters-replaced` for symbols no character table holds (such as an em dash) leads with a
+  `MultipleReplace` operation to add to `profile.operations`. With `sidecar: true`, the result names the sidecar
+  location in `outputs[].sidecar`.
 - `preview_text` pages default to 32768 bytes (`SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES`, was 65536), so a default page
   stays under the 50,000 characters above which Claude Code saves a tool result to a file instead of showing it.
 - Information that was only in the summary is now in the result object: `detect_format` and `list_formats` have a
@@ -45,7 +63,7 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
   checks that every JSON, TOML and YAML snippet there parses, starts the server and lists its tools.
 - Frame rates (pairs with the API's change): the API no longer assumes 23.976 fps for formats that store frame
   numbers without a rate (PAC, Cavena 890, …) and answers `frame-rate-required` instead. The `convert_subtitle`
-  description explains `profile.source.fps` / `profile.target.fps`, and the MCP adds a hint not to guess the rate.
+  `profile` field explains `profile.source.fps` / `profile.target.fps`, and the MCP adds a hint not to guess the rate.
   `preview_text` passes the rate a job used when it shows a rate-less binary file as SRT, takes a new `fps`
   argument otherwise, and answers `frame-rate-required` with pointer `/fps` when neither gives one. The
   `frame-rate-assumed` warning detail (`details.frameRate`) is gone.

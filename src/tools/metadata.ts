@@ -14,7 +14,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
     name: "list_formats",
     title: "List subtitle formats",
     description:
-      "List subtitle formats the converter can read and write. Use it to find the format id or alias to pass as `target` (or `profile.source.format`). By default it lists text formats (SRT, WebVTT, ASS, TTML, …) and binary broadcast formats (EBU STL, PAC, Cavena 890, CapMaker Plus, …); set `includeBinary: false` for text formats only. Use `query` to filter by name, id or extension (e.g. \"stl\", \"vtt\"). Set `writableOnly: true` when you are choosing a conversion target. Formats with `lossy: true` may drop characters or timing precision. `options` names the `profile.formatOptions` block for format-specific settings.",
+      "List the subtitle formats the converter reads and writes, with the id or alias to pass as `target` or `profile.source.format`. Lists text formats (SRT, WebVTT, ASS, TTML, …) and binary broadcast formats (EBU STL, PAC, Cavena 890, …); `includeBinary: false` lists text formats only. Filter with `query` (name, id or extension, e.g. \"stl\"). Set `writableOnly: true` when choosing a target. Formats with `lossy: true` may drop characters or timing precision. `options` names the format's `profile.formatOptions` block.",
     shape: {
       query: z.string().max(100).optional().describe("Filter by name, id, alias or extension"),
       includeBinary: z.boolean().default(true).describe("Include binary broadcast formats (EBU STL, PAC, …); false lists text formats only"),
@@ -73,7 +73,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
     name: "list_presets",
     title: "List conversion presets",
     description:
-      "List the conversion presets available on this server: built-in ones plus any the operator mounted. Each preset fixes a target format and a set of clean-up operations (e.g. \"netflix-en-vtt\"). Pass a preset `name` as `preset` to convert_subtitle . Invalid presets are listed too, with `valid: false` and errors, so you can explain why one can't be used. Use get_profile to see what a preset does.",
+      "List the conversion presets on this server: built-in ones and any the operator mounted. A preset fixes a target format and a set of clean-up operations (e.g. \"netflix-en-vtt\"); pass its `name` as convert_subtitle `preset`. Invalid presets are listed with `valid: false` and their errors; explain these to the user. get_profile shows what a preset does.",
     shape: {},
     output: { presets: z.array(presetShape), profilesDir: z.string().nullish(), mountError: z.string().nullish() },
     annotations: RO,
@@ -100,7 +100,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
     name: "get_profile",
     title: "Show a preset",
     description:
-      "Show one preset in full: its raw JSON, the resolved profile (with `extends` flattened) that a conversion would actually use, and any load errors or warnings. Use it to explain what a preset does, or as a starting point for a custom `profile` (copy `resolved` and change it, then check it with validate_profile).",
+      "Show one preset in full: its raw JSON, the resolved profile a conversion uses (`extends` flattened), and any load errors or warnings. Use it to explain a preset, or to start a custom `profile`: copy `resolved`, change it, then check it with validate_profile.",
     shape: { name: z.string().min(1).max(200) },
     output: {
       name: z.string(), origin: z.string(), valid: z.boolean(), description: z.string().nullish(), target: z.string().nullish(), shadows: z.string().nullish(),

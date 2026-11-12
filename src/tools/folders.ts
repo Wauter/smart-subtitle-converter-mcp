@@ -5,8 +5,8 @@ import { foldersReport } from "../fs/folders.js";
 import { defineTool } from "./common.js";
 import { remoteLocations } from "./storage.js";
 
-const LOCAL_ONLY = "This reports MCP-local folders only, never API STORAGE_FILE_ROOTS, S3 buckets or HTTPS hosts; use the API schemes from limits/descriptions for input/output URIs.";
-const WITH_REMOTE = "`folders` are local folders of this MCP server (plain paths, for `path`/`outputPath` and list_files/preview_text). `remote` reports the converter API's storage locations (file:// and s3:// URIs on the API's side, for list_files, preview_text {location} and convert `input`/`output`); its `state` is on, disabled-api (the API has browsing off: STORAGE_LIST_ENABLED) or unknown. HTTPS hosts are listed as not listable. Local and API file paths are different machines' paths: never mix them.";
+const LOCAL_ONLY = "Reports this server's local folders only, never the API's storage (file roots, S3 buckets, HTTPS hosts); API `input`/`output` URIs follow the API's schemes shown in the tool descriptions.";
+const WITH_REMOTE = "`folders` are this server's local folders (plain paths, for `path`, `outputPath`, list_files and preview_text). `remote` lists the converter API's storage locations (file:// and s3:// URIs on the API's side, for list_files, preview_text `location` and convert_subtitle `input`/`output`); its `state` is on, disabled-api (browsing is off on the API) or unknown. HTTPS hosts are listed as not listable. Local paths and API paths are on different machines: never mix them.";
 
 /** list_allowed_folders: the folders in effect now, from the same snapshot the tool descriptions are built from, plus API locations when browsing is on. */
 export function registerFoldersTool(server: McpServer, deps: Deps): void {
@@ -15,7 +15,7 @@ export function registerFoldersTool(server: McpServer, deps: Deps): void {
     name: "list_allowed_folders",
     title: "List allowed folders",
     description:
-      "List the folders this server may read and write right now, each with its mode (read-write or read-only) and source (`config`: SUBTITLE_MCP_ALLOWED_DIRS / SUBTITLE_MCP_READONLY_DIRS; `client-roots`: your MCP client's workspace roots). `state` says whether client roots are still expected (`waiting-for-roots`), unsupported or empty; when no folders are available, `hint` says what the user should configure. Use it before working with local paths, or when a path is refused. " +
+      "List the folders this server may read and write now, each with its mode (read-write or read-only) and source (`config`: SUBTITLE_MCP_ALLOWED_DIRS or SUBTITLE_MCP_READONLY_DIRS; `client-roots`: your MCP client's workspace roots). Call it before using local paths, or when a path is refused. `state` says whether client roots are still expected (`waiting-for-roots`), unsupported or empty; with no folders, `hint` says what the user should configure. " +
       (listing ? WITH_REMOTE : LOCAL_ONLY),
     shape: {},
     output: {

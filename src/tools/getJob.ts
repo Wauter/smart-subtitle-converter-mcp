@@ -5,7 +5,7 @@ import { JOB_ID, pollJob } from "../api/jobs.js";
 import { ToolFailure } from "../errors.js";
 import { toInt } from "../api/coerce.js";
 import { ConvertOutput, meta, parseApiOutput } from "./convert.js";
-import { defineTool, mapDetected, mapWarnings, Warning } from "./common.js";
+import { defineTool, mapDetected, mapWarnings, Warning, warningsHint } from "./common.js";
 
 export const GetJobOutput = {
   jobId: z.string().describe("The job id"),
@@ -74,7 +74,8 @@ export async function getJob(deps: Deps, a: { jobId: string; wait?: boolean }, c
   const r: any = job.result;
   const outputs = Array.isArray(r.outputs) ? r.outputs.map((o: any) => meta(parseApiOutput(o))) : undefined;
   const stored = !!base.output || outputs?.some((o: any) => o.output);
-  let hint = "Report the warnings to the user. ";
+  const warnings = mapWarnings(r.warnings);
+  let hint = warningsHint(warnings.length) ? `${warningsHint(warnings.length)} ` : "";
   if (stored && job.outputReplayable === false) hint += "The output went to a presigned HTTPS location, which can't be read back through the API.";
   else if (stored) hint += `Read the converted text with preview_text {jobId:"${id}", which:"output"}.`;
   else hint += "This job had no output location, so the API kept only this metadata, not the converted file, and the file can't be recovered. Convert again with an API `output` location, which is kept even when a job outlives the call (outputPath/outputDir only help when the conversion finishes within the call).";
@@ -86,7 +87,7 @@ export async function getJob(deps: Deps, a: { jobId: string; wait?: boolean }, c
       ...(outputs ? { outputs } : {}),
       ...(r.detected ? { detected: mapDetected(r.detected) } : {}),
       ...(stats ? { stats } : {}),
-      warnings: mapWarnings(r.warnings),
+      warnings,
       ...(r.metadataTruncated ? { metadataTruncated: true } : {}),
       hint, ...tail,
     },

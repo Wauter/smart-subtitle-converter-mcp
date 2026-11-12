@@ -14,7 +14,7 @@ import { toInt } from "../api/coerce.js";
 import { locationBaseName } from "./textPage.js";
 import {
   apiStorageDescription, DetectedOutput, logSource, defineTool, ebuSizeWarning, exactlyOne, getCaps, loadProfile, loadSource, mapDetected, mapWarnings,
-  mapVerification, mutuallyExclusive, requirePathsAllowed, refreshToolDescriptions, tooLarge, Verification, Warning, withPartial,
+  mapVerification, mutuallyExclusive, warningsHint, requirePathsAllowed, refreshToolDescriptions, tooLarge, Verification, Warning, withPartial,
   type SourceInput, type VerificationT,
 } from "./common.js";
 
@@ -35,9 +35,10 @@ export const ConvertOutput = {
       bytes: z.number().int().describe("Size of the output in bytes (of the attached text when attached as text)"),
       writtenTo: z.string().optional().describe("Local file written (outputPath/outputDir)"),
       output: z.string().optional().describe("API location the output was stored at (server-side `output`)"),
+      sidecar: z.string().optional().describe("API location of the JSON sidecar written beside `output` (sidecar:true)"),
       action: z.enum(["written", "replaced"]).optional().describe("Local writes: written (new file) or replaced (ifExists:replace)"),
       attached: z.boolean().optional().describe("true when the whole converted file is attached to this result as an embedded resource (no output location given)"),
-      verification: Verification.optional().describe("Binary outputs: the file read back and compared with what was written"),
+      verification: Verification.optional().describe("Binary outputs: the file read back and compared with what was written. verdict lossless | quantised (times rounded to frames only) | lossy | unverified, with cue counts, timing shift and replaced characters by cue number. A clean round trip shows the file is self-consistent through the converter's own reader, not that a given playout system accepts it"),
     }),
   ),
   detected: DetectedOutput.nullish().describe("What the API found in the source"),
@@ -68,44 +69,38 @@ export interface ApiOutput {
 }
 
 export function describeConvert(deps: Deps): string {
-  let d =
-    "Convert one subtitle file to another format, optionally applying a preset's or profile's clean-up operations (timing offset, frame-rate change, line splitting, …).";
-  if (deps.pathsInSchema) {
-    d +=
-      " Give the source as server-side `input` (file/S3/HTTPS, resolved by the API allowlists), `path` (preferred: the source is read from disk, not passed through your context, and binary formats stay byte-exact) or as inline `content`; exactly one source.";
-  } else d += " Give the source as inline `content` (base64 for binary formats) or server-side `input` (file/S3/HTTPS URI).";
-  d +=
-    " Choose the result with `target` (a format id or alias from list_formats), a `preset` (from list_presets), and/or a `profile` (custom JSON, checked first with validate_profile); at least one is required. `profile` values are merged over the preset.";
-  if (deps.pathsInSchema) {
-    d += " With outputPath (exact file) or outputDir (API-generated basename), write a local result and return metadata. ifExists is error (default) | replace, for both local writes and API output. Explicit replace is sufficient. Choose another path if replacement is unwanted.";
-  }
-  d += ` Without ${deps.pathsInSchema ? "outputPath/outputDir or " : ""}an API \`output\`, the whole converted file is attached as an embedded resource (text formats as text, binary formats as base64) for the client to save; it is the deliverable, not a view for you, and \`outputs[].attached\` is true. Its text is not repeated in the structured result. Inline results are not stored, so preview_text cannot read them: save the attached file and read it locally, or convert with an API \`output\` and call preview_text {jobId, which:"output"}; \`hint\` says what applies.`;
-  d += " Server-side `output` stores the result via the API instead of returning bytes; `sidecar:true` requests output.json. It cannot be combined with local outputPath/outputDir. Jobs expose jobId and the MCP polls 202 responses. Cancelling this call does not cancel accepted API work. Filesystem and S3 reject an existing output by default; ifExists:replace allows replacement. Presigned HTTPS PUT follows whatever the signer/receiver allowed, not a filesystem/S3 lock. API locations are not governed by list_allowed_folders.";
-  d +=
-    " Frame rates: formats that store frame numbers without a rate (PAC, Cavena 890, Cheetah CAP, MicroDVD, …) need one, and the API never guesses it. Set `profile.source.fps` when such a file is the source, and `profile.target.fps` for such a target when the source gives no rate (SRT, WebVTT, …); the output uses the source's rate (source.fps, an EBU STL header, SCC timecodes) unless target.fps is set. Without one the call fails with `frame-rate-required`, and `errors[0].pointer` names the field: ask the user (25 for PAL/European broadcast, 29.97 for NTSC, 23.976 or 24 for film) rather than guessing. No rate is needed between such formats (PAC to PAC) without target.fps or millisecond timing settings. EBU STL output takes its rate from `formatOptions.ebuStl.frameRate`, else the source's EBU rate, else 25." +
-    " Note: EBU Tech 3264 has no 29.97 fps code, so a 29.97 fps EBU STL source is written with the STL30.01 code; the API flags such frame-rate code mismatches with the warning `frame-rate-changed`. Timings change by less than one frame (no cumulative drift); tell the user, and see the warning for the workaround. Always report `warnings` to the user: they flag lossy formats, replaced characters, truncated text, zero-length cues, frame quantisation and frame-rate changes; many carry a `hint` with the setting that fixes them (the API never switches code pages or character tables by itself) and `details` with cue numbers and code points. For `characters-replaced`, `details.remedy` lists the setting (`option`), its `allowedValues`, the value in effect and the `candidates` that keep the characters (for PAC tested by the converter); `suggested` is set only when exactly one fits. With several candidates, choose by the text's language (ask the user if unsure), or use `unicodeAlternative` (fpc)." +
-    " Binary outputs carry `verification`: the file is read back and compared with what was written (verdict lossless | quantised (times rounded to frames only) | lossy | unverified, with cue counts, timing shift and replaced characters by cue number). A clean round trip proves the file is self-consistent through the converter's own reader, not that a given playout system accepts it." +
-    " If a file matches both PAC and Unicode PAC (FPC) and its name doesn't decide, the API fails with `ambiguous-format`; pass `profile.source.format` ('pac' or 'fpc'). If it can't tell the character set from the words, it fails with `ambiguous-encoding`; show the candidate samples, pick only from that list, tell the user, then retry with `profile.formatOptions.pac.inputCodePage`, `profile.encoding.input` or `profile.encoding.language` as `error.probe` says. On `conversion-timeout`, split the file and convert the parts.";
-  d += apiStorageDescription(deps);
-  d += " One file per call; loop for folders, never zip them. If work may outlive the wait, pass output; response-only bytes may never be available after 202. Use preview_text after a conversion with API `input`/`output` to read the stored file's text (paged).";
-  if (deps.pathsInSchema) d += ` ${deps.rootsText}`;
-  return d;
+  const paths = deps.pathsInSchema;
+  // Only what nearly every call needs; edge cases live in the field descriptions and in the hints of the errors and
+  // warnings they cause. Some clients cut long descriptions (Claude Code shows the first 4,096 characters).
+  return (
+    "Convert one subtitle file per call (for a folder, one call per file; never zip them), optionally with a preset's or profile's clean-up such as a timing offset, frame-rate change or line splitting." +
+    (paths ? ` ${deps.rootsText}` : "") +
+    (paths
+      ? " Give the source as exactly one of `path` (preferred: binary formats stay byte-exact), inline `content` or an API `input` URI,"
+      : " Give the source as exactly one of inline `content` (base64 for binary formats) or an API `input` URI,") +
+    " and choose the result with `target` (from list_formats), `preset` (from list_presets) and/or `profile`." +
+    (paths ? " Write the file with `outputPath` or `outputDir`, or store it with an API `output`;" : " Store the file with an API `output`;") +
+    " with neither, the whole file is attached for the client to save (the deliverable, not a view for you), and the result's `hint` says how to read its text." +
+    " If a conversion may take long or another system picks the file up from API storage, give an API `output`." +
+    " Binary outputs carry verification.verdict: lossless; quantised (only times rounded to frames); lossy (text or cues lost or changed: tell the user, using reason, replacedChars, missingCues, truncatedCues); unverified (not read back; see reason). A clean verdict means the converter reads its own file back, not that a playout system accepts it." +
+    apiStorageDescription(deps)
+  );
 }
 
 export function registerConvertTool(server: McpServer, deps: Deps): void {
   const paths = deps.pathsInSchema;
   const shape = {
-    input: z.string().max(16384).optional().describe("Server-side input URI (file, s3 or https); mutually exclusive with content/path"),
-    output: z.string().max(16384).optional().describe("Exact server-side destination URI; mutually exclusive with local outputPath/outputDir"),
-    ifExists: IF_EXISTS.default("error").describe("error (default) | replace; applies to local and API outputs; HTTPS follows signer/receiver policy"),
-    sidecar: z.boolean().default(false).describe("Write output.json beside a server-side output; HTTPS output skips it with a warning"),
+    input: z.string().max(16384).optional().describe("Server-side input URI (file, s3 or https), resolved by the API allowlists, not list_allowed_folders; mutually exclusive with content/path"),
+    output: z.string().max(16384).optional().describe("Exact server-side destination URI (file, s3 or https), resolved by the API allowlists, not list_allowed_folders. Give one when a conversion may take long or another system picks the file up from API storage: if the job outlives this call, the call returns job-not-ready with a jobId for get_job (don't resubmit; the job still writes this output). Without one, a result the call can't wait for is lost. Mutually exclusive with local outputPath/outputDir"),
+    ifExists: IF_EXISTS.default("error").describe("error (default): refuse an existing file (local, filesystem and S3 outputs); replace: overwrite it (an explicit replace is enough, no other switch). A presigned HTTPS PUT follows whatever its signer/receiver allows, not this setting"),
+    sidecar: z.boolean().default(false).describe("Write output.json (the conversion report) beside a server-side `output`; HTTPS output skips it with a warning"),
     content: z.string().optional().describe("Subtitle content: text, or base64 if contentEncoding is 'base64'"),
     contentEncoding: z.enum(["text", "base64"]).default("text").describe("How `content` is given: text (default) or base64 (required for binary formats such as EBU STL or PAC)"),
     ...(paths ? { path: z.string().optional().describe("Absolute path to the source file in an allowed folder") } : {}),
     fileName: z.string().max(255).optional().describe("Source file name; used for detection and to name the output"),
     preset: z.string().max(200).optional().describe("Preset name from list_presets"),
     target: z.string().max(100).optional().describe("Target format id or alias, e.g. 'webvtt', 'ebustl'"),
-    profile: z.record(z.string(), z.unknown()).optional().describe("Profile JSON or overrides on top of preset, e.g. {\"target\":{\"fps\":25}}; source.fps / target.fps set frame rates (see the tool description)"),
+    profile: z.record(z.string(), z.unknown()).optional().describe("Profile JSON or overrides on top of preset, e.g. {\"target\":{\"fps\":25}}; check custom ones with validate_profile. Frame rates: formats that store frame numbers without a rate (PAC, Cavena 890, Cheetah CAP, MicroDVD, …) need one and the API never guesses it: set source.fps for such a source, and target.fps for such a target when the source gives no rate (SRT, WebVTT, …); otherwise the output uses the source's rate. Don't guess a rate either: on frame-rate-required ask the user. EBU STL output takes formatOptions.ebuStl.frameRate, else the source's EBU rate, else 25. EBU Tech 3264 has no 29.97 fps code, so a 29.97 fps EBU STL source is written with the STL30.01 code: timings change by less than one frame (no cumulative drift), the API warns `frame-rate-changed` with the workaround; tell the user"),
     ...(paths
       ? {
           profilePath: z.string().optional().describe("Absolute path to a profile .json file (instead of `profile`)"),
@@ -245,6 +240,9 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
   } else {
     for (const o of result.outputs) {
       const m: any = meta(o);
+      // The API writes the sidecar at the output location plus ".json", unless it reports skipping or failing it.
+      if (a.sidecar && a.output !== undefined && !warnings.some((w) => w.code === "sidecar-skipped" || w.code === "sidecar-write-failed"))
+        m.sidecar = `${m.output ?? a.output}.json`;
       if (!o.retained) {
         outputs.push(m);
         continue;
@@ -264,7 +262,7 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
     }
   }
 
-  const hint = readHint(result.jobId, outputs, src);
+  const hint = [warningsHint(warnings.length), readHint(result.jobId, outputs, src)].filter(Boolean).join(" ") || undefined;
   const structured: any = {
     outputs,
     ...(result.jobId ? { jobId: result.jobId } : {}),

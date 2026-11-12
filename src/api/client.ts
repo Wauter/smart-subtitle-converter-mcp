@@ -197,7 +197,13 @@ export class ApiClient {
         headerRequestId: echoed ?? rid,
       });
       te.attempts = ctx.stats.attempts;
-      if (req.method === "POST" && req.path.startsWith("/v1/convert")) te.hint = `${te.hint ?? ""} This conversion POST was not replayed; inspect any known job or destination before resubmitting.`.trim();
+      if (req.method === "POST" && req.path.startsWith("/v1/convert")) {
+        if (res.status === 400 || res.status === 422) {
+          // The request itself was refused: nothing ran or was written, so a job id or "inspect the job" only invites a needless get_job.
+          delete te.jobId;
+          delete te.jobUrl;
+        } else te.hint = `${te.hint ?? ""} This conversion POST was not replayed; inspect any known job or destination before resubmitting.`.trim();
+      }
       const retryable = !(req.method === "POST" && req.path.startsWith("/v1/convert")) && (res.status === 429 || res.status === 503 || (res.status === 504 && timeoutPhase(parsed) === "queue"));
       if (retryable) {
         const ra = parseRetryAfter(res.headers.get("retry-after"));

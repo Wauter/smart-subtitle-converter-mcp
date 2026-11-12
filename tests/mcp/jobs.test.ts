@@ -53,7 +53,9 @@ describe("API locations and jobs", () => {
     for (const name of ["convert_subtitle", "detect_format"]) {
       const description = tools.find(t => t.name === name)!.description;
       expect(description).toContain("API storage enabled: file, s3"); expect(description).toContain("Input schemes: file; output schemes: s3");
-      expect(description).toContain("list_allowed_folders");
+      const t = tools.find(t => t.name === name)!;
+      if (name === "detect_format") expect(t.description).toContain("list_allowed_folders");
+      else for (const f of ["input", "output"]) expect((t.inputSchema.properties as any)[f].description).toContain("not list_allowed_folders");
     }
   });
   it("omits scheme descriptions when either limits array is missing", async () => {
@@ -130,6 +132,16 @@ describe("API locations and jobs", () => {
     const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
     expect(r.structuredContent.error.code).toBe("api-unreachable"); expect(posts).toBe(1);
     expect(r.structuredContent.error.hint).toContain("not replayed");
+  });
+  it.each([[0], [1], [2]])("convert_subtitle's hint starts with the warnings only when there are some (%s)", async (n) => {
+    h = await harness();
+    const warnings = [{ code: "lossy-format", message: "m", hint: "Use fpc." }, { code: "zero-length-cue", message: "z" }].slice(0, n);
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.vtt", content: "WEBVTT\n" }], { id, warnings }))));
+    const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
+    const hint: string = r.structuredContent.hint;
+    if (n === 0) expect(hint).not.toMatch(/warning/i);
+    else if (n === 1) expect(hint).toMatch(/^Tell the user about this warning before anything else; its `hint`, if any, says how to fix it\. The whole file is in the attached/);
+    else expect(hint).toMatch(/^Tell the user about these 2 warnings before anything else; a warning's `hint` says how to fix it\. The whole file/);
   });
   it.each([[false], [true]])("a conversion POST cut off by the deadline: quick mode says the result can't be kept, pipeline says to check the destination (pipeline %s)", async (pipeline) => {
     h = await harness({ timeoutMs: 1000 });
