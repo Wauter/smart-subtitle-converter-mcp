@@ -6,8 +6,8 @@
 **An MCP server for converting and checking subtitles from Claude, Cursor or any other MCP client.**
 
 It handles SRT, WebVTT, TTML, ASS and broadcast formats such as EBU STL, PAC and Cavena 890. The agent is told
-whether anything was lost in the conversion and which setting fixes it. Files are passed by path, so subtitle
-text never enters the model's context.
+whether anything was lost in the conversion and which setting fixes it. Files go by path, so their contents
+don't need to pass through the model's context.
 
 > **Built on Subtitle Edit.** Conversions run in the
 > [Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api), which wraps `libse`, the
@@ -30,7 +30,8 @@ client, use the [API](https://github.com/Wauter/smart-subtitle-converter-api) di
 - **A verdict on every broadcast output.** EBU STL, PAC and the other binary outputs are read back and reported
   as `lossless`, `quantised`, `lossy` or `unverified`. Warnings carry a `hint` and structured `details`, such as a
   `remedy` for lost characters.
-- **Subtitle text stays out of the model.** Files go by `path`. Content, keys and tokens are never logged.
+- **Files go by path.** Their contents don't need to pass through the model's context. Content, keys and tokens
+  are never logged.
 - **Access to named folders only.** The server reads and writes inside the folders you set
   (`SUBTITLE_MCP_ALLOWED_DIRS` / `SUBTITLE_MCP_READONLY_DIRS`). Read-only folders stay read-only.
 - **Subtitle files only.** It reads, lists and writes only files with a subtitle extension, never touches hidden
@@ -82,7 +83,7 @@ Claude Desktop, Cursor, Windows, a VM, or building from source: see [docs/client
 | **Text, read and write** | SRT, WebVTT, ASS/SSA, TTML/DFXP, SBV, SMI and Subtitle Edit's other text formats |
 | **Editing and post-production** | Final Cut Pro XML captions (`.fcpxml`), and marker lists from Avid and EDIUS |
 | **Binary broadcast, read and write** | EBU STL, PAC, FPC, Cavena 890, CapMaker Plus, Cheetah CAP |
-| **Binary, read only** | Avid STL, Ayato, Spruce STL and others |
+| **Binary, read only** | Avid STL, Ayato and others |
 | **Not supported** | Image-based and container formats (Blu-ray sup, VobSub, Matroska, MP4) |
 
 The `list_formats` tool has the live list. Code pages, frame rates and detection rules are in the API's
