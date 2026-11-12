@@ -45,10 +45,12 @@ part (`structuredContent`). The MCP specification describes both but doesn't say
 model; it only asks servers, for backwards compatibility, that "a tool that returns structured content SHOULD also
 return the serialized JSON in a TextContent block"
 ([Tools, Structured Content](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#structured-content),
-same wording in later versions). Proposals to settle it, such as
-[SEP-1624](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1624) and
-[SEP-2200 (PR #2200)](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2200), were closed without
-a change to the spec.
+same wording in later versions). A proposal to settle it,
+[SEP-1624](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1624), continued as
+[SEP-2200 (PR #2200)](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2200). The core maintainers
+first accepted it, then in May 2026 deferred it: they prefer to fix the underlying issue in a later spec version by
+letting a tool return either structured or unstructured content (polymorphic return types) instead of both
+(checked on 2026-11-12).
 
 Apps differ in practice. Claude Code and VS Code pass `structuredContent` to the model when it is present; Cursor
 reportedly passes only `content`. So by default the server sends the same information in both parts, and no app

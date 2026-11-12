@@ -21,9 +21,11 @@ variable `CONTRACT_REQUIRED=true`.
 - **`package.json` `version` is bumped on every change that ships** (any merged change to `src/`, the Dockerfile
   or the bundled output), with a [CHANGELOG.md](../CHANGELOG.md) entry that includes a "Pairs with API x.y" line.
   Docs-only changes go under Unreleased without a bump.
-- At startup the MCP reads `/healthz` and logs the API version. If major.minor differs from its own it logs a
-  warning and adds `mcp-api-version-mismatch` to conversion results. It also feature-detects `GET /v1/limits`
-  (200/401 = present) and warns if it is missing. There are no fallbacks for older APIs.
+- At startup the MCP reads `/healthz` and logs the API version. If major.minor differs from its own in any way
+  (major or minor, older or newer, or an unreadable version) it logs a warning and adds `mcp-api-version-mismatch`
+  to every tool result; nothing is blocked. It also feature-detects `GET /v1/limits` (200/401 = present); when it
+  is missing it warns and uses the documented default limits. Without `storage.extensions` in the limits, the
+  local extension check is skipped with `mcp-extension-check-skipped`.
 - The CI contract image (`API_IMAGE`) is bumped deliberately together with `package.json`.
 
 ## Publishing

@@ -159,8 +159,9 @@ audited, and it is meant for a trusted environment, not the public internet. Det
 | [docs/development.md](docs/development.md) | Build, test, run the contract suite and the smoke checklist |
 | [CHANGELOG.md](CHANGELOG.md) | See what changed in each version |
 
-**Versions:** use the MCP release whose major.minor matches your API; patch versions may differ. On a mismatch the
-server adds an `mcp-api-version-mismatch` warning.
+**Versions:** use the MCP release whose major.minor matches your API; patch versions may differ. If the API's
+major.minor differs in any way (major or minor, older or newer), the server still runs and adds an
+`mcp-api-version-mismatch` warning to tool results.
 
 ## Feedback and author
 

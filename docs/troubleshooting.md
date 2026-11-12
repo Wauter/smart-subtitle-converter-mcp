@@ -17,8 +17,11 @@ Warnings from the API are passed through unchanged; they are on that same page. 
 **Symptom:** results carry an `mcp-api-version-mismatch` warning, or the startup log warns about the API version.
 
 The MCP reads the API's `/healthz` at startup and compares major.minor with its own; use the MCP release whose
-major.minor matches the API (patch versions may differ). There are no fallbacks for older APIs. It also checks
-that `GET /v1/limits` exists and warns if it doesn't.
+major.minor matches the API (patch versions may differ). Any major.minor difference, older or newer, or a
+version it can't read, only warns: the server keeps running, logs a warning and adds `mcp-api-version-mismatch`
+to every tool result. It also checks that `GET /v1/limits` exists; without it, it warns and uses the documented
+default limits. An API that doesn't report its subtitle extensions gets `mcp-extension-check-skipped` instead of
+the local extension check.
 
 If you did update and still see an older MCP version in the warning, the client is running a different copy:
 

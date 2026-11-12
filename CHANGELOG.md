@@ -50,6 +50,9 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
   `"70"`). `characters-replaced` for symbols no character table holds (such as an em dash) leads with a
   `MultipleReplace` operation to add to `profile.operations`. With `sidecar: true`, the result names the sidecar
   location in `outputs[].sidecar`.
+- Docs: the version policy says exactly what happens on any major.minor difference (a warning on every result,
+  nothing blocked) and names the two fallbacks for older APIs; the "why results are sent twice" section describes
+  how SEP-2200 was deferred.
 - `preview_text` pages default to 32768 bytes (`SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES`, was 65536), so a default page
   stays under the 50,000 characters above which Claude Code saves a tool result to a file instead of showing it.
 - Information that was only in the summary is now in the result object: `detect_format` and `list_formats` have a
