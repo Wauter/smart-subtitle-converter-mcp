@@ -148,6 +148,17 @@ How files are written: [writing-files.md](writing-files.md).
 
 `subtitleedit://schemas/profile.json`, `subtitleedit://formats`, `subtitleedit://limits`.
 
+## Frame rates
+
+Formats that store frame numbers without a frame rate (PAC, Cavena 890, Cheetah CAP, MicroDVD, …) need one, and
+the API doesn't guess it. `convert_subtitle` takes it in the profile: `profile.source.fps` when such a file is the
+source, `profile.target.fps` for such a target when the source gives no rate (SRT, WebVTT, …). The output uses the
+source's rate (`source.fps`, an EBU STL header, SCC timecodes) unless `target.fps` is set. Without a rate the call
+fails with `frame-rate-required`, and `errors[0].pointer` names the field (`/source/fps` or `/target/fps`). No rate
+is needed between such formats (PAC to PAC) without `target.fps` or millisecond timing settings, and EBU STL output
+defaults to 25 fps when nothing else gives a rate. Details: the API's
+[formats page](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/formats.md).
+
 ## Errors
 
 Errors come back as `isError: true` with a structured `error`: `source` (`api` or `mcp`), `code`, `detail`, `hint`,
@@ -201,6 +212,7 @@ Arguments:
 | `which` | with `jobId` | `input` (the stored source) or `output` (the single stored subtitle result, never a sidecar) |
 | `location` | instead of `jobId` | The file's full URI or absolute path, as `list_files` `items[].location`: `s3://bucket/key`, `file:///path`, or a local absolute path inside the allowed folders (e.g. `s3://subs/show.srt`, or the sidecar `s3://subs/show.srt.json`). Not with `SUBTITLE_MCP_LIST_ENABLED=false` ([browsing](#browsing-and-reading-by-location)) |
 | `maxBytes` | no | Page size in UTF-8 bytes. Defaults to `SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES` (65536); values below 4096 are raised to 4096 and values above `SUBTITLE_MCP_PREVIEW_MAX_BYTES` (262144) are lowered to it, with a `max-bytes-clamped` warning (`details.fields.requested` and `applied`). The value in effect comes back as `maxBytes` |
+| `fps` | no | Frame rate for binary formats that store frame numbers without one (PAC, Cavena 890, …), used only for the times in the SRT view, e.g. `25`. A job's file defaults to the rate the job used (`target.fps`, else `source.fps`, for its output; `source.fps` for its input) |
 | `cursor` | no | The `next` value from the previous page, unchanged. Omit it for the first page |
 
 Give either `jobId` and `which`, or `location`. With browsing off, files are reached by job id only. Local path
@@ -216,6 +228,8 @@ Text files are returned as stored (UTF-8, UTF-16 or the recorded legacy encoding
 file is unchanged). Then `convertedFrom` is the stored format id, `convertedTo` is `"srt"`, and `warnings` say what
 the SRT view lost. If that conversion fails (for example `ambiguous-encoding` on a PAC file), the normal error comes
 back with its candidates, and the hint says how to read the file with `convert_subtitle` and the right setting.
+A format without a recorded frame rate needs one for the SRT times: when neither `fps` nor the job gives one, the
+call fails with `frame-rate-required` (pointer `/fps`); ask the user for the rate rather than guessing.
 
 ### Pages
 
@@ -230,14 +244,15 @@ Byte counts are UTF-8 bytes of the text without a byte order mark, so `totalByte
 than `bytes`, the stored file's size. For a binary file they count the SRT text, not the stored bytes.
 
 When more text follows, `truncated` is `true` and `next` holds an opaque cursor. Call again with the same `jobId`
-and `which` (or the same `location`) and `cursor: next`; `maxBytes` may change between pages. The last page has `truncated: false` and no
+and `which` (or the same `location`, and the same `fps`) and `cursor: next`. Later pages keep the first page's
+`maxBytes` unless you pass a new one. The last page has `truncated: false` and no
 `next`.
 
 Paging is stateless: there is nothing to close or expire on the server. Each call reads the stored file again, and
 the cursor carries a fingerprint (a SHA-256 hash) of the stored bytes. If the file changed between pages, the call
 fails with `preview-source-changed`, and you start again without `cursor`. Any other cursor problem is
 `preview-cursor-invalid`: a value that isn't one `preview_text` returned (empty, altered, too long), or a cursor
-used with another job, `which` or location.
+used with another job, `which`, location or `fps`.
 
 The decoded text is cached in memory (`SUBTITLE_MCP_PREVIEW_CACHE_BYTES`, default 64 MiB, least recently used first,
 dropped after `SUBTITLE_MCP_PREVIEW_CACHE_TTL_MS` unused), so later pages don't read or convert the file again. Each

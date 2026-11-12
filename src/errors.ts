@@ -14,8 +14,6 @@ export const WarningDetails = z.object({
   fields: z.record(z.string(), z.string()).optional(),
   /** programme-start-not-applied: the EBU STL TCP, HH:MM:SS:FF. */
   timecode: z.string().optional(),
-  /** frame-rate-assumed: the rate a frame-based source was read at. */
-  frameRate: z.number().optional(),
   /** API 1.2.1, characters-replaced: the facts to choose a fix (option, allowed values, tested candidates). */
   remedy: z
     .object({
@@ -200,6 +198,9 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
     case "unsupported-media-type":
       te.code = "api-protocol-error";
       mcpHint = "Report this with the requestId.";
+      break;
+    case "frame-rate-required":
+      mcpHint = "Don't guess the rate: take it from the user, the file name or the delivery spec, and ask the user if none says.";
       break;
     case "format-not-supported":
       mcpHint = "Pick a format from list_formats.";

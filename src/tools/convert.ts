@@ -20,28 +20,33 @@ import {
 const IF_EXISTS = z.enum(["error", "replace"]);
 
 export const ConvertOutput = {
-  jobId: z.string().optional(),
+  jobId: z.string().optional().describe("API job id, for preview_text {jobId, which} and support"),
   outputs: z.array(
     z.object({
-      fileName: z.string(), format: z.string(), formatId: z.string(),
-      kind: z.enum(["text", "binary"]).optional(),
-      mediaType: z.string(), encoding: z.string(),
-      contentEncoding: z.enum(["text", "base64"]),
-      cues: z.number().int(), bytes: z.number().int(),
-      writtenTo: z.string().optional(),
-      output: z.string().optional(),
-      action: z.enum(["written", "replaced"]).optional(),
+      fileName: z.string().describe("Name of the output file (the stored name for an API output)"),
+      format: z.string().describe("Display name of the output format"),
+      formatId: z.string().describe("Format id of the output (as in list_formats)"),
+      kind: z.enum(["text", "binary"]).optional().describe("text or binary output format"),
+      mediaType: z.string().describe("Media type of the output file"),
+      encoding: z.string().describe("Character encoding the output was written in"),
+      contentEncoding: z.enum(["text", "base64"]).describe("How an attached file is carried: text, or base64 (binary formats and encodings text can't hold byte-exact)"),
+      cues: z.number().int().describe("Cues in the output"),
+      bytes: z.number().int().describe("Size of the output in bytes (of the attached text when attached as text)"),
+      writtenTo: z.string().optional().describe("Local file written (outputPath/outputDir)"),
+      output: z.string().optional().describe("API location the output was stored at (server-side `output`)"),
+      action: z.enum(["written", "replaced"]).optional().describe("Local writes: written (new file) or replaced (ifExists:replace)"),
       attached: z.boolean().optional().describe("true when the whole converted file is attached to this result as an embedded resource (no output location given)"),
-      verification: Verification.optional(),
+      verification: Verification.optional().describe("Binary outputs: the file read back and compared with what was written"),
     }),
   ),
-  detected: DetectedOutput.nullish(),
-  stats: z.object({ paragraphsIn: z.number(), paragraphsOut: z.number(), elapsedMs: z.number().optional(), queueWaitMs: z.number().optional() }),
-  warnings: z.array(Warning),
-  profile: z.record(z.string(), z.unknown()).optional(),
+  detected: DetectedOutput.nullish().describe("What the API found in the source"),
+  stats: z.object({ paragraphsIn: z.number(), paragraphsOut: z.number(), elapsedMs: z.number().optional(), queueWaitMs: z.number().optional() })
+    .describe("Cues read and written, conversion time and time waiting for a converter slot (ms)"),
+  warnings: z.array(Warning).describe("Everything the conversion lost, changed or assumed; report these to the user (each may carry a hint and details)"),
+  profile: z.record(z.string(), z.unknown()).optional().describe("The merged profile the API applied (includeEffectiveProfile)"),
   hint: z.string().optional().describe("How to read the converted text: preview_text when the job has a stored file, otherwise how to get one"),
-  requestId: z.string().optional(),
-  attempts: z.number().int(),
+  requestId: z.string().optional().describe("API request id, for support"),
+  attempts: z.number().int().describe("API calls made, including retries and job polls"),
 };
 
 export interface ApiOutput {
@@ -66,7 +71,7 @@ export function describeConvert(deps: Deps): string {
     "Convert one subtitle file to another format, optionally applying a preset's or profile's clean-up operations (timing offset, frame-rate change, line splitting, …).";
   if (deps.pathsInSchema) {
     d +=
-      " Give the source as server-side `input` (file/S3/HTTPS, resolved by the API allowlists), `path` (preferred: nothing passes through your context, and binary formats stay byte-exact) or as inline `content`; exactly one source.";
+      " Give the source as server-side `input` (file/S3/HTTPS, resolved by the API allowlists), `path` (preferred: the source is read from disk, not passed through your context, and binary formats stay byte-exact) or as inline `content`; exactly one source.";
   } else d += " Give the source as inline `content` (base64 for binary formats) or server-side `input` (file/S3/HTTPS URI).";
   d +=
     " Choose the result with `target` (a format id or alias from list_formats), a `preset` (from list_presets), and/or a `profile` (custom JSON, checked first with validate_profile); at least one is required. `profile` values are merged over the preset.";
@@ -76,6 +81,7 @@ export function describeConvert(deps: Deps): string {
   d += ` Without ${deps.pathsInSchema ? "outputPath/outputDir or " : ""}an API \`output\`, the whole converted file is attached as an embedded resource (text formats as text, binary formats as base64) for the client to save; it is the deliverable, not a view for you, and \`outputs[].attached\` is true. Its text is not repeated in the structured result. Inline results are not stored, so preview_text cannot read them: save the attached file and read it locally, or convert with an API \`output\` and call preview_text {jobId, which:"output"}; \`hint\` says what applies.`;
   d += " Server-side `output` stores the result via the API instead of returning bytes; `sidecar:true` requests output.json. It cannot be combined with local outputPath/outputDir. Jobs expose jobId and the MCP polls 202 responses. Cancelling this call does not cancel accepted API work. Filesystem and S3 reject an existing output by default; ifExists:replace allows replacement. Presigned HTTPS PUT follows whatever the signer/receiver allowed, not a filesystem/S3 lock. API locations are not governed by list_allowed_folders.";
   d +=
+    " Frame rates: formats that store frame numbers without a rate (PAC, Cavena 890, Cheetah CAP, MicroDVD, …) need one, and the API never guesses it. Set `profile.source.fps` when such a file is the source, and `profile.target.fps` for such a target when the source gives no rate (SRT, WebVTT, …); the output uses the source's rate (source.fps, an EBU STL header, SCC timecodes) unless target.fps is set. Without one the call fails with `frame-rate-required`, and `errors[0].pointer` names the field: ask the user (25 for PAL/European broadcast, 29.97 for NTSC, 23.976 or 24 for film) rather than guessing. No rate is needed between such formats (PAC to PAC) without target.fps or millisecond timing settings. EBU STL output takes its rate from `formatOptions.ebuStl.frameRate`, else the source's EBU rate, else 25." +
     " Note: EBU Tech 3264 has no 29.97 fps code, so a 29.97 fps EBU STL source is written with the STL30.01 code; the API flags such frame-rate code mismatches with the warning `frame-rate-changed`. Timings change by less than one frame (no cumulative drift); tell the user, and see the warning for the workaround. Always report `warnings` to the user: they flag lossy formats, replaced characters, truncated text, zero-length cues, frame quantisation and frame-rate changes; many carry a `hint` with the setting that fixes them (the API never switches code pages or character tables by itself) and `details` with cue numbers and code points. For `characters-replaced`, `details.remedy` lists the setting (`option`), its `allowedValues`, the value in effect and the `candidates` that keep the characters (for PAC tested by the converter); `suggested` is set only when exactly one fits. With several candidates, choose by the text's language (ask the user if unsure), or use `unicodeAlternative` (fpc)." +
     " Binary outputs carry `verification`: the file is read back and compared with what was written (verdict lossless | quantised (times rounded to frames only) | lossy | unverified, with cue counts, timing shift and replaced characters by cue number). A clean round trip proves the file is self-consistent through the converter's own reader, not that a given playout system accepts it." +
     " If a file matches both PAC and Unicode PAC (FPC) and its name doesn't decide, the API fails with `ambiguous-format`; pass `profile.source.format` ('pac' or 'fpc'). If it can't tell the character set from the words, it fails with `ambiguous-encoding`; show the candidate samples, pick only from that list, tell the user, then retry with `profile.formatOptions.pac.inputCodePage`, `profile.encoding.input` or `profile.encoding.language` as `error.probe` says. On `conversion-timeout`, split the file and convert the parts.";
@@ -93,12 +99,12 @@ export function registerConvertTool(server: McpServer, deps: Deps): void {
     ifExists: IF_EXISTS.default("error").describe("error (default) | replace; applies to local and API outputs; HTTPS follows signer/receiver policy"),
     sidecar: z.boolean().default(false).describe("Write output.json beside a server-side output; HTTPS output skips it with a warning"),
     content: z.string().optional().describe("Subtitle content: text, or base64 if contentEncoding is 'base64'"),
-    contentEncoding: z.enum(["text", "base64"]).default("text"),
+    contentEncoding: z.enum(["text", "base64"]).default("text").describe("How `content` is given: text (default) or base64 (required for binary formats such as EBU STL or PAC)"),
     ...(paths ? { path: z.string().optional().describe("Absolute path to the source file in an allowed folder") } : {}),
     fileName: z.string().max(255).optional().describe("Source file name; used for detection and to name the output"),
     preset: z.string().max(200).optional().describe("Preset name from list_presets"),
     target: z.string().max(100).optional().describe("Target format id or alias, e.g. 'webvtt', 'ebustl'"),
-    profile: z.record(z.string(), z.unknown()).optional().describe("Profile JSON or overrides on top of preset"),
+    profile: z.record(z.string(), z.unknown()).optional().describe("Profile JSON or overrides on top of preset, e.g. {\"target\":{\"fps\":25}}; source.fps / target.fps set frame rates (see the tool description)"),
     ...(paths
       ? {
           profilePath: z.string().optional().describe("Absolute path to a profile .json file (instead of `profile`)"),

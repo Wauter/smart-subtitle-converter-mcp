@@ -9,6 +9,24 @@ The MCP shares its major.minor version with the
 major.minor matches your API. Patch versions move independently. Versions are recorded here when merged to `main`.
 Tagged releases publish the GHCR image and GitHub Release; npm publishing is a separate manual action.
 
+## Unreleased
+
+- Frame rates (pairs with the API's change): the API no longer assumes 23.976 fps for formats that store frame
+  numbers without a rate (PAC, Cavena 890, …) and answers `frame-rate-required` instead. The `convert_subtitle`
+  description explains `profile.source.fps` / `profile.target.fps`, and the MCP adds a hint not to guess the rate.
+  `preview_text` passes the rate a job used when it shows a rate-less binary file as SRT, takes a new `fps`
+  argument otherwise, and answers `frame-rate-required` with pointer `/fps` when neither gives one. The
+  `frame-rate-assumed` warning detail (`details.frameRate`) is gone.
+- `preview_text` later pages keep the first page's `maxBytes` unless the call sets it again (they fell back to the
+  default size).
+- `convert_subtitle` output fields (outputs, detected, verification, stats, …) are described in the output schema.
+- The startup instructions no longer say files "never enter your context" with `path`; they say what `path` and
+  `outputPath` avoid.
+- README: the one-line command to copy the API key into a private file is back, and the key-file format is stated
+  (the first line that isn't empty or a `#` comment is used).
+- Development: ESLint 10 (9.39 is no longer supported), GitHub Actions on their Node 24 releases, and the image
+  rebuild list includes v1.4.0 and v1.4.1. Contract tests set `target.fps` for PAC targets.
+
 ## 1.4.1 — 2026-11-12
 
 ### Security

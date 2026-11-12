@@ -24,6 +24,7 @@ describe("problem mapping (§8.1)", () => {
     [422, "input-limits-exceeded", "input-limits-exceeded", /Split/],
     [422, "format-not-supported", "format-not-supported", /list_formats/],
     [422, "conversion-failed", "conversion-failed", /operation/],
+    [422, "frame-rate-required", "frame-rate-required", /Don.t guess the rate/],
     [429, "rate-limited", "rate-limited", /rate limited/],
     [503, "queue-full", "queue-full", /busy/],
     [500, "internal-error", "internal-error", /server bug/],

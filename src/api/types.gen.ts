@@ -303,7 +303,7 @@ export interface components {
             title: string;
             status: number;
             /** @enum {string} */
-            code: "job-not-found" | "job-input-not-stored" | "job-output-not-stored" | "job-not-ready" | "job-file-gone" | "job-location-not-replayable" | "storage-location-rejected" | "storage-not-found" | "storage-io-failed" | "storage-list-disabled" | "storage-not-listable" | "storage-cursor-invalid" | "output-exists" | "invalid-request" | "invalid-profile" | "empty-input" | "unauthorized" | "not-found" | "preset-not-found" | "payload-too-large" | "unsupported-media-type" | "format-not-detected" | "format-not-supported" | "format-not-writable" | "format-option-invalid" | "invalid-binary-input" | "ambiguous-format" | "ambiguous-encoding" | "encoding-error" | "unsafe-xml" | "input-limits-exceeded" | "conversion-failed" | "rate-limited" | "queue-full" | "conversion-timeout" | "internal-error" | "hidden-path" | "extension-not-allowed" | "host-not-allowed" | "origin-not-allowed" | "folder-too-large" | "browse-busy" | "conversion-engine-stuck";
+            code: "job-not-found" | "job-input-not-stored" | "job-output-not-stored" | "job-not-ready" | "job-file-gone" | "job-location-not-replayable" | "storage-location-rejected" | "storage-not-found" | "storage-io-failed" | "storage-list-disabled" | "storage-not-listable" | "storage-cursor-invalid" | "output-exists" | "invalid-request" | "invalid-profile" | "empty-input" | "unauthorized" | "not-found" | "preset-not-found" | "payload-too-large" | "unsupported-media-type" | "format-not-detected" | "format-not-supported" | "format-not-writable" | "format-option-invalid" | "invalid-binary-input" | "ambiguous-format" | "ambiguous-encoding" | "encoding-error" | "unsafe-xml" | "input-limits-exceeded" | "conversion-failed" | "frame-rate-required" | "rate-limited" | "queue-full" | "conversion-timeout" | "internal-error" | "hidden-path" | "extension-not-allowed" | "host-not-allowed" | "origin-not-allowed" | "folder-too-large" | "browse-busy" | "conversion-engine-stuck";
             detail: string;
             /** @description What to do about it. */
             hint: string;
@@ -663,8 +663,6 @@ export interface components {
                 [key: string]: string;
             };
             timecode?: null | string;
-            /** Format: double */
-            frameRate?: null | number | string;
         };
     };
     responses: never;

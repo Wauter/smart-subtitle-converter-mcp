@@ -48,9 +48,15 @@ client, use the [API](https://github.com/Wauter/smart-subtitle-converter-api) di
 **1. Start the API.** Its [quick start](https://github.com/Wauter/smart-subtitle-converter-api#quick-start) serves
 `http://localhost:8080` and writes an API key to `api_keys.txt`.
 
-**2. Give the MCP the key.** Open the API's `api_keys.txt` (it belongs to the API's container user, so you may
-need `sudo cat api_keys.txt`) and save the key in a file of your own, for example `~/subtitle-api-key.txt`, with
-nothing else in it. Keep that file private (`chmod 600`).
+**2. Give the MCP the key.** The API's `api_keys.txt` belongs to its container user, so copy the first key into a
+private file of your own, from the API's folder:
+
+```bash
+sudo grep -v -e '^#' -e '^$' api_keys.txt | head -n 1 > ~/subtitle-api-key.txt && chmod 600 ~/subtitle-api-key.txt
+```
+
+The MCP uses the first line of the file that isn't empty or a comment (lines starting with `#` are skipped), so a
+copy of the whole `api_keys.txt` works too.
 
 **3. Add the server.** Point `SUBTITLE_MCP_ALLOWED_DIRS` at the folder that holds your subtitles:
 

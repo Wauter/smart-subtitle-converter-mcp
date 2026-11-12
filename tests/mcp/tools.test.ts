@@ -469,7 +469,7 @@ describe("convert_subtitle", () => {
       { code: "overlapping-cues", message: "1 cue(s) overlap", count: 1, hint: "h", details: { cueCount: 1, cues: [2] } },
       { code: "long-cue", message: "1 cue(s) over 30 s", count: 1, details: { cueCount: 1, cues: [3], durations: [{ cue: 3, durationMs: 40500 }] } },
       { code: "programme-start-not-applied", message: "TCP 10:00:00:00", hint: "Set timing.offsetMs to -36000000.", details: { timecode: "10:00:00:00" } },
-      { code: "frame-rate-assumed", message: "Read at 23.976", hint: "Set source.fps.", details: { frameRate: 23.976 } },
+      { code: "frame-quantised", message: "Rounded to frames", hint: "Use a time-based target.", details: { cueCount: 2 } },
       { code: "format-defaults-applied", message: "filled in", count: 2, hint: "Set formatOptions.ebuStl.originalProgrammeTitle, countryOfOrigin", details: { fields: { originalProgrammeTitle: "No Title", countryOfOrigin: "USA" } } },
       { code: "encoding-guessed", message: "guessed" },
       { code: "sidecar-delete-failed", message: "stale sidecar kept" },
@@ -482,7 +482,7 @@ describe("convert_subtitle", () => {
     expect(out[0].details).toEqual({ cueCount: 1, cues: [2] });
     expect(out[1].details).toEqual(warnings[1].details);
     expect(out[2].details).toEqual({ timecode: "10:00:00:00" });
-    expect(out[3].details).toEqual({ frameRate: 23.976 });
+    expect(out[3].details).toEqual({ cueCount: 2 });
     expect(out[4]).toMatchObject({ code: "format-defaults-applied", message: "filled in (count 2)", details: { fields: { originalProgrammeTitle: "No Title", countryOfOrigin: "USA" } } });
     expect(r.content[0].text).toContain("format-defaults-applied: filled in (count 2) (hint: Set formatOptions.ebuStl.originalProgrammeTitle, countryOfOrigin)");
   });

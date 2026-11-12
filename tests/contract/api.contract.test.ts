@@ -224,7 +224,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
     const ZERO = "1\n00:00:00,000 --> 00:00:00,000\nmeta\n\n2\n00:00:01,000 --> 00:00:02,000\nHello\n\n3\n00:00:03,000 --> 00:00:04,000\nWorld\n";
     it("SRT→PAC Greek: lossy verification with replaced chars by cue/code point, actionable hint; codePage greek → quantised", async () => {
       const src = put("v12/greek.srt", GREEK);
-      const r = await callTool(h, "convert_subtitle", { path: src, target: "pac", outputDir: path.join(dir, "v12", "pac-latin") });
+      const r = await callTool(h, "convert_subtitle", { path: src, target: "pac", profile: { target: { fps: 25 } }, outputDir: path.join(dir, "v12", "pac-latin") });
       expect(r.isError).toBeFalsy();
       const v = r.structuredContent.outputs[0].verification;
       expect(v.verdict).toBe("lossy");
@@ -240,18 +240,18 @@ describe.skipIf(!URL_)("contract: real API", () => {
       expect(w.details.remedy).toMatchObject({ option: "formatOptions.pac.codePage", currentValue: "latin", suggested: "greek", candidates: ["greek"], candidatesTested: true, unicodeAlternative: "fpc" });
       expect(w.details.remedy.allowedValues).toEqual(expect.arrayContaining(["latin", "greek", "czech", "turkish"]));
       expect(r.content[0].text).toMatch(/Verification of greek\.pac: lossy: 3\/3 cues read back; \d+ char\(s\) replaced in cue\(s\) 1, 2, 3/);
-      const g = await callTool(h, "convert_subtitle", { path: src, profile: { target: { format: "pac" }, formatOptions: { pac: { codePage: "greek" } } }, outputDir: path.join(dir, "v12", "pac-greek") });
+      const g = await callTool(h, "convert_subtitle", { path: src, profile: { target: { format: "pac", fps: 25 }, formatOptions: { pac: { codePage: "greek" } } }, outputDir: path.join(dir, "v12", "pac-greek") });
       expect(g.structuredContent.outputs[0].verification.verdict).toMatch(/^(quantised|lossless)$/);
     });
     it("1.2.1: several tested candidates (traditional Chinese → PAC) are listed, none suggested; Polish → PAC is lossless", async () => {
-      const r = await callTool(h, "convert_subtitle", { content: "1\n00:00:01,000 --> 00:00:02,000\n這是測試\n", fileName: "tw.srt", target: "pac" });
+      const r = await callTool(h, "convert_subtitle", { content: "1\n00:00:01,000 --> 00:00:02,000\n這是測試\n", fileName: "tw.srt", target: "pac", profile: { target: { fps: 25 } } });
       expect(r.isError).toBeFalsy();
       const rm = r.structuredContent.warnings.find((x: any) => x.code === "characters-replaced").details.remedy;
       expect(rm.suggested).toBeUndefined();
       expect(rm.candidatesTested).toBe(true);
       expect(rm.candidates).toEqual(expect.arrayContaining(["chinese-traditional", "chinese-simplified"]));
       expect(rm.candidates.length).toBeGreaterThan(1);
-      const pl = await callTool(h, "convert_subtitle", { content: "1\n00:00:01,000 --> 00:00:02,000\nZażółć gęślą jaźń\n", fileName: "pl.srt", target: "pac" });
+      const pl = await callTool(h, "convert_subtitle", { content: "1\n00:00:01,000 --> 00:00:02,000\nZażółć gęślą jaźń\n", fileName: "pl.srt", target: "pac", profile: { target: { fps: 25 } } });
       expect(pl.structuredContent.outputs[0].verification.verdict).toBe("lossless");
     });
     it("zero-length cue → EBU STL: zero-length-cue warning and verification.zeroLengthCues", async () => {
@@ -281,7 +281,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
       expect(r.structuredContent.error.code).toBe("ambiguous-format");
       expect(r.structuredContent.error.candidates).toEqual(expect.arrayContaining(["pacscreenelectronics", "pacunicodeunipac"]));
       expect(r.content[0].text).toMatch(/profile\.source\.format \('pac' or 'fpc'\)/);
-      const ok = await callTool(h, "convert_subtitle", { ...inline, profile: { source: { format: "fpc" } } });
+      const ok = await callTool(h, "convert_subtitle", { ...inline, profile: { source: { format: "fpc", fps: 25 } } });
       expect(ok.isError).toBeFalsy();
       const named = await callTool(h, "detect_format", { path: put("v12/amb.fpc", bytes) });
       expect(named.structuredContent.id).toBe("pacunicodeunipac");

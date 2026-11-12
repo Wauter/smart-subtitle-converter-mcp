@@ -56,6 +56,30 @@ describe("preview_text", () => {
     expect(JSON.stringify(r)).not.toContain(STL.toString("base64")); expect(JSON.stringify(r)).not.toMatch(/resourceUri|"inline"|subtitleedit:/);
     expect(r.content[0].text).toMatch(/binary ebustl file, so its text is shown converted to SRT; the stored file is unchanged\. Showing all 2 cues.*styling-dropped/);
   });
+  const PAC = Buffer.from([1, 0, 0, 0, 0, 0, 0, 0, 0x80, 0x81]);
+  const pacJob = (profile: any) => ({ ...job(), input: "s3://subs/in/show.pac", output: "s3://subs/out/show.pac", result: { profile, detected: { kind: "binary", encoding: "utf-8", id: "pac" }, outputs: [{ kind: "binary", encoding: "utf-8", formatId: "pac" }] } });
+  it("a rate-less binary job file (PAC) is shown at the rate the job used: output target.fps, else source.fps; input source.fps", async () => {
+    for (const [profile, which, fps] of [[{ source: { fps: 25 }, target: { fps: 29.97 } }, "output", 29.97], [{ source: { fps: 25 } }, "output", 25], [{ source: { fps: 25 }, target: { fps: 30 } }, "input", 25]] as const) {
+      recorded.length = 0; h = await harness();
+      mswServer.use(http.get(endpoint, () => HttpResponse.json(pacJob(profile))), http.get(`${endpoint}/${which}`, () => new HttpResponse(PAC)), http.post(`${API}/v1/convert/json`, () => srtResponse()));
+      const r = await callTool(h, "preview_text", { jobId: id, which });
+      expect(r.isError, JSON.stringify(r.structuredContent?.error)).toBeFalsy();
+      expect(recorded.find(x => x.path === "/v1/convert/json")!.body.profile.source).toEqual({ format: "pac", fps });
+      await h.close(); h = undefined;
+    }
+  });
+  it("frame-rate-required for a rate-less binary file asks for `fps`, and `fps` is sent as source.fps", async () => {
+    h = await harness();
+    mswServer.use(http.get(endpoint, () => HttpResponse.json(pacJob({}))), http.get(`${endpoint}/output`, () => new HttpResponse(PAC)),
+      http.post(`${API}/v1/convert/json`, async ({ request }) => ((await request.clone().json()) as any).profile.source.fps ? srtResponse() : problem(422, "frame-rate-required", { errors: [{ pointer: "/source/fps", message: "Required" }] })));
+    const bad = await callTool(h, "preview_text", { jobId: id, which: "output" });
+    expect(bad.isError).toBe(true);
+    expect(bad.structuredContent.error).toMatchObject({ code: "frame-rate-required", errors: [{ pointer: "/fps" }] });
+    expect(bad.structuredContent.error.hint).toContain("Call preview_text again with `fps`");
+    const ok = await callTool(h, "preview_text", { jobId: id, which: "output", fps: 25 });
+    expect(ok.isError, JSON.stringify(ok.structuredContent?.error)).toBeFalsy();
+    expect(recorded.filter(x => x.path === "/v1/convert/json").at(-1)!.body.profile.source).toEqual({ format: "pac", fps: 25 });
+  });
   it("treats NUL-containing bytes of unknown kind as binary", async () => {
     h = await harness(); mswServer.use(http.get(endpoint, () => HttpResponse.json({ ...job(), result: {} })), http.get(`${endpoint}/output`, () => new HttpResponse(Buffer.from([0, 255, 128, 50]))), http.post(`${API}/v1/convert/json`, () => srtResponse()));
     const r = await callTool(h, "preview_text", { jobId: id, which: "output" });
@@ -101,6 +125,14 @@ describe("preview_text", () => {
     expect(pages[0]).toMatchObject({ truncated: true, fromCue: 1, totalCues: 40, totalBytes: Buffer.byteLength(full), maxBytes: 8192 });
     for (let i = 1; i < pages.length; i++) expect(pages[i].fromCue).toBe(pages[i - 1].toCue + 1);
     expect(pages.at(-1)).toMatchObject({ truncated: false, toCue: 40 }); expect(pages.at(-1).next).toBeUndefined();
+  });
+  it("later pages keep the first page's maxBytes unless the call sets it again (README examples: page 2 came back at the default size)", async () => {
+    h = await harness(); const full = longSrt(40); serveOutput(() => full);
+    const first = (await callTool(h, "preview_text", { jobId: id, which: "output", maxBytes: 4096 })).structuredContent;
+    const second = (await callTool(h, "preview_text", { jobId: id, which: "output", cursor: first.next })).structuredContent;
+    expect(second.maxBytes).toBe(4096); expect(second.returnedBytes).toBeLessThanOrEqual(4096); expect(second.fromCue).toBe(first.toCue + 1);
+    const third = (await callTool(h, "preview_text", { jobId: id, which: "output", cursor: second.next, maxBytes: 8192 })).structuredContent;
+    expect(third.maxBytes).toBe(8192); expect(third.returnedBytes).toBeGreaterThan(4096);
   });
   it("clamps maxBytes to the server range and uses the configured default", async () => {
     h = await harness({ previewDefaultBytes: 5000, previewMaxBytes: 9000 }); serveOutput(() => longSrt(40));
@@ -171,7 +203,7 @@ describe("preview_text", () => {
     const tools = (await h.client.listTools()).tools; const t = tools.find(x => x.name === "preview_text")!;
     expect((t.inputSchema.properties!.which as any).description).toContain("input | output"); expect(t.inputSchema.required).toEqual(["jobId", "which"]);
     expect(t.description).toContain("not the file"); expect(JSON.stringify(t.outputSchema)).not.toContain("resourceUri");
-    expect(Object.keys(t.inputSchema.properties!)).toEqual(["jobId", "which", "maxBytes", "cursor"]);
+    expect(Object.keys(t.inputSchema.properties!)).toEqual(["jobId", "which", "maxBytes", "fps", "cursor"]);
     expect(tools.some(x => x.name === "get_job_file")).toBe(false);
     const props = (t.outputSchema as any).properties;
     for (const [k, v] of Object.entries<any>(props)) if (!["error"].includes(k)) expect(v.description ?? v.anyOf?.[0]?.description, k).toBeTruthy();
