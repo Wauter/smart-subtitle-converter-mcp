@@ -9,6 +9,17 @@ The MCP shares its major.minor version with the
 major.minor matches your API. Patch versions move independently. Versions are recorded here when merged to `main`.
 Tagged releases publish the GHCR image and GitHub Release; npm publishing is a separate manual action.
 
+## 1.4.1 — 2026-11-12
+
+### Security
+- Cleared the open code scanning and Dependabot alerts. No change to tools or behaviour:
+  - Cue detection in the text preview finds the SRT/WebVTT timing arrow with a plain substring check instead of a regex
+    that CodeQL mistook for an HTML comment filter.
+  - A test checks the parsed URL host instead of a substring.
+  - Dev dependency `minimatch` under `@typescript-eslint` is overridden to `^11.0.1` (denial-of-service advisory).
+- The API copy of the OpenAPI document is synced with API 1.4.1, which strips line breaks from client-supplied values
+  before logging them.
+
 ## 1.4.0 — 2026-11-12
 
 ### Fixed

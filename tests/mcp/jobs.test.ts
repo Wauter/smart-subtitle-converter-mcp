@@ -94,7 +94,7 @@ describe("API locations and jobs", () => {
   it("does not follow an external Location with API credentials", async () => {
     h = await harness({ apiKey: "only-the-api" }); mswServer.use(http.post(`${API}/v1/convert/json`, () => accepted("https://other.example.com/steal")));
     const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
-    expect(r.structuredContent.error.code).toBe("api-protocol-error"); expect(recorded.some((x) => x.url.includes("other.example.com"))).toBe(false);
+    expect(r.structuredContent.error.code).toBe("api-protocol-error"); expect(recorded.some((x) => new URL(x.url).hostname === "other.example.com")).toBe(false);
   });
   it("maps failed jobs and treats expired records as gone, without a new POST", async () => {
     h = await harness(); await h.client.listTools(); mswServer.use(http.post(`${API}/v1/convert/json`, () => accepted()), http.get(`${API}${location}`, () => HttpResponse.json({ id, status: "failed", error: { status: 502, code: "storage-io-failed", detail: "write failed", hint: "check destination" } })));
