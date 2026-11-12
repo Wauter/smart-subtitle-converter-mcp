@@ -19,8 +19,13 @@ text never enters the model's context.
 
 ## How it works
 
-```text
-AI client  -->  this MCP server  -->  Smart Subtitle Converter API  -->  libse (Subtitle Edit's engine)
+```mermaid
+flowchart LR
+    A["AI client or agent<br/>(Claude, Cursor, other MCP clients)"] --> M["Smart Subtitle Converter MCP<br/>(this repo; your local folders)"]
+    W["Your platform<br/>(scripts, MAM, workflow automation)"] -->|HTTP and JSON| API
+    M -->|HTTP and JSON| API["Smart Subtitle Converter API<br/>(one container)"]
+    API --> E["libse<br/>(Subtitle Edit's engine)"]
+    API <--> S["Folders, S3-compatible buckets,<br/>HTTPS and presigned URLs"]
 ```
 
 The MCP server does no conversion itself. It passes requests to the API, which runs in a container,
@@ -49,12 +54,9 @@ client, use the [API](https://github.com/Wauter/smart-subtitle-converter-api) di
 **1. Start the API.** Its [quick start](https://github.com/Wauter/smart-subtitle-converter-api#quick-start) serves
 `http://localhost:8080` and writes an API key to `api_keys.txt`.
 
-**2. Copy the key for the MCP.** The API asks for a key by default and keeps it in its `api_keys.txt`, readable
-only by the API's container user. Copy the key once (the MCP sends the first key in the file and picks up changes):
-
-```bash
-sudo grep -v -e '^#' -e '^$' api_keys.txt | head -n 1 > ~/subtitle-api-key.txt && chmod 600 ~/subtitle-api-key.txt
-```
+**2. Give the MCP the key.** Open the API's `api_keys.txt` (it belongs to the API's container user, so you may
+need `sudo cat api_keys.txt`) and save the key in a file of your own, for example `~/subtitle-api-key.txt`, with
+nothing else in it. Keep that file private (`chmod 600`).
 
 **3. Add the server.** Point `SUBTITLE_MCP_ALLOWED_DIRS` at the folder that holds your subtitles:
 
@@ -71,9 +73,29 @@ claude mcp add \
 
 **4. Ask for a conversion:**
 
-> Convert `movie.srt` in `/Users/me/Subtitles` to EBU STL at 25 fps and tell me whether anything was lost.
+> Convert `movie123.srt` in `/Users/me/Subtitles` to EBU STL
+
+> Convert `movie123.srt` in `/Users/me/Subtitles` to EBU STL, place it in s3 bucket `customer1/2026_11_12`
+
+The second one needs that bucket in the API's
+[storage allowlist](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/configuration.md#jobs-and-storage).
 
 Claude Desktop, Cursor, Windows, a VM, or building from source: see [docs/clients.md](docs/clients.md).
+
+## Supported subtitle formats
+
+| | Formats |
+|---|---|
+| **Text, read and write** | SRT, WebVTT, ASS/SSA, TTML/DFXP, SBV, SMI and Subtitle Edit's other text formats |
+| **Editing and post-production** | Final Cut Pro XML captions (`.fcpxml`), and marker lists from Avid and EDIUS |
+| **Binary broadcast, read and write** | EBU STL, PAC, FPC, Cavena 890, CapMaker Plus, Cheetah CAP |
+| **Binary, read only** | Avid STL, Ayato, Spruce STL and others |
+| **Not supported** | Image-based and container formats (Blu-ray sup, VobSub, Matroska, MP4) |
+
+The `list_formats` tool has the live list. Code pages, frame rates and detection rules are in the API's
+[formats page](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/formats.md), and Subtitle
+Edit's [supported formats](https://subtitleedit.github.io/subtitleedit/reference/supported-formats.html) page
+describes the formats themselves.
 
 ## Tools
 
@@ -149,6 +171,6 @@ workflow automation for broadcasters, sports organisations and streaming platfor
 
 All subtitle format support comes from [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit) and its
 `libse` library by Nikolaj Olsson and contributors (MIT), through the
-[Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api). Thank you.
+[Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api).
 
 This server is MIT licensed, see [LICENSE](LICENSE).
