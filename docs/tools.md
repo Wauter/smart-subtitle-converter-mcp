@@ -30,11 +30,12 @@ or a `resource_link` to a written file, follows as an extra content block. `SUBT
 | Value | `structuredContent` | JSON text block | `outputSchema` on tools |
 |---|---|---|---|
 | `both` (default) | yes | yes | yes |
-| `structured` | yes | no | yes |
+| `structured` | yes | errors only | yes |
 | `content` | no | yes | no (the spec requires `structuredContent` when a tool declares one) |
 
-Extra blocks (an attached file, a `resource_link`) are sent in every mode. With `structured`, a result without one
-has an empty `content` array.
+Extra blocks (an attached file, a `resource_link`) are sent in every mode. With `structured`, a successful result
+without one has an empty `content` array. Errors always include the JSON text block, because some apps give the
+model only the text of an error result.
 
 ### Why results are sent twice
 

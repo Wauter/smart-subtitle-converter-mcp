@@ -16,7 +16,8 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
   human-readable summary; it is now the JSON for every tool, success and error. Attached files and
   `resource_link` blocks are unchanged. Why: [docs/tools.md](docs/tools.md#why-results-are-sent-twice).
 - New setting `SUBTITLE_MCP_RESULT_IN` (`both`, the default; `structured`; `content`) keeps one part only. With
-  `content`, tools declare no `outputSchema`. An invalid value fails startup with the accepted values. The startup
+  `content`, tools declare no `outputSchema`; with `structured`, errors still include the JSON text block, since some
+  clients give the model only the text of an error result. An invalid value fails startup with the accepted values. The startup
   instructions mention it when results are sent in both parts.
 - Information that was only in the summary is now in the result object: `detect_format` and `list_formats` have a
   `hint` (a guessed encoding, an empty format list), and the API version-mismatch warning goes in `warnings`, or

@@ -44,7 +44,7 @@ describe("SUBTITLE_MCP_RESULT_IN", () => {
     expect(h.client.getInstructions()).toMatch(/Each result is sent twice .*SUBTITLE_MCP_RESULT_IN to structured or content/);
   });
 
-  it("structured: structuredContent only; no JSON text block, an attached file still comes as its resource", async () => {
+  it("structured: structuredContent only on success (attached file still sent); errors keep the JSON text block", async () => {
     await mk("structured");
     for (const t of (await h!.client.listTools()).tools) expect(t.outputSchema, t.name).toBeDefined();
     const formats = await callTool(h!, "list_formats", {});
@@ -56,8 +56,9 @@ describe("SUBTITLE_MCP_RESULT_IN", () => {
     expect(conv.structuredContent.outputs[0]).toMatchObject({ fileName: "movie.vtt", attached: true });
     failing();
     const err = await callTool(h!, "detect_format", { content: SRT, fileName: "m.srt" });
-    expect(err.isError).toBe(true); expect(err.content).toEqual([]);
+    expect(err.isError).toBe(true);
     expect(err.structuredContent.error).toMatchObject({ code: "format-not-detected" });
+    expect(err.content).toEqual([{ type: "text", text: JSON.stringify(err.structuredContent) }]);
     expect(h!.client.getInstructions()).not.toContain("SUBTITLE_MCP_RESULT_IN");
   });
 
@@ -99,7 +100,7 @@ describe("SUBTITLE_MCP_RESULT_IN", () => {
       const r: any = await client.callTool({ name: "list_formats", arguments: {} });
       expect(r.isError).toBe(true);
       if (mode === "content") expect(r.structuredContent).toBeUndefined(); else expect(r.structuredContent.error.code).toBe("mcp-misconfigured");
-      if (mode === "structured") expect(r.content).toEqual([]); else expect(JSON.parse(r.content[0].text).error.code).toBe("mcp-misconfigured");
+      expect(JSON.parse(r.content[0].text).error.code).toBe("mcp-misconfigured");
       await client.close();
     }
   });

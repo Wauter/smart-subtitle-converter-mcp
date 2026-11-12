@@ -24,7 +24,7 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 | `SUBTITLE_MCP_PREVIEW_CACHE_BYTES` | – | `67108864` | Memory for cached `preview_text` texts (64 MiB). Least recently used entries go first; a text bigger than the whole cache isn't cached. `0` turns the cache off |
 | `SUBTITLE_MCP_PREVIEW_CACHE_TTL_MS` | – | `300000` | A cached preview unused for this long is dropped |
 | `SUBTITLE_MCP_LIST_ENABLED` | – | `true` | Optional. Unset or `true`: register `list_files` and accept `location` in `preview_text`; local folders are browsable, and API locations follow the API's own `STORAGE_LIST_ENABLED` (on by default there). `false`: hide both ([tools.md](tools.md#browsing-and-reading-by-location)) |
-| `SUBTITLE_MCP_RESULT_IN` | – | `both` | Where tool results go: `both` (`structuredContent` plus the same object as JSON in a text block), `structured` (`structuredContent` only) or `content` (the JSON text block only; tools then declare no `outputSchema`). Any other value fails startup. Why: [tools.md](tools.md#why-results-are-sent-twice) |
+| `SUBTITLE_MCP_RESULT_IN` | – | `both` | Where tool results go: `both` (`structuredContent` plus the same object as JSON in a text block), `structured` (`structuredContent` only; errors still include the JSON text block) or `content` (the JSON text block only; tools then declare no `outputSchema`). Any other value fails startup. Why: [tools.md](tools.md#why-results-are-sent-twice) |
 | `SUBTITLE_MCP_JSON_MAX_DECODED_BYTES` | – | unset (10485760) | JSON decoded-content cap while `/v1/limits` is unreadable |
 | `SUBTITLE_MCP_LIMITS_TTL_MS` | – | `300000` | `/v1/limits` cache TTL |
 | `SUBTITLE_MCP_INCLUDE_DEBUG` | – | `false` | Pass the API's `debug` member into errors |
