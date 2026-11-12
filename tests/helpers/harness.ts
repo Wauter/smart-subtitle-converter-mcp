@@ -84,7 +84,7 @@ mswServer.events.on("request:start", async ({ request }) => {
 });
 
 export const baseHandlers = (opts: { limits?: "ok" | "404"; formats?: unknown[] } = {}): HttpHandler[] => [
-  http.get(`${API}/healthz`, () => HttpResponse.json({ status: "ok", version: "1.3.0", libse: "5.1.0" })),
+  http.get(`${API}/healthz`, () => HttpResponse.json({ status: "ok", version: "1.4.0", libse: "5.1.0" })),
   http.get(`${API}/v1/limits`, () => (opts.limits === "404" ? problem(404, "not-found") : HttpResponse.json(LIMITS))),
   http.get(`${API}/v1/formats`, () => HttpResponse.json(opts.formats ?? FORMATS)),
 ];

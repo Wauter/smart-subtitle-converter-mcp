@@ -9,7 +9,7 @@ The MCP shares its major.minor version with the
 major.minor matches your API. Patch versions move independently. Versions are recorded here when merged to `main`.
 Tagged releases publish the GHCR image and GitHub Release; npm publishing is a separate manual action.
 
-## Unreleased
+## 1.4.0 — 2026-11-12
 
 ### Fixed
 - `list_formats` lists text **and** binary broadcast formats (EBU STL, PAC, …) by default; it used to list text formats

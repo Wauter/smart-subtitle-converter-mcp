@@ -1,6 +1,6 @@
 {
   "name": "smart-subtitle-converter-mcp",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "MCP server for the Smart Subtitle Converter API (community wrapper around Subtitle Edit libse; not an official Subtitle Edit project).",
   "scripts": {
     "build": "tsup",
