@@ -345,7 +345,7 @@ export function rootUriToPath(uri: string, platform: NodeJS.Platform = process.p
   try {
     return fileURLToPath(url, { windows: platform === "win32" });
   } catch (e) {
-    throw new Error(`not a usable file URI: ${(e as Error).message}`);
+    throw new Error(`not a usable file URI: ${(e as Error).message}`, { cause: e });
   }
 }
 
