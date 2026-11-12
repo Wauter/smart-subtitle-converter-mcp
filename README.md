@@ -80,7 +80,7 @@ claude mcp add \
 The second one needs that bucket in the API's
 [storage allowlist](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/configuration.md#jobs-and-storage).
 
-Claude Desktop, Cursor, Windows, a VM, or building from source: see [docs/clients.md](docs/clients.md).
+Claude Desktop, Cursor, VS Code, Codex, other clients, Windows, or building from source: see [docs/clients.md](docs/clients.md).
 
 ## Supported subtitle formats
 
@@ -146,7 +146,7 @@ audited, and it is meant for a trusted environment, not the public internet. Det
 
 | Read this | When you want to |
 |---|---|
-| [docs/clients.md](docs/clients.md) | Set it up in Claude Code, Claude Desktop, Cursor, Windows or a VM; build from source |
+| [docs/clients.md](docs/clients.md) | Set it up in Claude Code, Claude Desktop, Cursor, VS Code, Codex and other clients; Windows; build from source |
 | [docs/folders-and-roots.md](docs/folders-and-roots.md) | Understand which folders it may use |
 | [docs/tools.md](docs/tools.md) | See every tool's inputs, results, verification and warning fields |
 | [API errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) | Look up what an API error or warning means, why it happened and what to do |

@@ -4,12 +4,13 @@
 //  2. every server launch in those blocks (and in `claude|codex mcp add` bash blocks) starts the
 //     server with exactly that command, args and env and answers tools/list via the MCP Inspector CLI.
 // The published `npx -y smart-subtitle-converter-mcp` is swapped for the local build (dist/index.js),
-// placeholder paths under /Users/me are mapped to a temp dir, and client-specific fields
+// placeholder paths under /Users/me (each entry of a folder list too) are mapped to a temp dir, and
+// client-specific fields
 // (type, tools, timeouts, enabled, ...) are not emulated. Run `npm run build` first.
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve, dirname } from "node:path";
-import { execFileSync } from "node:child_process";
+import { join, resolve, dirname, delimiter } from "node:path";
+import { spawnSync } from "node:child_process";
 import process from "node:process";
 import console from "node:console";
 import { fileURLToPath } from "node:url";
@@ -81,9 +82,14 @@ function localise(l) {
   for (const [k, v] of Object.entries(l.env)) {
     let val = String(v);
     if (val.startsWith("/Users/me/")) {
-      val = join(tmp, val.slice("/Users/me/".length));
-      if (/KEY_FILE$/.test(k)) writeFileSync(val, "placeholder-key\n");
-      else mkdirSync(val, { recursive: true });
+      // Folder lists use ':' in the docs (POSIX path.delimiter); map each entry and rejoin with this OS's delimiter.
+      const parts = /KEY_FILE$/.test(k) ? [val] : val.split(":");
+      val = parts.map((p) => {
+        const local = join(tmp, p.slice("/Users/me/".length));
+        if (/KEY_FILE$/.test(k)) writeFileSync(local, "placeholder-key\n");
+        else mkdirSync(local, { recursive: true });
+        return local;
+      }).join(delimiter);
     }
     env[k] = val;
   }
@@ -102,13 +108,18 @@ for (const b of blocks(doc)) {
     const { command, args, env } = localise(l);
     const envArgs = Object.entries(env).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
     try {
-      const out = execFileSync("npx", ["-y", INSPECTOR, "--cli", command, ...args, ...envArgs, "--method", "tools/list"], { encoding: "utf8", timeout: 120_000, stdio: ["ignore", "pipe", "pipe"], env: { PATH: process.env.PATH, HOME: process.env.HOME } });
-      const tools = JSON.parse(out).tools ?? [];
+      const r = spawnSync("npx", ["-y", INSPECTOR, "--cli", command, ...args, ...envArgs, "--method", "tools/list"], { encoding: "utf8", timeout: 120_000, env: { PATH: process.env.PATH, HOME: process.env.HOME } });
+      if (r.status !== 0) throw new Error(r.stderr || r.error?.message || `exit ${r.status}`);
+      const tools = JSON.parse(r.stdout).tools ?? [];
       const names = tools.map((t) => t.name);
       const missing = EXPECTED.filter((n) => !names.includes(n));
       const unconfigured = tools.some((t) => String(t.description).startsWith("Unavailable:"));
       if (missing.length || unconfigured) throw new Error(unconfigured ? "server started in not-configured mode" : `missing tools: ${missing.join(", ")}`);
-      console.log(`ok   ${where} ${l.name}: ${names.length} tools`);
+      // Every configured folder must become a root.
+      const wanted = ["SUBTITLE_MCP_ALLOWED_DIRS", "SUBTITLE_MCP_READONLY_DIRS"].reduce((n, k) => n + (env[k] ? env[k].split(delimiter).length : 0), 0);
+      const start = r.stderr.split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } }).find((j) => j?.msg === "starting");
+      if (wanted && start?.roots !== wanted) throw new Error(`expected ${wanted} folders, server reports ${start?.roots}`);
+      console.log(`ok   ${where} ${l.name}: ${names.length} tools${wanted ? `, ${wanted} folders` : ""}`);
       launched++;
     } catch (e) {
       console.error(`FAIL ${where} ${l.name}: ${e.stderr || e.message}`);

@@ -25,7 +25,7 @@ If you did update and still see an older MCP version in the warning, the client 
 - Check which command the client starts (`claude mcp get smart-subtitle-convert` in Claude Code, the JSON config elsewhere).
 - Built from source: rerun `npm ci && npm run build` after `git pull`.
 - Client in a VM or container: it runs the copy **inside** that environment. If you copied `dist/` there, copy it
-  again after every update ([clients.md](clients.md#clients-in-a-vm-or-container)).
+  again after every update.
 - Restart the client completely afterwards.
 
 **`mcp-extension-check-skipped`**

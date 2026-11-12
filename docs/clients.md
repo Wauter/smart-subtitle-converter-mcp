@@ -21,20 +21,18 @@ checked). If a section disagrees with the linked page, the page wins. Replace th
 `/Users/me/...` paths with your own. CI checks that every JSON, TOML and YAML snippet here parses and starts the
 server.
 
-Results carry the same information in `structuredContent` and as JSON text
-([why](tools.md#why-results-are-sent-twice)). Most clients pass only one part to the model; where we know which,
-the section says so. `SUBTITLE_MCP_RESULT_IN` (`structured` or `content`) drops the other part and is always
-optional.
+Separate several folders with `:` (`;` on Windows), or give a JSON array such as
+`["/Users/me/subtitles","/Users/me/exports"]`.
 
 ## Claude Code
 
-Tested by us; passes `structuredContent` to the model.
+Tested by us.
 
 ```bash
 claude mcp add \
   --env SUBTITLE_API_URL=http://localhost:8080 \
   --env SUBTITLE_API_KEY_FILE=/Users/me/subtitle-api-key.txt \
-  --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/Subtitles \
+  --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/subtitles:/Users/me/exports \
   --transport stdio \
   smart-subtitle-convert -- npx -y smart-subtitle-converter-mcp
 ```
@@ -56,7 +54,7 @@ Add to `claude_desktop_config.json`
       "env": {
         "SUBTITLE_API_URL": "http://localhost:8080",
         "SUBTITLE_API_KEY_FILE": "/Users/me/subtitle-api-key.txt",
-        "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/Subtitles"
+        "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/subtitles:/Users/me/exports"
       }
     }
   }
@@ -64,7 +62,7 @@ Add to `claude_desktop_config.json`
 ```
 
 Gotchas: folders approved in a chat are not passed to this server, so name them in `SUBTITLE_MCP_ALLOWED_DIRS`;
-fully quit and reopen the app after every change. Which result part it passes to the model is unclear.
+fully quit and reopen the app after every change.
 
 ## Cursor
 
@@ -81,15 +79,13 @@ Add to `~/.cursor/mcp.json` or a project's `.cursor/mcp.json`
       "env": {
         "SUBTITLE_API_URL": "http://localhost:8080",
         "SUBTITLE_API_KEY_FILE": "/Users/me/subtitle-api-key.txt",
-        "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/Subtitles"
+        "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/subtitles:/Users/me/exports"
       }
     }
   }
 }
 ```
 
-Gotcha: user reports (not Cursor's docs) say Cursor passes the text part to the model; if so,
-`"SUBTITLE_MCP_RESULT_IN": "content"` trims the unused part.
 
 ## VS Code (GitHub Copilot)
 
@@ -106,7 +102,7 @@ Add to `~/.copilot/mcp-config.json` or `.mcp.json` at the workspace root
       "env": {
         "SUBTITLE_API_URL": "http://localhost:8080",
         "SUBTITLE_API_KEY_FILE": "/Users/me/subtitle-api-key.txt",
-        "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/Subtitles"
+        "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/subtitles:/Users/me/exports"
       },
       "tools": ["*"]
     }
@@ -114,8 +110,7 @@ Add to `~/.copilot/mcp-config.json` or `.mcp.json` at the workspace root
 }
 ```
 
-Gotcha: VS Code passes `structuredContent` to the model (per its source), so `"SUBTITLE_MCP_RESULT_IN": "structured"`
-trims the text copy. The older `.vscode/mcp.json` (`servers`) belongs to a harness VS Code lists as deprecated.
+Gotcha: the older `.vscode/mcp.json` (`servers`) belongs to a harness VS Code lists as deprecated.
 
 ## ChatGPT desktop app and Codex (CLI, IDE extension)
 
@@ -131,13 +126,11 @@ tool_timeout_sec = 150
 [mcp_servers.smart-subtitle-convert.env]
 SUBTITLE_API_URL = "http://localhost:8080"
 SUBTITLE_API_KEY_FILE = "/Users/me/subtitle-api-key.txt"
-SUBTITLE_MCP_ALLOWED_DIRS = "/Users/me/Subtitles"
+SUBTITLE_MCP_ALLOWED_DIRS = "/Users/me/subtitles:/Users/me/exports"
 ```
 
 Gotchas: Codex's default `tool_timeout_sec` of 60 s is shorter than the MCP's own wait (`SUBTITLE_MCP_TIMEOUT_MS`,
-120 s by default), so long conversions would otherwise be cut off. Codex passes only `structuredContent` to the
-model ([source](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/models.rs), checked on
-2026-11-12); `SUBTITLE_MCP_RESULT_IN = "structured"` only shortens the message on the wire. ChatGPT on the web
+120 s by default), so long conversions would otherwise be cut off. ChatGPT on the web
 does not read this file and is not covered.
 
 ## OpenAI Agents SDK (Python)
@@ -155,16 +148,14 @@ subtitles = MCPServerStdio(
         "env": {
             "SUBTITLE_API_URL": "http://localhost:8080",
             "SUBTITLE_API_KEY_FILE": "/Users/me/subtitle-api-key.txt",
-            "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/Subtitles",
+            "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/subtitles:/Users/me/exports",
         },
     },
     client_session_timeout_seconds=150,
 )
 ```
 
-Gotchas: the default `client_session_timeout_seconds` is 5, too short for conversions. The SDK passes the text
-part by default and `structuredContent` with `use_structured_content=True`; set `SUBTITLE_MCP_RESULT_IN` to
-`content` or `structured` to match.
+Gotcha: the default `client_session_timeout_seconds` is 5, too short for conversions.
 
 ## Goose
 
@@ -181,12 +172,10 @@ extensions:
     envs:
       SUBTITLE_API_URL: "http://localhost:8080"
       SUBTITLE_API_KEY_FILE: "/Users/me/subtitle-api-key.txt"
-      SUBTITLE_MCP_ALLOWED_DIRS: "/Users/me/Subtitles"
+      SUBTITLE_MCP_ALLOWED_DIRS: "/Users/me/subtitles:/Users/me/exports"
     enabled: true
     timeout: 300
 ```
-
-We have not checked which result part Goose passes to the model.
 
 ## Windows
 
@@ -204,16 +193,6 @@ npm ci && npm run build        # rerun after every git pull
 
 Then replace `npx -y smart-subtitle-converter-mcp` with `node /path/to/smart-subtitle-converter-mcp/dist/index.js`
 (in JSON configs: `"command": "node", "args": ["/path/to/smart-subtitle-converter-mcp/dist/index.js"]`).
-
-## Clients in a VM or container
-
-If the client runs in a Linux VM or container (paths like `/mnt/mac/Users/...`), it starts whatever server exists
-**inside** that environment, not the one on your host.
-
-- Prefer `npx` inside the VM, point the client at a checkout the VM can see (a shared folder), or build inside the VM.
-- If you copy `dist/` into the VM, copy it again after every update. A stale copy shows up as an
-  `mcp-api-version-mismatch` warning naming an older MCP version, and newer tools or fields are missing.
-- `SUBTITLE_API_URL` must be reachable from inside the VM; `localhost` there may not be your host.
 
 ## Check that it works
 
