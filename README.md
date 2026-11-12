@@ -19,14 +19,7 @@ text never enters the model's context.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    A["AI client or agent<br/>(Claude, Cursor, other MCP clients)"] --> M["Smart Subtitle Converter MCP<br/>(this repo; your local folders)"]
-    W["Your platform<br/>(scripts, MAM, workflow automation)"] -->|HTTP and JSON| API
-    M -->|HTTP and JSON| API["Smart Subtitle Converter API<br/>(one container)"]
-    API --> E["libse<br/>(Subtitle Edit's engine)"]
-    API <--> S["Folders, S3-compatible buckets,<br/>HTTPS and presigned URLs"]
-```
+![How it fits together: an AI client goes through the MCP server to the API, your own platform calls the API directly, and the API uses libse and your storage](docs/architecture.svg)
 
 The MCP server does no conversion itself. It passes requests to the API, which runs in a container,
 and handles the files on your machine. If you want to call the converter from your own platform instead of an AI
@@ -75,7 +68,7 @@ claude mcp add \
 
 > Convert `movie123.srt` in `/Users/me/Subtitles` to EBU STL
 
-> Convert `movie123.srt` in `/Users/me/Subtitles` to EBU STL, place it in s3 bucket `customer1/2026_11_12`
+> Convert `movie123.srt` in `/Users/me/Subtitles` to EBU STL, place it in `s3://customer1/2026-11-12/`
 
 The second one needs that bucket in the API's
 [storage allowlist](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/configuration.md#jobs-and-storage).
