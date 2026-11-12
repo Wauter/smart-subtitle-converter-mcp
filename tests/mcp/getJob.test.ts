@@ -116,8 +116,23 @@ describe("get_job", () => {
   it("is what convert_subtitle's job-not-ready hint points to", async () => {
     h = await harness({ timeoutMs: 200 });
     mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json({ id }, { status: 202, headers: { Location: path, "Retry-After": "10" } })));
-    const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
+    const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt", output: "s3://subs/out/a.vtt" });
     expect(r.structuredContent.error).toMatchObject({ code: "job-not-ready", jobId: id });
     expect(r.structuredContent.error.hint).toContain(`get_job {jobId:"${id}"}`);
+  });
+});
+
+describe("SUBTITLE_MCP_TIMEOUT_MS is one limit per call", () => {
+  it("a busy API can't push a pipeline convert_subtitle past it: retries, the POST and polls share the deadline", async () => {
+    h = await harness({ timeoutMs: 2500 });
+    mswServer.use(
+      http.post(`${API}/v1/convert/json`, () => HttpResponse.json({ id }, { status: 202, headers: { Location: path, "Retry-After": "1" } })),
+      http.get(`${API}${path}`, () => HttpResponse.json({ id, status: "running" }, { headers: { "Retry-After": "1" } })),
+    );
+    const started = Date.now();
+    const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt", output: "s3://subs/out/a.vtt" });
+    expect(Date.now() - started).toBeLessThan(3000);
+    expect(r.structuredContent.error).toMatchObject({ code: "job-not-ready", jobId: id });
+    expect(recorded.find((x) => x.path === "/v1/convert/json")!.headers.prefer).toBe("wait=0");
   });
 });

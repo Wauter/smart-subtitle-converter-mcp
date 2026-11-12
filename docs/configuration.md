@@ -15,10 +15,10 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 | `SUBTITLE_MCP_USE_CLIENT_ROOTS` | – | `true` | Local mode: if a client still sends older MCP roots, add them to the configured folders ([folders-and-roots.md](folders-and-roots.md)) |
 | `SUBTITLE_MCP_PARTIAL_MAX_AGE_MS` | – | `3600000` | Age after which staging files are swept |
 | `SUBTITLE_MCP_MAX_BYTES` | – | unset | Local cap per input file (effective cap = min with the API limit) |
-| `SUBTITLE_MCP_TIMEOUT_MS` | – | `120000` | Per-attempt timeout for conversions (metadata: min(this, 15000)) |
+| `SUBTITLE_MCP_TIMEOUT_MS` | – | `45000` | Time limit for one whole tool call: request attempts, retry waits and job polling all fit inside it. Each metadata request attempt is also capped at 15000. See [Time limits](#time-limits) |
 | `SUBTITLE_MCP_RETRY_MAX_ATTEMPTS` | – | `3` | Retries for safe metadata/read-only calls; conversion POST is never replayed |
-| `SUBTITLE_MCP_RETRY_MAX_WAIT_MS` | – | `60000` | Longest single `Retry-After` wait accepted |
-| `SUBTITLE_MCP_RETRY_BUDGET_MS` | – | `90000` | Total retry wait per call |
+| `SUBTITLE_MCP_RETRY_MAX_WAIT_MS` | – | `30000` | Longest single `Retry-After` wait accepted (always within the call's time limit) |
+| `SUBTITLE_MCP_RETRY_BUDGET_MS` | – | `30000` | Total retry wait per call (always within the call's time limit, `SUBTITLE_MCP_TIMEOUT_MS`) |
 | `SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES` | – | `32768` | `preview_text` page size, in UTF-8 bytes, when the call gives no `maxBytes`. The default keeps a page, once JSON-escaped, under the 50,000 characters above which Claude Code saves a result to a file instead of showing it ([Claude Code docs](https://code.claude.com/docs/en/mcp), checked on 2026-11-12). At least 4096 and at most `SUBTITLE_MCP_PREVIEW_MAX_BYTES` |
 | `SUBTITLE_MCP_PREVIEW_MAX_BYTES` | – | `262144` | Largest `preview_text` page, in UTF-8 bytes; larger `maxBytes` requests are lowered to it, and a single cue over it can't be previewed (`preview-cue-too-large`). 4096 to 1048576 |
 | `SUBTITLE_MCP_PREVIEW_CACHE_BYTES` | – | `67108864` | Memory for cached `preview_text` texts (64 MiB). Least recently used entries go first; a text bigger than the whole cache isn't cached. `0` turns the cache off |
@@ -48,10 +48,28 @@ API `input`/`output` URIs are independent of MCP-local folders. Configure `STORA
 Its `GET /v1/limits` describes enabled schemes, default wait, I/O and job retention settings; the limits
 resource relays that response. Storage credentials belong to the API runtime, never tool arguments.
 
-The MCP requests a wait equal to the smaller of its timeout (whole seconds) and the API's `requestMaxWaitSeconds` (fallback 60 if absent; requestWaitSeconds is informational only), and polls the
-returned job on 202 within the remaining tool budget. Increase `SUBTITLE_MCP_TIMEOUT_MS` for slower work,
-but prefer an API output URI: job metadata cannot replay subtitle bytes. Cancelling or timing out the MCP
-does not cancel an admitted API job. Poll timeout reports `job-not-ready`; capture `jobId` and inspect it before resubmitting writes.
+Cancelling or timing out the MCP does not cancel an admitted API job. If a conversion may take long or another system picks the file up from API storage, give an API `output`. Job
+metadata cannot replay subtitle bytes.
+
+## Time limits
+
+`SUBTITLE_MCP_TIMEOUT_MS` (default 45000) is one time limit for each whole tool call, below the 60-second default
+tool timeout of clients such as Codex. The rule for the model: If a conversion may take long or another system picks the file up from API storage, give an API `output`.
+
+- **Quick conversion** (no API `output`: the file is attached, or written to `outputPath`/`outputDir`): the call
+  asks the API to wait (`Prefer: wait`) as long as it can: at most the API's `requestMaxWaitSeconds` (60 when the
+  API doesn't say) and the time left minus 2 seconds, about 41 seconds at the default. If the API still answers
+  202, the MCP polls the job for the few seconds left, so a failure still comes back with its own error. When the
+  time runs out the call returns `job-output-not-stored`: the result couldn't be kept (the API keeps job metadata,
+  never the file); convert again with an API `output`, or raise `SUBTITLE_MCP_TIMEOUT_MS`.
+- **Pipeline** (an API `output`): the call asks for at most 30 seconds, then polls `GET /v1/jobs/{id}`, honouring
+  `Retry-After`, for the rest of the time. When the time runs out it returns `job-not-ready` with the `jobId`; the
+  job keeps running and writes its output, and `get_job {jobId}` checks it. Don't resubmit.
+- Retries of safe requests (`SUBTITLE_MCP_RETRY_*`) happen only when the wait and one more attempt fit before the
+  limit; conversion POSTs are never retried.
+
+Raise `SUBTITLE_MCP_TIMEOUT_MS` only together with your client's tool timeout. For example, to get the API's full
+60-second wait back in Codex, set `SUBTITLE_MCP_TIMEOUT_MS=65000` in the server's `env` and `tool_timeout_sec = 90`.
 
 Explicit `ifExists:replace` is sufficient for local and API outputs; there is no separate operator gate.
 See [tools](tools.md#api-storage-and-job-ids) and [writing files](writing-files.md#api-destinations-are-separate).

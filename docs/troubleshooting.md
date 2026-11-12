@@ -155,9 +155,10 @@ listings and reads on its own, within `SUBTITLE_MCP_RETRY_*`; if the error still
 
 **`mcp-timeout`**
 
-- **What:** The API didn't answer within the MCP's timeout.
+- **What:** The API didn't answer within the MCP's time limit for the call (`SUBTITLE_MCP_TIMEOUT_MS`).
 - **Why:** The converter may be busy or the work is large.
-- **What to do:** Retry later, or raise `SUBTITLE_MCP_TIMEOUT_MS` for slow work.
+- **What to do:** Retry later. For long conversions pass an API `output` and check the job with `get_job`. Raise
+  `SUBTITLE_MCP_TIMEOUT_MS` only together with your client's tool timeout.
 
 **`cancelled`**
 
@@ -207,11 +208,12 @@ Storage, overwrite, sidecar and job codes from the API are on the
 [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page.
 
 Cancelling an MCP call, or running out of wait time, does not cancel work the API has already accepted.
-If the MCP stops waiting it reports `job-not-ready` and keeps the `jobId`; the API job continues, and `get_job {jobId}`
-reports it when it finishes. Don't send
-the same convert again just because you stopped waiting: the first job may still finish and write its `output`.
-Use an API `output` location for work that may take a while (job records don't keep subtitle bytes). MCP-local
-folder grants don't give the API access to its own storage.
+With an API `output`, the MCP reports `job-not-ready` with the `jobId` when it stops waiting; the job continues and
+writes its output, and `get_job {jobId}` reports it. Don't send the same convert again. Without an API `output`, the
+result of a conversion that outlives the call can't be kept (`job-output-not-stored`, job records don't keep
+subtitle bytes): convert again with an API `output`, or raise `SUBTITLE_MCP_TIMEOUT_MS` together with the client's
+tool timeout ([time limits](configuration.md#time-limits)). If a conversion may take long or another system picks the file up from API storage, give an API `output`. MCP-local folder grants
+don't give the API access to its own storage.
 
 **`job-metadata-truncated`**
 

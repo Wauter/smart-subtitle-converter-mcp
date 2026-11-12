@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { ApiClient, newStats, type CallCtx } from "../../src/api/client.js";
+import { ApiClient, newStats, preferWaitSeconds, type CallCtx } from "../../src/api/client.js";
 import { parseRetryAfter, backoffMs, retryAfterWaitMs } from "../../src/api/retry.js";
 import { StaticKeyAuth } from "../../src/auth.js";
 import { defaultConfig } from "../../src/config.js";
@@ -72,7 +72,7 @@ describe("ApiClient retries", () => {
   });
   it("respects the total budget", async () => {
     vi.useFakeTimers();
-    const { c, seen } = client([() => problem(503, "queue-full", {}, { "retry-after": "40" })], { retryBudgetMs: 90_000 });
+    const { c, seen } = client([() => problem(503, "queue-full", {}, { "retry-after": "40" })], { retryBudgetMs: 90_000, retryMaxWaitMs: 60_000 });
     const p = c.request({ method: "GET", path: "/x", kind: "metadata" }, ctx()).then(nope, (e: unknown) => e as ToolFailure);
     await vi.advanceTimersByTimeAsync(200_000);
     const err = await p;
@@ -146,5 +146,62 @@ describe("ApiClient retries", () => {
     const r = client([() => new Response("<html>", { status: 200, headers: { "content-type": "text/html" } })]);
     const e = await r.c.request({ method: "GET", path: "/x", kind: "metadata" }, ctx()).then(nope, (e: unknown) => e as ToolFailure);
     expect(e.toolError.code).toBe("api-protocol-error");
+  });
+});
+
+describe("one deadline per tool call", () => {
+  const withDeadline = (ms: number) => ({ ...ctx(), deadline: Date.now() + ms });
+  const hang = (async (_u: string, init: RequestInit) =>
+    new Promise<Response>((_res, rej) => init.signal!.addEventListener("abort", () => rej(init.signal!.reason)))) as unknown as typeof fetch;
+
+  it("a request attempt stops at the deadline with mcp-timeout naming the call's time limit", async () => {
+    const c = new ApiClient(defaultConfig({ timeoutMs: 60_000 }), new StaticKeyAuth(), "local", silentLogger(), hang);
+    const started = Date.now();
+    const e = await c.request({ method: "GET", path: "/x", kind: "metadata" }, withDeadline(150)).then(nope, (e: unknown) => e as ToolFailure);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(e.toolError.code).toBe("mcp-timeout"); expect(e.toolError.detail).toMatch(/this call's time limit \(SUBTITLE_MCP_TIMEOUT_MS/);
+  });
+  it("a conversion POST cut off by the deadline says it was not replayed", async () => {
+    const c = new ApiClient(defaultConfig(), new StaticKeyAuth(), "local", silentLogger(), hang);
+    const e = await c.request({ method: "POST", path: "/v1/convert/json", kind: "conversion", json: {} }, withDeadline(100)).then(nope, (e: unknown) => e as ToolFailure);
+    expect(e.toolError.code).toBe("mcp-timeout"); expect(e.toolError.hint).toContain("not replayed");
+  });
+  it("no request starts after the deadline", async () => {
+    const r = client([ok]);
+    const e = await r.c.request({ method: "GET", path: "/x", kind: "metadata" }, { ...ctx(), deadline: Date.now() - 1 }).then(nope, (e: unknown) => e as ToolFailure);
+    expect(e.toolError.code).toBe("mcp-timeout"); expect(r.seen).toHaveLength(0);
+  });
+  it("a Retry-After wait that doesn't fit before the deadline is not taken: the API error comes back at once", async () => {
+    const r = client([() => problem(503, "queue-full", {}, { "retry-after": "3" }), ok]);
+    const started = Date.now();
+    const e = await r.c.request({ method: "GET", path: "/x", kind: "metadata" }, withDeadline(2000)).then(nope, (e: unknown) => e as ToolFailure);
+    expect(Date.now() - started).toBeLessThan(500);
+    expect(e.toolError).toMatchObject({ code: "queue-full", retryAfterSeconds: 3 }); expect(r.seen).toHaveLength(1);
+  });
+  it("a wait that fits (plus a second for the next attempt) is still taken", async () => {
+    const r = client([() => problem(503, "queue-full", {}, { "retry-after": "0" }), ok]);
+    const res = await r.c.request({ method: "GET", path: "/x", kind: "metadata" }, withDeadline(5000));
+    expect(res.status).toBe(200); expect(r.seen).toHaveLength(2);
+  });
+});
+
+describe("preferWaitSeconds", () => {
+  const now = 1_000_000;
+  const at = (ms: number) => ({ deadline: now + ms });
+  it("quick conversion (no API output): the API max and the time left minus 2 s, no 30 s cap", () => {
+    expect(preferWaitSeconds(undefined, at(45_000), false, now)).toBe(43);
+    expect(preferWaitSeconds(60, at(65_000), false, now)).toBe(60);
+    expect(preferWaitSeconds(20, at(45_000), false, now)).toBe(20);
+    expect(preferWaitSeconds(undefined, at(1_000), false, now)).toBe(0);
+  });
+  it("pipeline (API output): also at most 30 s", () => {
+    expect(preferWaitSeconds(undefined, at(45_000), true, now)).toBe(30);
+    expect(preferWaitSeconds(60, at(120_000), true, now)).toBe(30);
+    expect(preferWaitSeconds(10, at(45_000), true, now)).toBe(10);
+    expect(preferWaitSeconds(undefined, at(20_500), true, now)).toBe(18);
+  });
+  it("without a deadline only the caps apply", () => {
+    expect(preferWaitSeconds(undefined, {}, false, now)).toBe(60);
+    expect(preferWaitSeconds(undefined, {}, true, now)).toBe(30);
   });
 });

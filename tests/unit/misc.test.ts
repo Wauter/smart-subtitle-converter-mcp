@@ -70,7 +70,7 @@ describe("config", () => {
   it("defaults to local stdio", () => {
     const c = cfg([]);
     expect(c.mode).toBe("local");
-    expect(c.timeoutMs).toBe(120000);
+    expect(c.timeoutMs).toBe(45000);
   });
 
   it("--http needs a long enough token; flags override env", () => {

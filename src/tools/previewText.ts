@@ -11,6 +11,7 @@ import { isRemote, remoteState, remoteUnavailable, staleGate } from "./storage.j
 import { sanitizeOutputName } from "../fs/write.js";
 import { withSuffix } from "../ids.js";
 import { finishConversion } from "../api/jobs.js";
+import { preferWaitSeconds } from "../api/client.js";
 import type { Caps } from "../api/limits.js";
 import { checkCursor, clampPageBytes, decodeCursor, encodeCursor, fingerprint, hashKey, locationBaseName, PREVIEW_HARD_CEILING_BYTES, PREVIEW_MIN_BYTES, segment, sourceChanged, stripBom, takePage } from "./textPage.js";
 
@@ -311,12 +312,11 @@ async function convertToSrt(deps: Deps, call: Call, caps: Caps, f: { data: Buffe
   const json = JSON.stringify({ content: f.data.toString("base64"), contentEncoding: "base64", fileName: f.fileName, target: "srt", profile });
   const n = Buffer.byteLength(json);
   if (n > caps.jsonBody) throw tooLarge("The SRT conversion request for this binary file", { name: "maxRequestBodyBytes.json", value: caps.jsonBody }, n);
-  const started = Date.now();
   const srtCall = { ...call, requestId: withSuffix(call.requestId, ".s") };
   let res;
   try {
-    res = await deps.api.request({ method: "POST", path: "/v1/convert/json", kind: "conversion", headers: { Prefer: `wait=${Math.max(0, Math.min(caps.requestMaxWaitSeconds ?? 60, Math.floor(deps.cfg.timeoutMs / 1000)))}` }, raw: { body: json, contentType: "application/json" } }, srtCall);
-    res = await finishConversion(deps.api, res, srtCall, { deadline: started + deps.cfg.timeoutMs, mode: deps.cfg.mode, includeDebug: deps.cfg.includeDebug });
+    res = await deps.api.request({ method: "POST", path: "/v1/convert/json", kind: "conversion", headers: { Prefer: `wait=${preferWaitSeconds(caps.requestMaxWaitSeconds, srtCall, false)}` }, deadlineHint: SRT_VIEW_HINT, raw: { body: json, contentType: "application/json" } }, srtCall);
+    res = await finishConversion(deps.api, res, srtCall, { mode: deps.cfg.mode, includeDebug: deps.cfg.includeDebug, notKept: srtViewNotReady });
   } catch (e) {
     if (e instanceof ToolFailure && e.toolError.source === "api" && e.toolError.code === "frame-rate-required") {
       e.toolError.hint = `${f.formatId ?? "This format"} records no frame rate, and ${f.fps === undefined ? "none is known for this file" : "the given one was not used"}. Call preview_text again with \`fps\` set to the rate the file was made at (25 for PAL/European broadcast, 29.97 for NTSC, 23.976 or 24 for film); ask the user if the context doesn't say. Cue times in the SRT view depend on it; the text doesn't.`;
@@ -329,9 +329,17 @@ async function convertToSrt(deps: Deps, call: Call, caps: Caps, f: { data: Buffe
   }
   const r: any = res.json ?? {};
   const o = Array.isArray(r.outputs) ? r.outputs[0] : undefined;
-  if (typeof o?.content !== "string") throw mcpError("api-protocol-error", "The SRT conversion of the binary job file returned no content.", "Report this with the requestId.", { requestId: res.requestId });
+  if (typeof o?.content !== "string") throw srtViewNotReady();
   const text = (o.contentEncoding === "base64" ? Buffer.from(o.content, "base64").toString("utf8") : o.content).replace(/^\uFEFF/, "");
   return { text, warnings: mapWarnings(r.warnings), formatId: str(r.detected?.id), requestId: res.requestId };
+}
+
+/** The SRT view of a binary file is an inline conversion: if it outlives this call there is nothing to show. */
+const SRT_VIEW_HINT =
+  "Try again later, or ask the user to raise SUBTITLE_MCP_TIMEOUT_MS together with the client's tool timeout. Alternatively, convert the file with convert_subtitle and an API `output`, then call preview_text {jobId, which:\"output\"}.";
+
+function srtViewNotReady() {
+  return mcpError("mcp-timeout", "Converting this binary file to SRT for the preview took longer than this call can wait, so there is no text to show.", SRT_VIEW_HINT);
 }
 
 /** The frame rate a job read its input at (source.fps) or wrote its output at (target.fps, else the source's rate). */

@@ -86,10 +86,9 @@ export function capsFrom(state: LimitsState, cfg: Pick<Config, "jsonMaxDecodedBy
 /** Per-process cache keyed by sha256 of the upstream auth header (§9.3). */
 export class LimitsCache {
   private entries = new Map<string, { at: number; state: LimitsState }>();
-  private warnedTimeout = false;
   constructor(
     private readonly api: ApiClient,
-    private readonly cfg: Pick<Config, "limitsTtlMs" | "timeoutMs">,
+    private readonly cfg: Pick<Config, "limitsTtlMs">,
     private readonly log: Logger,
     private readonly now: () => number = Date.now,
   ) {}
@@ -119,11 +118,6 @@ export class LimitsCache {
     }
     this.entries.set(k, { at: this.now(), state });
     if (state.kind === "unsupported") featureMismatch(this.log, "GET /v1/limits returned 404; using the documented default limits");
-    if (state.kind === "ok" && !this.warnedTimeout && state.limits.conversionTimeoutSeconds) {
-      const need = 2 * state.limits.conversionTimeoutSeconds * 1000 + 5000;
-      if (this.cfg.timeoutMs < need) this.log.warn("SUBTITLE_MCP_TIMEOUT_MS is below the API's worst case (2 x conversion timeout + 5 s)", { timeoutMs: this.cfg.timeoutMs, recommendedMs: need });
-      this.warnedTimeout = true;
-    }
     return state;
   }
 

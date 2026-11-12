@@ -105,6 +105,8 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
         tool: def.name,
         requestId: id,
         signal: extra?.signal,
+        // One time limit for the whole call: request attempts, retry waits and job polls all fit inside it.
+        deadline: started + deps.cfg.timeoutMs,
         stats: newStats(),
         log: {},
         progress: async (message: string) => {

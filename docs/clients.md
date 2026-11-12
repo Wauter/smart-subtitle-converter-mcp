@@ -121,7 +121,6 @@ All three read `~/.codex/config.toml` (or `.codex/config.toml` in a trusted proj
 [mcp_servers.smart-subtitle-convert]
 command = "npx"
 args = ["-y", "smart-subtitle-converter-mcp"]
-tool_timeout_sec = 150
 
 [mcp_servers.smart-subtitle-convert.env]
 SUBTITLE_API_URL = "http://localhost:8080"
@@ -129,9 +128,8 @@ SUBTITLE_API_KEY_FILE = "/Users/me/subtitle-api-key.txt"
 SUBTITLE_MCP_ALLOWED_DIRS = "/Users/me/subtitles:/Users/me/exports"
 ```
 
-Gotchas: Codex's default `tool_timeout_sec` of 60 s is shorter than the MCP's own wait (`SUBTITLE_MCP_TIMEOUT_MS`,
-120 s by default), so long conversions would otherwise be cut off. ChatGPT on the web
-does not read this file and is not covered.
+Gotchas: ask for `outputPath` (or an API `output`) when converting, since Codex may not deliver attached files.
+ChatGPT on the web does not read this file and is not covered.
 
 ## OpenAI Agents SDK (Python)
 
@@ -151,11 +149,12 @@ subtitles = MCPServerStdio(
             "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/subtitles:/Users/me/exports",
         },
     },
-    client_session_timeout_seconds=150,
+    client_session_timeout_seconds=60,
 )
 ```
 
-Gotcha: the default `client_session_timeout_seconds` is 5, too short for conversions.
+Gotcha: the default `client_session_timeout_seconds` is 5, too short for conversions; keep it above
+`SUBTITLE_MCP_TIMEOUT_MS` (45 s by default).
 
 ## Goose
 

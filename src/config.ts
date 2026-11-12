@@ -250,10 +250,10 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv, opts: { checkF
     useClientRoots: bool("SUBTITLE_MCP_USE_CLIENT_ROOTS", env.SUBTITLE_MCP_USE_CLIENT_ROOTS, true),
     partialMaxAgeMs: int("SUBTITLE_MCP_PARTIAL_MAX_AGE_MS", env.SUBTITLE_MCP_PARTIAL_MAX_AGE_MS, 3_600_000, 1)!,
     maxBytes: int("SUBTITLE_MCP_MAX_BYTES", env.SUBTITLE_MCP_MAX_BYTES, undefined, 1),
-    timeoutMs: int("SUBTITLE_MCP_TIMEOUT_MS", env.SUBTITLE_MCP_TIMEOUT_MS, 120_000, 1)!,
+    timeoutMs: int("SUBTITLE_MCP_TIMEOUT_MS", env.SUBTITLE_MCP_TIMEOUT_MS, 45_000, 1)!,
     retryMaxAttempts: int("SUBTITLE_MCP_RETRY_MAX_ATTEMPTS", env.SUBTITLE_MCP_RETRY_MAX_ATTEMPTS, 3)!,
-    retryMaxWaitMs: int("SUBTITLE_MCP_RETRY_MAX_WAIT_MS", env.SUBTITLE_MCP_RETRY_MAX_WAIT_MS, 60_000)!,
-    retryBudgetMs: int("SUBTITLE_MCP_RETRY_BUDGET_MS", env.SUBTITLE_MCP_RETRY_BUDGET_MS, 90_000)!,
+    retryMaxWaitMs: int("SUBTITLE_MCP_RETRY_MAX_WAIT_MS", env.SUBTITLE_MCP_RETRY_MAX_WAIT_MS, 30_000)!,
+    retryBudgetMs: int("SUBTITLE_MCP_RETRY_BUDGET_MS", env.SUBTITLE_MCP_RETRY_BUDGET_MS, 30_000)!,
     previewDefaultBytes,
     previewMaxBytes,
     previewCacheBytes: int("SUBTITLE_MCP_PREVIEW_CACHE_BYTES", env.SUBTITLE_MCP_PREVIEW_CACHE_BYTES, 67_108_864, 0)!,
@@ -287,8 +287,8 @@ export function safeUrl(u: string): string {
 export function defaultConfig(over: Partial<Config> = {}): Config {
   return {
     mode: "local", apiUrl: "http://api.test", httpTokens: [], allowedDirs: [], readonlyDirs: [], useClientRoots: true,
-    partialMaxAgeMs: 3_600_000, timeoutMs: 120_000, retryMaxAttempts: 3, retryMaxWaitMs: 60_000,
-    retryBudgetMs: 90_000, previewDefaultBytes: 32_768, previewMaxBytes: 262_144, previewCacheBytes: 67_108_864, previewCacheTtlMs: 300_000,
+    partialMaxAgeMs: 3_600_000, timeoutMs: 45_000, retryMaxAttempts: 3, retryMaxWaitMs: 30_000,
+    retryBudgetMs: 30_000, previewDefaultBytes: 32_768, previewMaxBytes: 262_144, previewCacheBytes: 67_108_864, previewCacheTtlMs: 300_000,
     limitsTtlMs: 300_000, includeDebug: false, allowedOrigins: [], allowedHosts: ["localhost", "127.0.0.1", "[::1]"],
     logLevel: "error", logPaths: false, listEnabled: true, resultIn: "both", ...over,
   };

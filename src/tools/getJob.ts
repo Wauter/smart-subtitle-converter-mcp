@@ -52,7 +52,7 @@ export async function getJob(deps: Deps, a: { jobId: string; wait?: boolean }, c
   const id = a.jobId;
   let polled;
   try {
-    polled = await pollJob(deps.api, id, call, { deadline: Date.now() + deps.cfg.timeoutMs, mode: deps.cfg.mode, includeDebug: deps.cfg.includeDebug, wait: a.wait !== false });
+    polled = await pollJob(deps.api, id, call, { mode: deps.cfg.mode, includeDebug: deps.cfg.includeDebug, wait: a.wait !== false });
   } catch (e) {
     if (e instanceof ToolFailure && e.toolError.jobStatus === "failed")
       e.toolError.hint = `${e.toolError.hint ? e.toolError.hint + " " : ""}The job failed; calling get_job again returns the same error. Fix the input as described and convert again.`;

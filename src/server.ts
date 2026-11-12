@@ -26,7 +26,7 @@ export function instructions(deps: Deps): string {
     (deps.pathsInSchema
       ? ` Prefer \`path\` plus \`outputPath\`/\`outputDir\`: the MCP reads and writes the files itself, so the converted file isn't attached to the result and binary formats stay byte-exact (preview_text still returns text when you ask for it). ${instructionsFoldersText(deps.guard.roots.snapshot())}`
       : " File paths are not available on this server; send content inline (base64 for binary formats).") +
-    " API-side input/output URIs use the API allowlists, independently of these local folders. Use a server-side output for jobs that may outlive the synchronous wait; the MCP polls accepted jobs and returns jobId. Check a job later with get_job {jobId}; never resubmit a conversion just because waiting stopped." +
+    " API-side input/output URIs use the API allowlists, independently of these local folders. If a conversion may take long or another system picks the file up from API storage, give an API `output`; a job that outlives the call then comes back with a jobId to check with get_job (don't resubmit it)." +
     (deps.cfg.listEnabled ? " To find and read files: list_allowed_folders (local folders, and API locations when the API allows browsing) → list_files → preview_text {location}." : "") +
     (deps.cfg.resultIn === "both" ? " Each result is sent twice with the same information (structuredContent and the same JSON as text); if you receive both and token cost matters, you may suggest the user set SUBTITLE_MCP_RESULT_IN to structured or content in this MCP server's configuration, matching the part your client passes to you." : "")
   );

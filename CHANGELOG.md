@@ -24,6 +24,14 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
   follows `Location`, never resubmits and never writes files (read-only, idempotent). A failed job is an error
   result with `jobStatus: "failed"` and a hint to fix the input and convert again. The `job-not-ready` hint and
   the startup instructions point to it.
+- `SUBTITLE_MCP_TIMEOUT_MS` is one time limit per tool call (default 45000, was a 120000 per-attempt timeout).
+  Request attempts, retry waits and job polling all fit inside it. A quick conversion (no API `output`) asks the
+  API to wait as long as the call allows (`Prefer: wait` up to the API's maximum and the time left minus 2 s,
+  about 41 s at the default) and, if the result still can't be waited for, returns `job-output-not-stored` saying
+  to convert again with an API `output`. A pipeline conversion (API `output`) asks the API to wait at most 30 s,
+  then polls the job until the call's time limit and returns `job-not-ready` with the `jobId` for `get_job`.
+  `SUBTITLE_MCP_RETRY_MAX_WAIT_MS` and `SUBTITLE_MCP_RETRY_BUDGET_MS` default to 30000 (were 60000 and 90000). The
+  startup warning about the API's worst-case conversion time is gone.
 - `preview_text` pages default to 32768 bytes (`SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES`, was 65536), so a default page
   stays under the 50,000 characters above which Claude Code saves a tool result to a file instead of showing it.
 - Information that was only in the summary is now in the result object: `detect_format` and `list_formats` have a

@@ -229,7 +229,7 @@ playout system accepts it.
 
 The result surfaces `jobId`, which [`get_job`](#get_job) can check later. The MCP polls `GET /v1/jobs/{id}` after a 202, respecting Retry-After and the tool timeout/cancellation budget. It accepts only the exact relative job URL; no arbitrary Location is followed with bearer credentials. Poll timeout/cancellation does not cancel the accepted API job. A gone record is reported as `job-not-found`, not a conversion failure.
 
-Jobs retain metadata only, never subtitle bytes. For asynchronous work use an API `output` URI: the MCP can report that stored result. If response-only work overruns the wait, the MCP returns `job-output-not-stored` with jobId and writes nothing locally. Do not retry uncertain writes blindly. Conversion POSTs are never automatically replayed; transient I/O retries happen inside the accepted API job.
+Jobs retain metadata only, never subtitle bytes. If a conversion may take long or another system picks the file up from API storage, give an API `output`. With one, a job that outlives the call returns `job-not-ready` with its `jobId` for `get_job`; don't resubmit. Without one (an attached file or `outputPath`/`outputDir`), the call waits as long as it can, and a result it can't wait for is lost: it returns `job-output-not-stored` and writes nothing locally ([time limits](configuration.md#time-limits)). Conversion POSTs are never automatically replayed; transient I/O retries happen inside the accepted API job.
 
 Failed admitted conversions also surface `error.jobId` / `error.jobUrl` when supplied by the API. Tool output
 schemas permit structured errors as well as success results; required success fields are validated before
@@ -348,5 +348,5 @@ the paging codes `preview-source-changed`, `preview-cursor-invalid` and `preview
 failed job has no stored output. A missing job is not a failed conversion.
 
 The convert description reports API storage schemes when limits are known; `subtitleedit://limits` exposes
-the full API response. The schemes line is omitted if either input/output scheme array is missing. `Prefer: wait` is bounded by MCP timeout and API maximum wait, not by destination.
-A poll timeout is `job-not-ready` with jobId; accepted work may still finish and write its output, and `get_job` reports it.
+the full API response. The schemes line is omitted if either input/output scheme array is missing. `Prefer: wait` is at most the API maximum wait and the call's remaining time limit, and at most 30 s when an API `output` is given ([time limits](configuration.md#time-limits)).
+With an API `output`, a poll timeout is `job-not-ready` with jobId; the work still finishes and writes its output, and `get_job` reports it.

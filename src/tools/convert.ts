@@ -8,7 +8,8 @@ import type { Call, Deps } from "../context.js";
 import { mcpError, ToolFailure, type WarningT } from "../errors.js";
 import { sanitizeOutputName, type WriteResult } from "../fs/write.js";
 import { hiddenPathError } from "../fs/guard.js";
-import { finishConversion } from "../api/jobs.js";
+import { finishConversion, NOT_KEPT_HINT } from "../api/jobs.js";
+import { preferWaitSeconds } from "../api/client.js";
 import { toInt } from "../api/coerce.js";
 import { locationBaseName } from "./textPage.js";
 import {
@@ -182,10 +183,11 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
     const n = Buffer.byteLength(json);
     if (n > caps.jsonBody) throw tooLarge("The request body", { name: "maxRequestBodyBytes.json", value: caps.jsonBody }, n);
     let res;
-    const started = Date.now();
     try {
-      res = await deps.api.request({ method: "POST", path: "/v1/convert/json", kind: "conversion", headers: { Prefer: `wait=${Math.max(0, Math.min(caps.requestMaxWaitSeconds ?? 60, Math.floor(deps.cfg.timeoutMs / 1000)))}` }, raw: { body: json, contentType: "application/json" } }, call);
-      res = await finishConversion(deps.api, res, call, { deadline: started + deps.cfg.timeoutMs, mode: deps.cfg.mode, includeDebug: deps.cfg.includeDebug });
+      // Quick conversion (no API output) waits as long as allowed; a pipeline (API output) waits briefly and polls.
+      const pipeline = a.output !== undefined;
+      res = await deps.api.request({ method: "POST", path: "/v1/convert/json", kind: "conversion", headers: { Prefer: `wait=${preferWaitSeconds(caps.requestMaxWaitSeconds, call, pipeline)}` }, ...(pipeline ? {} : { deadlineHint: NOT_KEPT_HINT }), raw: { body: json, contentType: "application/json" } }, call);
+      res = await finishConversion(deps.api, res, call, { mode: deps.cfg.mode, includeDebug: deps.cfg.includeDebug, ...(pipeline ? {} : { notKept: resultNotKept }) });
     } catch (e) {
       if (e instanceof ToolFailure && e.toolError.status === 413) deps.limits.invalidate();
       throw e;
@@ -209,7 +211,7 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
   }
 
   if (!a.output && result.outputs.some((o) => !o.retained))
-    throw mcpError("job-output-not-stored", "The asynchronous response-only conversion retained no file bytes or stored output.", "Inspect the original result. Pass output for work that can outlive the wait; do not blindly resubmit writes.", { jobId: result.jobId });
+    throw resultNotKept();
   const outputs: any[] = [];
   const blocks: ContentBlock[] = [];
   const written: WriteResult[] = [];
@@ -276,6 +278,11 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
   };
   call.log.actions = countActions(written);
   return { structured, blocks };
+}
+
+/** A quick conversion (no API output) outlived this call: the API keeps job metadata, never the result bytes. */
+function resultNotKept() {
+  return mcpError("job-output-not-stored", "This conversion took longer than this call can wait, so its result couldn't be kept.", NOT_KEPT_HINT);
 }
 
 /**

@@ -23,6 +23,26 @@ export interface CallCtx {
   stats: CallStats;
   /** Set when a local extension check was skipped because the API doesn't report its list (older minor version). */
   extensionCheckSkipped?: boolean;
+  /**
+   * Epoch ms by which the whole tool call must be done (SUBTITLE_MCP_TIMEOUT_MS from the call's start). Every request
+   * attempt, retry wait and job poll fits inside it.
+   */
+  deadline?: number;
+}
+
+/** Time left before the call's deadline, in ms (Infinity without one). */
+export const remainingMs = (ctx: Pick<CallCtx, "deadline">, now = Date.now()) => (ctx.deadline === undefined ? Infinity : ctx.deadline - now);
+
+/**
+ * Prefer: wait for a conversion POST: at most the API's requestMaxWaitSeconds (60 when unknown) and short enough (2 s
+ * margin) that the API's answer arrives before this call's deadline.
+ * - Quick conversion (no API output: the result comes back in the response): wait as long as allowed, because a
+ *   result that misses the wait can't be kept (the API keeps job metadata, never response bytes).
+ * - Pipeline (an API output): at most 30 s, leaving time to poll the job; get_job follows up after the call.
+ */
+export function preferWaitSeconds(requestMaxWaitSeconds: number | undefined, ctx: Pick<CallCtx, "deadline">, pipeline: boolean, now = Date.now()): number {
+  const left = Math.floor(remainingMs(ctx, now) / 1000) - 2;
+  return Math.max(0, Math.min(pipeline ? 30 : Infinity, requestMaxWaitSeconds ?? 60, left));
 }
 
 export interface ApiRequest {
@@ -37,6 +57,8 @@ export interface ApiRequest {
   accept?: string;
   responseBytes?: boolean;
   headers?: Record<string, string>;
+  /** Hint for a conversion POST cut off by the call's time limit (quick conversions: the result can't be kept). */
+  deadlineHint?: string;
 }
 
 export interface ApiResponse {
@@ -79,7 +101,7 @@ export class ApiClient {
   }
 
   async request(req: ApiRequest, ctx: CallCtx): Promise<ApiResponse> {
-    const timeoutMs = req.kind === "metadata" ? Math.min(this.cfg.timeoutMs, 15_000) : this.cfg.timeoutMs;
+    const capMs = req.kind === "metadata" ? Math.min(this.cfg.timeoutMs, 15_000) : this.cfg.timeoutMs;
     const body: RequestInit["body"] = req.json !== undefined ? JSON.stringify(req.json) : req.raw ? (req.raw.body as any) : undefined;
     const bodyLen = typeof body === "string" ? Buffer.byteLength(body) : Buffer.isBuffer(body) ? body.length : 0;
     const url = this.url(req.path, req.query);
@@ -87,6 +109,10 @@ export class ApiClient {
     let waited = 0;
     for (;;) {
       if (ctx.signal?.aborted) throw mcpError("cancelled", "The client cancelled the request.", undefined, { attempts: ctx.stats.attempts });
+      const left = remainingMs(ctx);
+      if (left <= 0) throw this.deadlineError(req, ctx);
+      const timeoutMs = Math.min(capMs, left);
+      const byDeadline = timeoutMs < capMs;
       const rid = retries === 0 ? ctx.requestId : withSuffix(ctx.requestId, `.r${retries}`);
       ctx.stats.requestIds.push(rid);
       // Tries of this request, not a count of every request in the call: a tool that makes several
@@ -106,8 +132,10 @@ export class ApiClient {
         ctx.stats.bytesOut += bodyLen;
       } catch (err) {
         if (ctx.signal?.aborted) throw mcpError("cancelled", "The client cancelled the request.", undefined, { attempts: ctx.stats.attempts, requestId: rid });
-        if (timeoutSignal.aborted)
+        if (timeoutSignal.aborted) {
+          if (byDeadline) throw this.deadlineError(req, ctx, rid);
           throw mcpError("mcp-timeout", `No answer from the API within ${timeoutMs} ms.`, "The converter may be overloaded; retry later.", { attempts: ctx.stats.attempts, requestId: rid });
+        }
         const code = netCode(err);
         const te: ToolError = {
           source: "mcp",
@@ -118,7 +146,7 @@ export class ApiClient {
           attempts: ctx.stats.attempts,
         };
         if (code && RETRY_NET_CODES.has(code) && !(req.method === "POST" && req.path === "/v1/convert/json")) {
-          const w = await this.planWait(retries, waited, undefined);
+          const w = await this.planWait(retries, waited, undefined, ctx);
           if (w !== undefined) {
             await this.doWait(w, ctx, `API unreachable (${code}); retrying in ${Math.ceil(w / 1000)}s (attempt ${retries + 2}/${this.cfg.retryMaxAttempts + 1})`);
             waited += w;
@@ -136,7 +164,10 @@ export class ApiClient {
         buf = Buffer.from(await res.arrayBuffer());
       } catch (err) {
         if (ctx.signal?.aborted) throw mcpError("cancelled", "The client cancelled the request.", undefined, { attempts: ctx.stats.attempts, requestId: echoed ?? rid });
-        if (timeoutSignal.aborted) throw mcpError("mcp-timeout", `No answer from the API within ${timeoutMs} ms.`, "The converter may be overloaded; retry later.", { attempts: ctx.stats.attempts, requestId: echoed ?? rid });
+        if (timeoutSignal.aborted) {
+          if (byDeadline) throw this.deadlineError(req, ctx, echoed ?? rid);
+          throw mcpError("mcp-timeout", `No answer from the API within ${timeoutMs} ms.`, "The converter may be overloaded; retry later.", { attempts: ctx.stats.attempts, requestId: echoed ?? rid });
+        }
         throw mcpError("api-unreachable", `Connection lost while reading the response (${netCode(err) ?? "error"}).`, undefined, { requestId: echoed ?? rid, attempts: ctx.stats.attempts });
       }
       ctx.stats.bytesIn += buf.length;
@@ -171,7 +202,7 @@ export class ApiClient {
       if (retryable) {
         const ra = parseRetryAfter(res.headers.get("retry-after"));
         if (ra !== undefined) te.retryAfterSeconds = ra;
-        const w = await this.planWait(retries, waited, ra);
+        const w = await this.planWait(retries, waited, ra, ctx);
         if (w !== undefined) {
           const what = res.status === 429 ? "API rate limited" : res.status === 503 ? (te.code === "browse-busy" ? "API busy (browse queue full)" : te.code === "conversion-engine-stuck" ? "Converter stuck on a previous conversion" : "Converter busy (queue full)") : "Converter overloaded (queue timeout)";
           await this.doWait(w, ctx, `${what}; retrying in ${Math.ceil(w / 1000)}s (attempt ${retries + 2}/${this.cfg.retryMaxAttempts + 1})`);
@@ -184,10 +215,21 @@ export class ApiClient {
     }
   }
 
-  /** Returns the wait in ms, or undefined when the retry budget or max wait forbids another attempt. */
-  private async planWait(retriesSoFar: number, waited: number, retryAfterSec: number | undefined): Promise<number | undefined> {
+  /** The call's time limit ran out (SUBTITLE_MCP_TIMEOUT_MS covers the whole tool call). */
+  private deadlineError(req: ApiRequest, ctx: CallCtx, requestId?: string): ToolFailure {
+    const post = req.method === "POST" && req.path.startsWith("/v1/convert");
+    return mcpError("mcp-timeout", `Stopped at this call's time limit (SUBTITLE_MCP_TIMEOUT_MS, ${this.cfg.timeoutMs} ms) while waiting for ${req.method} ${req.path}.`,
+      post ? req.deadlineHint ?? "The conversion may already have been accepted; this POST was not replayed. Check the destination before resubmitting, and pass an API output for long work." : "Retry; if this keeps happening, the API is overloaded or SUBTITLE_MCP_TIMEOUT_MS is too short.",
+      { attempts: ctx.stats.attempts, ...(requestId ? { requestId } : {}) });
+  }
+
+  /**
+   * Returns the wait in ms, or undefined when the retry budget, the max wait or the call's deadline (the wait plus at
+   * least one second for the next attempt) forbids another attempt.
+   */
+  private async planWait(retriesSoFar: number, waited: number, retryAfterSec: number | undefined, ctx: CallCtx): Promise<number | undefined> {
     if (retriesSoFar >= this.cfg.retryMaxAttempts) return undefined;
-    const remaining = this.cfg.retryBudgetMs - waited;
+    const remaining = Math.min(this.cfg.retryBudgetMs - waited, remainingMs(ctx) - 1000);
     if (retryAfterSec !== undefined) {
       const minMs = retryAfterSec * 1000;
       if (minMs > this.cfg.retryMaxWaitMs || minMs > remaining) return undefined;

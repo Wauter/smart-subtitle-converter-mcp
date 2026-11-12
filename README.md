@@ -123,7 +123,7 @@ and as the same JSON in a text block, because apps differ in which part they pas
   own allowlists, separately from the MCP's local folders.
 - **No silent overwrites.** Outputs are never overwritten unless you send `ifExists: "replace"`. One file per call.
 - **Jobs.** Every conversion returns a `jobId`. When work outlasts the wait, the MCP polls the job, and `get_job`
-  checks it later. The API keeps metadata only, so use an API `output` location for work that may take a while.
+  checks it later. The API keeps metadata only, so: if a conversion may take long or another system picks the file up from API storage, give an API `output`.
 - **Previewing.** `preview_text` reads the text of a job's stored input or output, in pages that end on whole
   cues, while the API still has its record.
 - **Browsing.** `list_files` lists a folder and `preview_text` reads a file by its full URI or path. The API's

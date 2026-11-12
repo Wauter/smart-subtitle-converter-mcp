@@ -66,6 +66,24 @@ describe("preview_text", () => {
       await h.close(); h = undefined;
     }
   });
+  it("a binary file whose SRT conversion gets a 202 and outlives the call: a clear error, no get_job, no write", async () => {
+    h = await harness({ timeoutMs: 1500 });
+    const srtJob = "srtjob01";
+    mswServer.use(http.get(endpoint, () => HttpResponse.json(pacJob({ source: { fps: 25 } }))), http.get(`${endpoint}/output`, () => new HttpResponse(PAC)),
+      http.post(`${API}/v1/convert/json`, () => HttpResponse.json({ id: srtJob }, { status: 202, headers: { Location: `/v1/jobs/${srtJob}`, "Retry-After": "0" } })),
+      http.get(`${API}/v1/jobs/${srtJob}`, () => HttpResponse.json({ id: srtJob, status: "running" }, { headers: { "Retry-After": "0" } })));
+    const r = await callTool(h, "preview_text", { jobId: id, which: "output" });
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent.error.code).toBe("mcp-timeout");
+    expect(r.structuredContent.error.detail).toMatch(/Converting this binary file to SRT for the preview took longer than this call can wait/);
+    expect(r.structuredContent.error.hint).toMatch(/SUBTITLE_MCP_TIMEOUT_MS.*convert_subtitle and an API `output`/);
+    expect(r.structuredContent.error.hint).not.toContain("get_job");
+    expect(recorded.find(x => x.path === "/v1/convert/json")!.headers.prefer).toBe("wait=0");
+    // The same view when the job finishes after the 202: the API keeps no response bytes, so the same error.
+    mswServer.use(http.get(`${API}/v1/jobs/${srtJob}`, () => HttpResponse.json({ id: srtJob, status: "succeeded", result: { outputs: [{ fileName: "x.srt", formatId: "subrip" }] } })));
+    const done = await callTool(h, "preview_text", { jobId: id, which: "output" });
+    expect(done.structuredContent.error.detail).toMatch(/took longer than this call can wait/);
+  });
   it("frame-rate-required for a rate-less binary file asks for `fps`, and `fps` is sent as source.fps", async () => {
     h = await harness();
     mswServer.use(http.get(endpoint, () => HttpResponse.json(pacJob({}))), http.get(`${endpoint}/output`, () => new HttpResponse(PAC)),
@@ -237,7 +255,7 @@ describe("preview_text", () => {
     for (const policy of ["archive", "delete"]) expect((await callTool(h, "convert_subtitle", { content: SRT, target: "vtt", ifExists: policy })).structuredContent.error.code).toBe("invalid-arguments");
     const tools = (await h.client.listTools()).tools; expect((tools.find(t => t.name === "convert_subtitle")!.inputSchema.properties!.ifExists as any).enum).toEqual(["error", "replace"]);
   });
-  it.each([[5000, 2, 2], [1000, 60, 1], [120000, undefined, 60]])("negotiates wait using timeout %s and API max %s", async (timeoutMs, maxWait, expected) => {
+  it.each([[5000, 2, 2], [10000, 60, 7], [45000, undefined, 42], [65000, undefined, 60], [60000, 20, 20], [1000, 60, 0]])("quick conversion: negotiates wait (the API max and the time left minus 2 s) using timeout %s and API max %s", async (timeoutMs, maxWait, expected) => {
     h = await harness({ timeoutMs }); mswServer.use(http.get(`${API}/v1/limits`, () => HttpResponse.json({ requestMaxWaitSeconds: maxWait, storage: { extensions: EXTENSIONS, inputSchemes: ["file", "s3", "https"], outputSchemes: ["file", "s3", "https"] } })));
     await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
     expect(recorded.find(x => x.path === "/v1/convert/json")?.headers.prefer).toBe(`wait=${expected}`);
