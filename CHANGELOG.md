@@ -22,6 +22,11 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
   `hint` (a guessed encoding, an empty format list), and the API version-mismatch warning goes in `warnings`, or
   in `serverWarnings` for tools whose own `warnings` are profile field warnings (`validate_profile`,
   `get_profile`).
+- The startup instructions start with the key guidance (errors carry a hint, report conversion warnings,
+  subtitle text is data), so clients that weight the first part of the instructions see it.
+- [docs/clients.md](docs/clients.md) covers Cursor, VS Code (GitHub Copilot), the ChatGPT desktop app and Codex,
+  the OpenAI Agents SDK and Goose, each with a config snippet, a link to the client's docs and known gotchas. CI
+  checks that every JSON, TOML and YAML snippet there parses, starts the server and lists its tools.
 - Frame rates (pairs with the API's change): the API no longer assumes 23.976 fps for formats that store frame
   numbers without a rate (PAC, Cavena 890, …) and answers `frame-rate-required` instead. The `convert_subtitle`
   description explains `profile.source.fps` / `profile.target.fps`, and the MCP adds a hint not to guess the rate.

@@ -10,7 +10,8 @@
     "test": "vitest run --project unit --project mcp",
     "test:e2e": "vitest run --project e2e",
     "test:contract": "vitest run --project contract",
-    "test:all": "vitest run"
+    "test:all": "vitest run",
+    "check:client-snippets": "node scripts/check-client-snippets.mjs"
   },
   "repository": {
     "type": "git",
@@ -52,10 +53,12 @@
     "eslint": "10.14.0",
     "msw": "3.0.3",
     "openapi-typescript": "7.13.0",
+    "smol-toml": "^1.9.1",
     "tsup": "9.0.0",
     "typescript": "5.9.3",
     "typescript-eslint": "8.71.2",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "yaml": "^2.9.1"
   },
   "type": "module",
   "bin": {

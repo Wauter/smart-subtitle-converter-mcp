@@ -43,6 +43,8 @@ jobs:
         run: npm run build
       - name: Transport e2e (built dist)
         run: npm run test:e2e
+      - name: Client config snippets in docs/clients.md (parse, start, tools/list)
+        run: npm run check:client-snippets
       - name: npm audit (production deps)
         run: npm audit --omit=dev --audit-level=high
 
