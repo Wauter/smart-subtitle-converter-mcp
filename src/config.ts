@@ -231,7 +231,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv, opts: { checkF
 
   const previewMaxBytes = int("SUBTITLE_MCP_PREVIEW_MAX_BYTES", env.SUBTITLE_MCP_PREVIEW_MAX_BYTES, 262_144, PREVIEW_MIN_BYTES)!;
   if (previewMaxBytes > PREVIEW_HARD_CEILING_BYTES) throw new ConfigError(`SUBTITLE_MCP_PREVIEW_MAX_BYTES: must be at most ${PREVIEW_HARD_CEILING_BYTES} (hard ceiling), got ${previewMaxBytes}`);
-  const previewDefaultBytes = int("SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES", env.SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES, Math.min(65_536, previewMaxBytes), PREVIEW_MIN_BYTES)!;
+  const previewDefaultBytes = int("SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES", env.SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES, Math.min(32_768, previewMaxBytes), PREVIEW_MIN_BYTES)!;
   if (previewDefaultBytes > previewMaxBytes) throw new ConfigError(`SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES (${previewDefaultBytes}) must not exceed SUBTITLE_MCP_PREVIEW_MAX_BYTES (${previewMaxBytes})`);
 
   const allowedHosts = env.SUBTITLE_MCP_ALLOWED_HOSTS ? list(env.SUBTITLE_MCP_ALLOWED_HOSTS) : ["localhost", "127.0.0.1", "[::1]"];
@@ -288,7 +288,7 @@ export function defaultConfig(over: Partial<Config> = {}): Config {
   return {
     mode: "local", apiUrl: "http://api.test", httpTokens: [], allowedDirs: [], readonlyDirs: [], useClientRoots: true,
     partialMaxAgeMs: 3_600_000, timeoutMs: 120_000, retryMaxAttempts: 3, retryMaxWaitMs: 60_000,
-    retryBudgetMs: 90_000, previewDefaultBytes: 65_536, previewMaxBytes: 262_144, previewCacheBytes: 67_108_864, previewCacheTtlMs: 300_000,
+    retryBudgetMs: 90_000, previewDefaultBytes: 32_768, previewMaxBytes: 262_144, previewCacheBytes: 67_108_864, previewCacheTtlMs: 300_000,
     limitsTtlMs: 300_000, includeDebug: false, allowedOrigins: [], allowedHosts: ["localhost", "127.0.0.1", "[::1]"],
     logLevel: "error", logPaths: false, listEnabled: true, resultIn: "both", ...over,
   };

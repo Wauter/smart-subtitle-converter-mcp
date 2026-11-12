@@ -82,7 +82,7 @@ describe("config", () => {
     expect(c.apiUrl).toBe("http://other");
   });
   it("preview page sizes: defaults, range, hard ceiling and the removed inline-text variable", () => {
-    expect(cfg([])).toMatchObject({ previewDefaultBytes: 65536, previewMaxBytes: 262144 });
+    expect(cfg([])).toMatchObject({ previewDefaultBytes: 32768, previewMaxBytes: 262144 });
     expect(cfg([], { SUBTITLE_MCP_PREVIEW_MAX_BYTES: "8192" })).toMatchObject({ previewDefaultBytes: 8192, previewMaxBytes: 8192 });
     expect(err([], { SUBTITLE_MCP_PREVIEW_MAX_BYTES: "2000000" })).toMatch(/at most 1048576/);
     expect(err([], { SUBTITLE_MCP_PREVIEW_MAX_BYTES: "100" })).toMatch(/>= 4096/);

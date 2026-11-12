@@ -19,6 +19,8 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
   `content`, tools declare no `outputSchema`; with `structured`, errors still include the JSON text block, since some
   clients give the model only the text of an error result. An invalid value fails startup with the accepted values. The startup
   instructions mention it when results are sent in both parts.
+- `preview_text` pages default to 32768 bytes (`SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES`, was 65536), so a default page
+  stays under the 50,000 characters above which Claude Code saves a tool result to a file instead of showing it.
 - Information that was only in the summary is now in the result object: `detect_format` and `list_formats` have a
   `hint` (a guessed encoding, an empty format list), and the API version-mismatch warning goes in `warnings`, or
   in `serverWarnings` for tools whose own `warnings` are profile field warnings (`validate_profile`,

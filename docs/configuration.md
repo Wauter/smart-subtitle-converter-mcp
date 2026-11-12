@@ -19,7 +19,7 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 | `SUBTITLE_MCP_RETRY_MAX_ATTEMPTS` | – | `3` | Retries for safe metadata/read-only calls; conversion POST is never replayed |
 | `SUBTITLE_MCP_RETRY_MAX_WAIT_MS` | – | `60000` | Longest single `Retry-After` wait accepted |
 | `SUBTITLE_MCP_RETRY_BUDGET_MS` | – | `90000` | Total retry wait per call |
-| `SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES` | – | `65536` | `preview_text` page size, in UTF-8 bytes, when the call gives no `maxBytes`. At least 4096 and at most `SUBTITLE_MCP_PREVIEW_MAX_BYTES` |
+| `SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES` | – | `32768` | `preview_text` page size, in UTF-8 bytes, when the call gives no `maxBytes`. The default keeps a page, once JSON-escaped, under the 50,000 characters above which Claude Code saves a result to a file instead of showing it ([Claude Code docs](https://code.claude.com/docs/en/mcp), checked on 2026-11-12). At least 4096 and at most `SUBTITLE_MCP_PREVIEW_MAX_BYTES` |
 | `SUBTITLE_MCP_PREVIEW_MAX_BYTES` | – | `262144` | Largest `preview_text` page, in UTF-8 bytes; larger `maxBytes` requests are lowered to it, and a single cue over it can't be previewed (`preview-cue-too-large`). 4096 to 1048576 |
 | `SUBTITLE_MCP_PREVIEW_CACHE_BYTES` | – | `67108864` | Memory for cached `preview_text` texts (64 MiB). Least recently used entries go first; a text bigger than the whole cache isn't cached. `0` turns the cache off |
 | `SUBTITLE_MCP_PREVIEW_CACHE_TTL_MS` | – | `300000` | A cached preview unused for this long is dropped |

@@ -17,7 +17,7 @@ describe("preview_text", () => {
     const r = await callTool(h, "preview_text", { jobId: id, which: "input" });
     expect(r.isError).toBeFalsy();
     expect(r.structuredContent).toEqual({ source: "job", jobId: id, which: "input", fileName: "show.srt", mediaType: "application/x-subrip", bytes: Buffer.byteLength(SRT), location: "file:///data/in/show.srt",
-      text: SRT, unit: "cue", maxBytes: 65536, truncated: false, returnedBytes: Buffer.byteLength(SRT), totalBytes: Buffer.byteLength(SRT), fromCue: 1, toCue: 1, returnedCues: 1, totalCues: 1, warnings: [] });
+      text: SRT, unit: "cue", maxBytes: 32768, truncated: false, returnedBytes: Buffer.byteLength(SRT), totalBytes: Buffer.byteLength(SRT), fromCue: 1, toCue: 1, returnedCues: 1, totalCues: 1, warnings: [] });
     expect(r.content).toEqual([{ type: "text", text: JSON.stringify(r.structuredContent) }]);
     expect(recorded.every(x => x.method === "GET")).toBe(true);
     expect(h.logs.join("\n")).not.toContain("Hello");

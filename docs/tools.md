@@ -246,7 +246,7 @@ Arguments:
 | `jobId` | yes, unless `location` | The `jobId` from `convert_subtitle` |
 | `which` | with `jobId` | `input` (the stored source) or `output` (the single stored subtitle result, never a sidecar) |
 | `location` | instead of `jobId` | The file's full URI or absolute path, as `list_files` `items[].location`: `s3://bucket/key`, `file:///path`, or a local absolute path inside the allowed folders (e.g. `s3://subs/show.srt`, or the sidecar `s3://subs/show.srt.json`). Not with `SUBTITLE_MCP_LIST_ENABLED=false` ([browsing](#browsing-and-reading-by-location)) |
-| `maxBytes` | no | Page size in UTF-8 bytes. Defaults to `SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES` (65536); values below 4096 are raised to 4096 and values above `SUBTITLE_MCP_PREVIEW_MAX_BYTES` (262144) are lowered to it, with a `max-bytes-clamped` warning (`details.fields.requested` and `applied`). The value in effect comes back as `maxBytes` |
+| `maxBytes` | no | Page size in UTF-8 bytes. Defaults to `SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES` (32768); values below 4096 are raised to 4096 and values above `SUBTITLE_MCP_PREVIEW_MAX_BYTES` (262144) are lowered to it, with a `max-bytes-clamped` warning (`details.fields.requested` and `applied`). The value in effect comes back as `maxBytes` |
 | `fps` | no | Frame rate for binary formats that store frame numbers without one (PAC, Cavena 890, …), used only for the times in the SRT view, e.g. `25`. A job's file defaults to the rate the job used (`target.fps`, else `source.fps`, for its output; `source.fps` for its input) |
 | `cursor` | no | The `next` value from the previous page, unchanged. Omit it for the first page |
 

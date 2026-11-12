@@ -41,7 +41,7 @@ describe("QA p7/p8: long-file paging (1,569-cue fixture)", () => {
     h = await harness(); const text = longSrt(); serve(() => Buffer.concat([BOM, Buffer.from(text)]));
     const pages = (await walk({ jobId: id, which: "output", ...(maxBytes ? { maxBytes } : {}) })).map((r) => r.structuredContent);
     expect(pages.map((p) => p.text).join("")).toBe(text);
-    const size = Buffer.byteLength(text), page = maxBytes ?? 65536;
+    const size = Buffer.byteLength(text), page = maxBytes ?? 32768;
     expect(size).toBeGreaterThan(120_000); // the tester's ~120 KB programme
     expect(pages.length).toBeGreaterThanOrEqual(Math.ceil(size / page)); expect(pages.length).toBeLessThanOrEqual(Math.ceil(size / page) + 1);
     for (const [i, p] of pages.entries()) {
@@ -56,7 +56,7 @@ describe("QA p7/p8: long-file paging (1,569-cue fixture)", () => {
   it("p7a: default 64 KB pages split the long fixture at a whole cue with the counts the tester saw", async () => {
     h = await harness(); const text = longSrt(); serve(() => Buffer.from(text));
     const [p1, p2] = (await walk({ jobId: id, which: "input" })).map((r) => r.structuredContent);
-    expect(p1.returnedBytes).toBeLessThanOrEqual(65536); expect(p1.returnedBytes + Buffer.byteLength(text.split("\n\n")[p1.toCue] + "\n\n")).toBeGreaterThan(65536);
+    expect(p1.returnedBytes).toBeLessThanOrEqual(32768); expect(p1.returnedBytes + Buffer.byteLength(text.split("\n\n")[p1.toCue] + "\n\n")).toBeGreaterThan(32768);
     expect(p2.fromCue).toBe(p1.toCue + 1);
   });
   it("p7a: CRLF WebVTT with header and NOTE pages on whole cues and joins exactly", async () => {
