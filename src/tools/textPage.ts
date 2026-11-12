@@ -24,7 +24,8 @@ export interface Segments {
   totalBytes: number;
 }
 
-const TIMING = /^[^\r\n]*-->/m;
+/** A block is a cue when one of its lines holds the SRT/WebVTT timing arrow (no HTML parsing involved). */
+const TIMING_ARROW = "-->";
 const BLANK_RUN = /\r?\n(?:[ \t]*\r?\n)+/g;
 
 /** Text without a leading BOM: byte counts and pages never include it. */
@@ -44,7 +45,7 @@ function cueParts(text: string): string[] | undefined {
   const parts: string[] = [];
   let lead = "";
   for (const b of blocks) {
-    if (TIMING.test(b)) { parts.push(lead + b); lead = ""; }
+    if (b.includes(TIMING_ARROW)) { parts.push(lead + b); lead = ""; }
     else if (parts.length) parts[parts.length - 1] += b;
     else lead += b;
   }
