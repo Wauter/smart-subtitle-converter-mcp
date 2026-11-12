@@ -12,6 +12,7 @@ sees are the authoritative, live version of this page (they include the allowed 
 | `validate_profile` | `POST /v1/profiles/validate` | Validate a profile (inline or `path`); pointer-level errors with hints |
 | `detect_format` | `POST /v1/detect` | Format, encoding and language of inline content, a local `path` or API `input`, plus `bom`, `lineEndings` and source `warnings` |
 | `convert_subtitle` | `POST /v1/convert/json` | Convert one file: exactly one content/path/input; result inline, local outputPath/outputDir or API output |
+| `get_job` | `GET /v1/jobs/{id}` | Status and result metadata of a conversion job; waits for it to finish within the call's time limit |
 | `preview_text` | `GET /v1/jobs/{id}/input` or `/output`, or `GET /v1/storage/file` for an API location (+ `POST /v1/convert/json` to SRT for binary files) | Read the text of a job's stored input or output, or of a file by location, one page at a time |
 | `list_files` | – (local) or `GET /v1/storage/list` | Unless `SUBTITLE_MCP_LIST_ENABLED=false`: one page of the files and sub-folders in a location |
 | `list_allowed_folders` | – (local), + `GET /v1/storage/locations` when browsing is on | The folders in effect, with `mode`, `source` and `state` ([folders-and-roots.md](folders-and-roots.md)); with browsing on, also the API's storage locations |
@@ -226,13 +227,34 @@ playout system accepts it.
 
 `convert_subtitle` accepts `input`, `output` and `sidecar`; `detect_format` accepts `input`. Use exactly one source: inline `content`, MCP-local `path` or API-side `input`. API locations can be `file:///data/file.srt`, a bare absolute path, `s3://bucket/key` or `https://host/file`; they are resolved by the API, not the MCP's local allowed folders. `output` is an exact API destination and cannot be mixed with local `outputPath`/`outputDir`. `sidecar:true` applies only to API output and is ignored for local outputPath/outputDir. `ifExists` is error (default) | replace for both local and API destinations. Filesystem/S3 default to collision errors; presigned HTTPS PUT follows what its signer allowed, not a disk/S3 lock.
 
-The result surfaces `jobId`. The MCP polls `GET /v1/jobs/{id}` after a 202, respecting Retry-After and the tool timeout/cancellation budget. It accepts only the exact relative job URL; no arbitrary Location is followed with bearer credentials. Poll timeout/cancellation does not cancel the accepted API job. A gone record is reported as `job-not-found`, not a conversion failure.
+The result surfaces `jobId`, which [`get_job`](#get_job) can check later. The MCP polls `GET /v1/jobs/{id}` after a 202, respecting Retry-After and the tool timeout/cancellation budget. It accepts only the exact relative job URL; no arbitrary Location is followed with bearer credentials. Poll timeout/cancellation does not cancel the accepted API job. A gone record is reported as `job-not-found`, not a conversion failure.
 
 Jobs retain metadata only, never subtitle bytes. For asynchronous work use an API `output` URI: the MCP can report that stored result. If response-only work overruns the wait, the MCP returns `job-output-not-stored` with jobId and writes nothing locally. Do not retry uncertain writes blindly. Conversion POSTs are never automatically replayed; transient I/O retries happen inside the accepted API job.
 
 Failed admitted conversions also surface `error.jobId` / `error.jobUrl` when supplied by the API. Tool output
 schemas permit structured errors as well as success results; required success fields are validated before
 returning a success. No external polling location is followed.
+
+### `get_job`
+
+Checks a job by id: after `job-not-ready`, or later for any `jobId` a conversion returned. It builds
+`GET /v1/jobs/{id}` itself (the id must match `^[A-Za-z0-9_-]{1,128}$`), never follows a `Location` header, never
+resubmits the conversion and never writes files. Read-only and idempotent; stopping it doesn't cancel the job.
+
+| Argument | Required | Meaning |
+|---|---|---|
+| `jobId` | yes | The `jobId` from `convert_subtitle`, or `error.jobId` from `job-not-ready` |
+| `wait` | no | `true` (default): poll, honouring `Retry-After`, until the job finishes or the call's time limit (`SUBTITLE_MCP_TIMEOUT_MS`) is reached. `false`: check once |
+
+The result has `jobId`, `status` (`running` or `succeeded`), `createdAt` / `finishedAt`, the job's API `input` /
+`output` locations (query and credentials removed), and for a finished job `outputs`, `detected`, `stats` and
+`warnings` as `convert_subtitle` reports them, plus a `hint`. A `running` job is a normal result: call again
+later. A failed job comes back as an error result with the conversion's error, `jobId` and `jobStatus: "failed"`; its hint says that asking again won't change it, so fix the input and convert again; `job-not-found` means
+the record expired, was evicted or the API restarted, not that the conversion failed.
+
+The API keeps job metadata, never the converted bytes. A stored output can be read with
+`preview_text {jobId, which:"output"}` (not when it went to a presigned HTTPS URL, whose query isn't kept). A job
+that had no output location can't give its file back; convert again with an API `output`.
 
 ## Previewing a job's text
 
@@ -327,4 +349,4 @@ failed job has no stored output. A missing job is not a failed conversion.
 
 The convert description reports API storage schemes when limits are known; `subtitleedit://limits` exposes
 the full API response. The schemes line is omitted if either input/output scheme array is missing. `Prefer: wait` is bounded by MCP timeout and API maximum wait, not by destination.
-A poll timeout is `job-not-ready` with jobId; accepted work may still finish and write its output.
+A poll timeout is `job-not-ready` with jobId; accepted work may still finish and write its output, and `get_job` reports it.

@@ -3,43 +3,70 @@ import type { ApiClient, ApiResponse, CallCtx } from "./client.js";
 import { abortableSleep, parseRetryAfter } from "./retry.js";
 import { mapProblem, mcpError, ToolFailure, type Mode } from "../errors.js";
 
-/** Poll only this API's exact job path; never follow an arbitrary Location with bearer credentials. */
-export async function finishConversion(api: ApiClient, initial: ApiResponse, ctx: CallCtx,
-  options: { timeoutMs: number; mode: Mode; includeDebug: boolean }, started: number): Promise<ApiResponse> {
+export const JOB_ID = /^[A-Za-z0-9_-]{1,128}$/;
+export const jobPath = (id: string) => `/v1/jobs/${id}`;
+
+/** Hint for a job still running when this call has to stop waiting. */
+export const getJobHint = (id: string) => `Call get_job {jobId:"${id}"} to check it later. Don't resubmit: the job keeps running and may still write its output.`;
+
+export const jobNotReady = (id: string) =>
+  mcpError("job-not-ready", `Stopped waiting for job ${id} at the end of this call's time limit. The job may still be running.`, getJobHint(id), { jobId: id, jobUrl: jobPath(id) });
+
+export interface PollOptions { deadline: number; mode: Mode; includeDebug: boolean; headerRequestId?: string }
+
+/**
+ * Polls GET /v1/jobs/{id} (this API's exact job path, built here; never a Location header) until the job is no longer
+ * running or the deadline would pass. Honours Retry-After between polls. A failed job throws its mapped problem, a gone
+ * record job-not-found. Returns the last record; `running` when the deadline came first. Writes nothing, replays nothing.
+ */
+export async function pollJob(api: ApiClient, id: string, ctx: CallCtx, o: PollOptions & { firstWaitMs?: number; wait: boolean }): Promise<{ job: any; response: ApiResponse; running: boolean }> {
+  const location = jobPath(id);
+  let polls = 0, waitMs = o.firstWaitMs;
+  for (;;) {
+    if (waitMs !== undefined) {
+      // Not enough time left for the wait and one more request: stop and report the job as still running.
+      if (Date.now() + waitMs + 1000 > o.deadline) return { job: undefined, response: undefined as any, running: true };
+      await ctx.onProgress?.(`Job ${id}: waiting for completion`);
+      try { await abortableSleep(waitMs, ctx.signal); }
+      catch { throw mcpError("cancelled", "Stopped waiting because the caller cancelled; the API job may still be running.", getJobHint(id), { jobId: id, jobUrl: location }); }
+    }
+    const response = await api.request({ method: "GET", path: location, kind: "metadata", passStatuses: [404] }, { ...ctx, requestId: withSuffix(ctx.requestId, `.p${++polls}`) });
+    if (response.status === 404)
+      throw mcpError("job-not-found", `Job ${id} is no longer retained.`, "The API restarted, or the record expired or was evicted; a missing record is not a failed conversion. If the call had an API output, check that location with list_files / preview_text {location}. Don't resubmit blindly.", { jobId: id, jobUrl: location });
+    const job: any = response.json;
+    if (job?.id !== id) throw mcpError("api-protocol-error", "The job response id does not match the requested job.", undefined, { jobId: id });
+    if (job.status === "failed") {
+      const status = typeof job.error?.status === "number" ? job.error.status : 500;
+      throw new ToolFailure({ ...mapProblem(status, job.error, { mode: o.mode, includeDebug: o.includeDebug, endpoint: location, headerRequestId: o.headerRequestId ?? response.requestId }), jobId: id, jobUrl: location, jobStatus: "failed" });
+    }
+    if (job.status === "succeeded") {
+      if (!job.result) throw mcpError("api-protocol-error", "The job response has no recognised terminal result.", undefined, { jobId: id });
+      return { job, response, running: false };
+    }
+    if (job.status !== "running") throw mcpError("api-protocol-error", `Unknown job status '${String(job.status)}'.`, undefined, { jobId: id });
+    if (!o.wait) return { job, response, running: true };
+    waitMs = Math.max(100, (parseRetryAfter(response.headers.get("retry-after")) ?? 1) * 1000);
+  }
+}
+
+/** After a 202 from a conversion POST: poll the job (never following the Location header) within the call's deadline. */
+export async function finishConversion(api: ApiClient, initial: ApiResponse, ctx: CallCtx, options: PollOptions): Promise<ApiResponse> {
   if (initial.status !== 202) return initial;
   const id = (initial.json as any)?.id ?? initial.headers.get("x-job-id");
-  if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(id))
+  if (typeof id !== "string" || !JOB_ID.test(id))
     throw mcpError("api-protocol-error", "The accepted conversion has no valid job id.", "Report the requestId.");
-  const location = `/v1/jobs/${id}`;
-  if (initial.headers.get("location") !== location)
+  if (initial.headers.get("location") !== jobPath(id))
     throw mcpError("api-protocol-error", "The accepted conversion has an unexpected job Location.", "Report the requestId; no external Location was followed.", { jobId: id });
-  const remaining = options.timeoutMs - (Date.now() - started);
-  const timeout = () => mcpError("job-not-ready", `Stopped polling job ${id} after the tool's wait budget. The job may still be running.`, `Inspect ${location}; work may still finish and write output. Do not blindly resubmit writes.`, { jobId: id, jobUrl: location });
-  if (remaining <= 0) throw timeout();
-  const deadline = AbortSignal.timeout(remaining);
-  const signal = ctx.signal ? AbortSignal.any([ctx.signal, deadline]) : deadline;
-  let response = initial, polls = 0;
+  const firstWaitMs = Math.max(100, (parseRetryAfter(initial.headers.get("retry-after")) ?? 1) * 1000);
+  let r;
   try {
-    for (;;) {
-      await ctx.onProgress?.(`Conversion job ${id}: waiting for completion`);
-      const wait = Math.max(100, (parseRetryAfter(response.headers.get("retry-after")) ?? 1) * 1000);
-      await abortableSleep(wait, signal);
-      response = await api.request({ method: "GET", path: location, kind: "metadata", passStatuses: [404] }, { ...ctx, signal, requestId: withSuffix(ctx.requestId, `.p${++polls}`) });
-      if (response.status === 404) throw mcpError("job-not-found", `Job ${id} is no longer retained.`, "The API may have restarted or evicted/expired the record. A missing record is not a failed conversion.", { jobId: id, jobUrl: location });
-      const job: any = response.json;
-      if (job?.id !== id) throw mcpError("api-protocol-error", "The job response id does not match the accepted conversion.", undefined, { jobId: id });
-      if (job.status === "running") continue;
-      if (job.status === "failed") {
-        const status = typeof job.error?.status === "number" ? job.error.status : 500;
-        throw new ToolFailure({ ...mapProblem(status, job.error, { mode: options.mode, includeDebug: options.includeDebug, endpoint: location, headerRequestId: initial.requestId }), jobId: id, jobUrl: location });
-      }
-      if (job.status !== "succeeded" || !job.result) throw mcpError("api-protocol-error", "The job response has no recognised terminal result.", undefined, { jobId: id });
-      if (job.result.metadataTruncated) throw mcpError("job-metadata-truncated", "Detailed job metadata exceeded the API's per-job budget.", "Use the requested sidecar for full diagnostics.", { jobId: id, jobUrl: location });
-      return { ...response, json: { ...job.result, id }, requestId: initial.requestId ?? response.requestId };
-    }
+    r = await pollJob(api, id, ctx, { ...options, headerRequestId: initial.requestId, firstWaitMs, wait: true });
   } catch (e) {
-    if (deadline.aborted && !ctx.signal?.aborted) throw timeout();
-    if (ctx.signal?.aborted) throw mcpError("cancelled", "Stopped polling because the caller cancelled; the API job may still be running.", `Inspect ${location}.`, { jobId: id, jobUrl: location });
+    // A poll that ran into the deadline is the same situation as stopping between polls.
+    if (e instanceof ToolFailure && e.toolError.code === "mcp-timeout" && Date.now() >= options.deadline - 1000) throw jobNotReady(id);
     throw e;
   }
+  if (r.running) throw jobNotReady(id);
+  if (r.job.result.metadataTruncated) throw mcpError("job-metadata-truncated", "Detailed job metadata exceeded the API's per-job budget.", "Use the requested sidecar for full diagnostics.", { jobId: id, jobUrl: jobPath(id) });
+  return { ...r.response, json: { ...r.job.result, id }, requestId: initial.requestId ?? r.response.requestId };
 }

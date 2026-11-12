@@ -12,7 +12,7 @@ import { toolResult } from "./result.js";
 export interface Misconfig { problem: string; fix: string }
 
 /** The tools a configured server registers (default settings); kept in step by a test. */
-export const TOOL_NAMES = ["list_formats", "list_presets", "get_profile", "validate_profile", "detect_format", "convert_subtitle", "preview_text", "list_allowed_folders", "list_files"] as const;
+export const TOOL_NAMES = ["list_formats", "list_presets", "get_profile", "validate_profile", "detect_format", "convert_subtitle", "get_job", "preview_text", "list_allowed_folders", "list_files"] as const;
 
 const RESTART = " Then restart this MCP server (Claude Code: /mcp, then reconnect; other clients: restart or reload the server).";
 

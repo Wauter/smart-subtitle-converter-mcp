@@ -44,6 +44,23 @@ describe.skipIf(!URL_ || !STORE)("contract: QA regressions on the real API", () 
   beforeAll(async () => { h = await harness({ apiUrl: URL_!, apiKey: KEY }); await probeApi(h.deps.cfg, h.deps.log); });
   afterAll(async () => { await h.close(); });
 
+  it("get_job reports a stored job, an inline job and a forgotten id from the real API", async () => {
+    const out = `${STORE}/qa-${run}-job.vtt`;
+    const s = await callTool(h, "convert_subtitle", { content: longSrt(20), fileName: "job.srt", target: "webvtt", output: out });
+    expect(s.isError, JSON.stringify(s.structuredContent?.error)).toBeFalsy();
+    const job = await callTool(h, "get_job", { jobId: s.structuredContent.jobId });
+    expect(job.isError, JSON.stringify(job.structuredContent?.error)).toBeFalsy();
+    expect(job.structuredContent).toMatchObject({ jobId: s.structuredContent.jobId, status: "succeeded", output: out });
+    expect(job.structuredContent.outputs[0]).toMatchObject({ output: out, formatId: "webvtt" });
+    expect(job.structuredContent.hint).toContain('which:"output"');
+    const inline = await callTool(h, "convert_subtitle", { content: longSrt(5), fileName: "job.srt", target: "srt" });
+    const inlineJob = await callTool(h, "get_job", { jobId: inline.structuredContent.jobId, wait: false });
+    expect(inlineJob.structuredContent.status).toBe("succeeded");
+    expect(inlineJob.structuredContent.hint).toContain("can't be recovered");
+    const gone = await callTool(h, "get_job", { jobId: "00000000000000000000000000000000" });
+    expect(gone.structuredContent.error.code).toBe("job-not-found");
+  });
+
   it.each(["utf-8", "utf-8-no-bom", "utf-16", "utf-16le", "utf-16be", "windows-1252"])(
     "p7g/p8 item 1: %s inline resource is byte-identical to the direct API output and the stored output",
     async (encoding) => {

@@ -53,6 +53,8 @@ export const ToolErrorSchema = z.object({
   location: z.string().optional(),
   jobId: z.string().optional(),
   jobUrl: z.string().optional(),
+  /** get_job (and convert polling): "failed" when the job itself failed, so asking again won't change the answer. */
+  jobStatus: z.literal("failed").optional(),
   errors: z.array(FieldError).optional(),
   retryAfterSeconds: z.number().optional(),
   attempts: z.number().int().optional(),

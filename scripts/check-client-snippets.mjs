@@ -18,7 +18,7 @@ import { parse as parseToml } from "smol-toml";
 import { parse as parseYaml } from "yaml";
 
 const INSPECTOR = "@modelcontextprotocol/inspector@2.15.0";
-const EXPECTED = ["list_formats", "list_presets", "get_profile", "validate_profile", "detect_format", "convert_subtitle", "preview_text", "list_allowed_folders", "list_files"];
+const EXPECTED = ["list_formats", "list_presets", "get_profile", "validate_profile", "detect_format", "convert_subtitle", "get_job", "preview_text", "list_allowed_folders", "list_files"];
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const doc = readFileSync(join(root, "docs/clients.md"), "utf8");
 const tmp = mkdtempSync(join(tmpdir(), "client-snippets-"));

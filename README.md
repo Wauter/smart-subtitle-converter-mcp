@@ -102,6 +102,7 @@ describes the formats themselves.
 | Tool | What it does |
 |---|---|
 | `convert_subtitle` | Convert one file (`path`, inline, or API `input`) to inline, local output, or API `output` |
+| `get_job` | Status and result metadata of a conversion job, for work that outlasted a call |
 | `detect_format` | Format, encoding, BOM, line endings and language of a file |
 | `list_formats` | Formats with read/write and text/binary flags |
 | `list_presets` / `get_profile` | Built-in and mounted presets, raw and resolved |
@@ -121,8 +122,8 @@ and as the same JSON in a text block, because apps differ in which part they pas
   `sidecar` JSON next to the output. `detect_format` accepts `input` too. These are resolved by the API with its
   own allowlists, separately from the MCP's local folders.
 - **No silent overwrites.** Outputs are never overwritten unless you send `ifExists: "replace"`. One file per call.
-- **Jobs.** Every conversion returns a `jobId`. When work outlasts the wait, the MCP polls the job. The API keeps
-  metadata only, so use an API `output` location for work that may take a while.
+- **Jobs.** Every conversion returns a `jobId`. When work outlasts the wait, the MCP polls the job, and `get_job`
+  checks it later. The API keeps metadata only, so use an API `output` location for work that may take a while.
 - **Previewing.** `preview_text` reads the text of a job's stored input or output, in pages that end on whole
   cues, while the API still has its record.
 - **Browsing.** `list_files` lists a folder and `preview_text` reads a file by its full URI or path. The API's

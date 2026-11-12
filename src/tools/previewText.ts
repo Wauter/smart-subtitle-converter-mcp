@@ -316,7 +316,7 @@ async function convertToSrt(deps: Deps, call: Call, caps: Caps, f: { data: Buffe
   let res;
   try {
     res = await deps.api.request({ method: "POST", path: "/v1/convert/json", kind: "conversion", headers: { Prefer: `wait=${Math.max(0, Math.min(caps.requestMaxWaitSeconds ?? 60, Math.floor(deps.cfg.timeoutMs / 1000)))}` }, raw: { body: json, contentType: "application/json" } }, srtCall);
-    res = await finishConversion(deps.api, res, srtCall, deps.cfg, started);
+    res = await finishConversion(deps.api, res, srtCall, { deadline: started + deps.cfg.timeoutMs, mode: deps.cfg.mode, includeDebug: deps.cfg.includeDebug });
   } catch (e) {
     if (e instanceof ToolFailure && e.toolError.source === "api" && e.toolError.code === "frame-rate-required") {
       e.toolError.hint = `${f.formatId ?? "This format"} records no frame rate, and ${f.fps === undefined ? "none is known for this file" : "the given one was not used"}. Call preview_text again with \`fps\` set to the rate the file was made at (25 for PAL/European broadcast, 29.97 for NTSC, 23.976 or 24 for film); ask the user if the context doesn't say. Cue times in the SRT view depend on it; the text doesn't.`;

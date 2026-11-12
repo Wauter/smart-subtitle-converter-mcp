@@ -19,6 +19,11 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
   `content`, tools declare no `outputSchema`; with `structured`, errors still include the JSON text block, since some
   clients give the model only the text of an error result. An invalid value fails startup with the accepted values. The startup
   instructions mention it when results are sent in both parts.
+- New tool `get_job {jobId, wait?}`: status and result metadata of a conversion job (outputs and their API
+  locations, detected format, stats, warnings). It polls `GET /v1/jobs/{id}` within the call's time limit, never
+  follows `Location`, never resubmits and never writes files (read-only, idempotent). A failed job is an error
+  result with `jobStatus: "failed"` and a hint to fix the input and convert again. The `job-not-ready` hint and
+  the startup instructions point to it.
 - `preview_text` pages default to 32768 bytes (`SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES`, was 65536), so a default page
   stays under the 50,000 characters above which Claude Code saves a tool result to a file instead of showing it.
 - Information that was only in the summary is now in the result object: `detect_format` and `list_formats` have a

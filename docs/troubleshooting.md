@@ -207,7 +207,8 @@ Storage, overwrite, sidecar and job codes from the API are on the
 [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page.
 
 Cancelling an MCP call, or running out of wait time, does not cancel work the API has already accepted.
-If the MCP stops waiting it reports `job-not-ready` and keeps the `jobId`; the API job continues. Don't send
+If the MCP stops waiting it reports `job-not-ready` and keeps the `jobId`; the API job continues, and `get_job {jobId}`
+reports it when it finishes. Don't send
 the same convert again just because you stopped waiting: the first job may still finish and write its `output`.
 Use an API `output` location for work that may take a while (job records don't keep subtitle bytes). MCP-local
 folder grants don't give the API access to its own storage.

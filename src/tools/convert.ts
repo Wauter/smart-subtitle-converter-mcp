@@ -185,7 +185,7 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
     const started = Date.now();
     try {
       res = await deps.api.request({ method: "POST", path: "/v1/convert/json", kind: "conversion", headers: { Prefer: `wait=${Math.max(0, Math.min(caps.requestMaxWaitSeconds ?? 60, Math.floor(deps.cfg.timeoutMs / 1000)))}` }, raw: { body: json, contentType: "application/json" } }, call);
-      res = await finishConversion(deps.api, res, call, deps.cfg, started);
+      res = await finishConversion(deps.api, res, call, { deadline: started + deps.cfg.timeoutMs, mode: deps.cfg.mode, includeDebug: deps.cfg.includeDebug });
     } catch (e) {
       if (e instanceof ToolFailure && e.toolError.status === 413) deps.limits.invalidate();
       throw e;
@@ -305,7 +305,7 @@ function readHint(jobId: string | undefined, outputs: any[], src: SourceInput): 
   return h;
 }
 
-function meta(o: ApiOutput) {
+export function meta(o: ApiOutput) {
   // A stored output's real name is the last segment of its location, not the converter's generated name.
   const stored = o.output ? locationBaseName(o.output) : undefined;
   return {
