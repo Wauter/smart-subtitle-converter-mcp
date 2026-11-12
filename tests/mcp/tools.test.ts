@@ -27,18 +27,31 @@ describe("metadata tools", () => {
   });
   afterEach(() => h.close());
 
-  it("list_formats: text by default, binary on request, writableOnly filters", async () => {
+  it("list_formats: text and binary by default, includeBinary: false for text only, writableOnly filters", async () => {
+    // Regression: the default used to list text formats only, so agents never saw EBU STL, PAC, ….
     let r = await callTool(h, "list_formats", {});
     expect(r.isError).toBeFalsy();
-    expect(r.structuredContent.formats.map((f: any) => f.id)).toEqual(["subrip", "webvtt"]);
+    expect(r.structuredContent.formats.map((f: any) => f.id)).toEqual(["subrip", "webvtt", "ebustl", "avidstl"]);
     expect(recorded.at(-1)!.path).toBe("/v1/formats");
-    r = await callTool(h, "list_formats", { includeBinary: true, writableOnly: true, query: "stl" });
-    const q = new URL("http://x" + "/?" + new URLSearchParams({ q: "stl", kind: "text,binary", writable: "true" })).search;
-    expect(q).toContain("kind=text%2Cbinary");
-    expect(r.structuredContent.formats.map((f: any) => f.id)).toEqual(["subrip", "webvtt", "ebustl"]);
+    expect(recorded.at(-1)!.url).toContain("kind=text%2Cbinary");
     expect(r.content[0].text).toMatch(/ebustl \| EBU STL \(\.stl\) \| binary \| read\/write/);
+    r = await callTool(h, "list_formats", { includeBinary: false });
+    expect(r.structuredContent.formats.map((f: any) => f.id)).toEqual(["subrip", "webvtt"]);
+    expect(recorded.at(-1)!.url).toMatch(/kind=text(&|$)/);
+    r = await callTool(h, "list_formats", { writableOnly: true, query: "stl" });
+    expect(recorded.at(-1)!.url).toContain("kind=text%2Cbinary");
+    expect(recorded.at(-1)!.url).toContain("writable=true");
+    expect(r.structuredContent.formats.map((f: any) => f.id)).toEqual(["subrip", "webvtt", "ebustl"]);
     r = await callTool(h, "list_formats", { limit: 1 });
-    expect(r.structuredContent).toMatchObject({ total: 2, truncated: true });
+    expect(r.structuredContent).toMatchObject({ total: 4, truncated: true });
+  });
+
+  it("list_formats: empty text-only result suggests dropping includeBinary: false", async () => {
+    mswServer.use(http.get(`${API}/v1/formats`, () => HttpResponse.json([])));
+    let r = await callTool(h, "list_formats", { includeBinary: false, query: "stl" });
+    expect(r.content[0].text).toMatch(/No formats matching 'stl'\. Try a broader query or drop includeBinary: false\./);
+    r = await callTool(h, "list_formats", { query: "zzz" });
+    expect(r.content[0].text).toMatch(/No formats matching 'zzz'\. Try a broader query\.$/m);
   });
 
   it("D-36 sanity check: items without `kind` → version-mismatch log warning, treated as text, no fallback mode", async () => {

@@ -11,6 +11,11 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
 
 ## Unreleased
 
+### Fixed
+- `list_formats` lists text **and** binary broadcast formats (EBU STL, PAC, …) by default; it used to list text formats
+  only, so agents didn't see the binary formats unless they asked. `includeBinary` now defaults to `true`; set
+  `includeBinary: false` for text formats only. The API copy of the OpenAPI document is synced.
+
 ### Security hardening
 
 - **The API asks for a key by default.** Set `SUBTITLE_API_KEY_FILE` to a file holding the key from the API's

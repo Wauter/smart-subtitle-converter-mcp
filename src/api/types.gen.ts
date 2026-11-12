@@ -110,7 +110,7 @@ export interface paths {
         };
         /**
          * List subtitle formats.
-         * @description Use `id` or an alias as source/target format. `textOnly` defaults to true (text formats only, as in earlier versions). `kind` is a comma list of text|binary|image|container and wins over `textOnly`; image/container formats are listed only via `kind` and can't be converted. `writable=true` keeps formats that can be a target.
+         * @description Use `id` or an alias as source/target format. By default lists every convertible format, text and binary. `textOnly=true` keeps text formats only. `kind` is a comma list of text|binary|image|container and wins over `textOnly`; image/container formats are listed only via `kind` and can't be converted. `writable=true` keeps formats that can be a target.
          */
         get: operations["listFormats"];
         put?: never;

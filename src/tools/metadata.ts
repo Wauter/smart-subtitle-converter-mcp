@@ -14,10 +14,10 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
     name: "list_formats",
     title: "List subtitle formats",
     description:
-      "List subtitle formats the converter can read and write. Use it to find the format id or alias to pass as `target` (or `profile.source.format`). By default it lists only text formats (SRT, WebVTT, ASS, TTML, …). Set `includeBinary: true` for binary broadcast formats such as EBU STL, PAC, Cavena 890 and CapMaker Plus. Use `query` to filter by name, id or extension (e.g. \"stl\", \"vtt\"). Set `writableOnly: true` when you are choosing a conversion target. Formats with `lossy: true` may drop characters or timing precision. `options` names the `profile.formatOptions` block for format-specific settings.",
+      "List subtitle formats the converter can read and write. Use it to find the format id or alias to pass as `target` (or `profile.source.format`). By default it lists text formats (SRT, WebVTT, ASS, TTML, …) and binary broadcast formats (EBU STL, PAC, Cavena 890, CapMaker Plus, …); set `includeBinary: false` for text formats only. Use `query` to filter by name, id or extension (e.g. \"stl\", \"vtt\"). Set `writableOnly: true` when you are choosing a conversion target. Formats with `lossy: true` may drop characters or timing precision. `options` names the `profile.formatOptions` block for format-specific settings.",
     shape: {
       query: z.string().max(100).optional().describe("Filter by name, id, alias or extension"),
-      includeBinary: z.boolean().default(false).describe("Also list binary broadcast formats (EBU STL, PAC, …)"),
+      includeBinary: z.boolean().default(true).describe("Include binary broadcast formats (EBU STL, PAC, …); false lists text formats only"),
       writableOnly: z.boolean().default(false).describe("Only formats that can be a conversion target"),
       limit: z.number().int().min(1).max(500).default(50),
     },
@@ -36,7 +36,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
     annotations: RO,
     handler: async (a, call) => {
       const res = await deps.api.request(
-        { method: "GET", path: "/v1/formats", kind: "metadata", query: { q: a.query, kind: a.includeBinary ? "text,binary" : undefined, writable: a.writableOnly ? "true" : undefined } },
+        { method: "GET", path: "/v1/formats", kind: "metadata", query: { q: a.query, kind: a.includeBinary ? "text,binary" : "text", writable: a.writableOnly ? "true" : undefined } },
         call,
       );
       const items: any[] = Array.isArray(res.json) ? res.json : [];
@@ -58,7 +58,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
       if (a.writableOnly) formats = formats.filter((f) => f.canWrite);
       const total = formats.length;
       const shown = formats.slice(0, a.limit);
-      const head = total === 0 ? `No formats${a.query ? ` matching '${a.query}'` : ""}. Try a broader query${a.includeBinary ? "" : " or includeBinary: true"}.` : `${total} format${total === 1 ? "" : "s"}${a.query ? ` matching '${a.query}'` : ""}${total > shown.length ? ` (showing ${shown.length})` : ""}:`;
+      const head = total === 0 ? `No formats${a.query ? ` matching '${a.query}'` : ""}. Try a broader query${a.includeBinary ? "" : " or drop includeBinary: false"}.` : `${total} format${total === 1 ? "" : "s"}${a.query ? ` matching '${a.query}'` : ""}${total > shown.length ? ` (showing ${shown.length})` : ""}:`;
       const lines = shown.map((f) => `${f.id} | ${f.name} (${f.extension}) | ${f.kind} | ${f.canRead && f.canWrite ? "read/write" : f.canRead ? "read-only" : "write-only"}${f.lossy ? " | lossy" : ""}`);
       const summary = [head, ...lines].join("\n");
       return { structured: { formats: shown, total, truncated: total > shown.length }, summary };

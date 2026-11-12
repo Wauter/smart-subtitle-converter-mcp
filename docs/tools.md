@@ -6,7 +6,7 @@ sees are the authoritative, live version of this page (they include the allowed 
 
 | Tool | API endpoint | Purpose |
 |---|---|---|
-| `list_formats` | `GET /v1/formats` | Formats (id, name, extensions, read/write, text/binary); `includeBinary`, `writableOnly`, `limit` |
+| `list_formats` | `GET /v1/formats` | Formats (id, name, extensions, read/write, text/binary); text and binary by default, `includeBinary: false` for text only; `writableOnly`, `limit` |
 | `list_presets` | `GET /v1/profiles` | Built-in and mounted presets, with validity and load errors |
 | `get_profile` | `GET /v1/profiles/{name}` | Raw and resolved preset JSON |
 | `validate_profile` | `POST /v1/profiles/validate` | Validate a profile (inline or `path`); pointer-level errors with hints |
