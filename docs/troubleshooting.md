@@ -10,7 +10,7 @@ the client's MCP log). Every error carries a `code`, a `hint` and a `source`:
   below.
 
 Warnings from the API are passed through unchanged; they are on that same page. The MCP adds only
-`mcp-api-version-mismatch` and `mcp-ebu-size`.
+`mcp-api-version-mismatch`, `mcp-extension-check-skipped`, `mcp-ebu-size` and `max-bytes-clamped`.
 
 ## Version mismatch
 
@@ -22,11 +22,19 @@ that `GET /v1/limits` exists and warns if it doesn't.
 
 If you did update and still see an older MCP version in the warning, the client is running a different copy:
 
-- Check which command the client starts (`claude mcp get smart-subtitle` in Claude Code, the JSON config elsewhere).
+- Check which command the client starts (`claude mcp get smart-subtitle-convert` in Claude Code, the JSON config elsewhere).
 - Built from source: rerun `npm ci && npm run build` after `git pull`.
 - Client in a VM or container: it runs the copy **inside** that environment. If you copied `dist/` there, copy it
   again after every update ([clients.md](clients.md#clients-in-a-vm-or-container)).
 - Restart the client completely afterwards.
+
+**`mcp-extension-check-skipped`**
+
+- **What:** A local file was read, listed or written without checking that its name has a subtitle extension.
+- **Why:** The MCP takes the list of subtitle extensions from the API (`GET /v1/limits`), and an older API doesn't
+  send it. Rather than block your work, the MCP goes ahead and says so. Allowed folders, hidden files and symbolic
+  links are still checked.
+- **What to do:** Update the API to the release that matches this MCP; the warning then goes away.
 
 ## No allowed folders, or `path-not-allowed`
 
@@ -35,8 +43,36 @@ If you did update and still see an older MCP version in the warning, the client 
 - `state: none` or `roots-empty`: no configured folders (and no client extras). Name them in the settings.
 - `state: waiting-for-roots`: a client that still offers the older roots feature hasn't sent them yet; the tool
   descriptions update once it does. Prefer configured folders so you don't wait on that.
-- `path-not-allowed`: the path is outside the allowed folders, relative, or inside a read-only folder for a write.
-  The hint lists the folders in effect.
+- `path-not-allowed`: the path is outside the allowed folders, relative, inside a read-only folder for a write, or
+  goes through a symbolic link. The hint lists the folders in effect.
+
+**`hidden-path`**
+
+- **What:** The file or one of its folders starts with `.` (for example `.env`, `.git/…`, or an allowed folder that
+  is itself hidden). Nothing was read, listed or written.
+- **Why:** Hidden files often hold settings or secrets, so they are off limits for every tool, reads and writes alike.
+- **What to do:** Copy or rename the file to a name and folder without a leading dot, or pick a visible output name.
+
+**`extension-not-allowed`**
+
+- **What:** The file name doesn't end in a subtitle extension (for example `notes.pdf`, or `README` with none), or
+  an `outputPath` doesn't match the format being written (`out.srt` for WebVTT).
+- **Why:** Only subtitle files are read, listed or written, so a mistaken path can't expose other files.
+- **What to do:** Use the subtitle file itself, or rename it with the right extension. For outputs, name the file
+  after the target format, as the error says.
+
+**`folder-too-large`**
+
+- **What:** The folder (or the `prefix` you gave) holds more than 5000 subtitle files and sub-folders, so it wasn't
+  listed. The error's `limit` says the cap.
+- **Why:** Very large folders would take long to walk and fill the agent's context.
+- **What to do:** List it with a `prefix` (for example the first letters of the names) or a sub-folder.
+
+**Symbolic links: `path-not-allowed` "Symlinks are not followed"**
+
+- **What:** The path, or a folder on it, is a symbolic link. Links are never followed, even when they point inside an
+  allowed folder, and `list_files` doesn't show them.
+- **What to do:** Use the real path, or add the target folder to the allowed folders.
 
 ## Local file errors
 
@@ -109,6 +145,13 @@ system failures.
 
 Auth failures from the API are on that
 [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page; the MCP sends `SUBTITLE_API_KEY` (or `_FILE`).
+The API asks for a key by default: `unauthorized` usually means `SUBTITLE_API_KEY_FILE` isn't set, isn't readable by
+the MCP, or holds another key than the API's `api_keys.txt`. `host-not-allowed` means the host name in `SUBTITLE_API_URL` isn't in the
+API's `ALLOWED_HOSTS` (add it there, for example the Compose service name).
+
+When the API is busy it answers `503` with `Retry-After`: `queue-full` (conversions), `browse-busy` (listings and
+file reads) or `conversion-engine-stuck` (a conversion hung and the API is restarting). The MCP waits and retries
+listings and reads on its own, within `SUBTITLE_MCP_RETRY_*`; if the error still reaches you, try again later.
 
 **`mcp-timeout`**
 
@@ -138,6 +181,20 @@ Auth failures from the API are on that
 
 ## Startup fails
 
+**`mcp-misconfigured`, or instructions starting with `NOT CONFIGURED`**
+
+- **What:** Over stdio, the server started with a configuration problem, so every tool returns `mcp-misconfigured`.
+  The error's `detail` names the problem (for example "SUBTITLE_API_KEY_FILE: the file /Users/me/key.txt does not
+  exist") and its `hint` the fix; the server's stderr log has the same line (`not configured: …`).
+- **Why:** Recoverable problems no longer stop the process, which most clients would only show as "failed":
+  `SUBTITLE_API_URL` missing or invalid, an API key file that is missing, unreadable, a folder or empty, both
+  `SUBTITLE_API_KEY` and `SUBTITLE_API_KEY_FILE`, an allowed folder that doesn't exist, or a mistyped setting.
+- **What to do:** Fix the setting in the server's environment (Claude Code: `claude mcp add --env`, or the `env`
+  block), then restart the server (Claude Code: `/mcp`, reconnect). An API that isn't running yet is not a
+  configuration problem: tools return `api-unreachable` until it answers.
+
+In HTTP mode the same problems stop startup with exit code 2 and the message on stderr:
+
 - `SUBTITLE_API_URL` is required.
 - Unknown `SUBTITLE_MCP_*` variables fail startup on purpose (typo protection); check the spelling against
   [configuration.md](configuration.md).
@@ -145,7 +202,7 @@ Auth failures from the API are on that
 
 ## Jobs and storage URIs
 
-These apply when `convert_subtitle` uses API-side `input` / `output` locations, and to `get_job_file`.
+These apply when `convert_subtitle` uses API-side `input` / `output` locations, and to `preview_text`.
 Storage, overwrite, sidecar and job codes from the API are on the
 [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page.
 
@@ -159,6 +216,81 @@ folder grants don't give the API access to its own storage.
 
 - **What:** The job finished, but its detailed result was too large for the API's job record.
 - **What to do:** Read the full diagnostics from the sidecar (`sidecar: true`).
+
+**`preview-source-changed`**
+
+- **What:** `preview_text` was called with a `cursor`, but the stored file is no longer the one the cursor was made
+  for.
+- **Why:** Pages are read statelessly. Each call re-reads the file and compares a fingerprint of its bytes with the
+  one in the cursor, so a file replaced or edited between pages is caught instead of mixing two versions.
+- **What to do:** Call `preview_text` again without `cursor` to start from the first page.
+
+**`preview-cursor-invalid`**
+
+- **What:** The `cursor` isn't one `preview_text` returned (empty, altered, too long, or pointing somewhere this
+  file's pages never start), or it was returned for another job, `which` or location.
+- **What to do:** Pass the `next` value from the previous page unchanged, with the same `jobId` and `which` (or the
+  same `location`), or start again without `cursor`.
+
+**`preview-cue-too-large`**
+
+- **What:** A single cue (or line) is larger than `SUBTITLE_MCP_PREVIEW_MAX_BYTES`, the largest page this server
+  returns. The text from that cue on can't be previewed.
+- **Why:** Pages never split a cue.
+- **What to do:** The file is already stored: read it directly at the `location` in the error. Or ask the operator
+  to raise `SUBTITLE_MCP_PREVIEW_MAX_BYTES` (up to 1048576) and restart the server
+  ([configuration.md](configuration.md)).
+
+**`max-bytes-clamped`** warning (from the MCP)
+
+- **What:** The `maxBytes` you asked `preview_text` for was outside the allowed range, so pages use the nearest
+  allowed size. `details.fields` has the `requested` and `applied` values.
+- **What to do:** Nothing; the page is valid. Ask for a size in range next time to avoid the warning.
+
+**`job-output-not-stored`** and **`job-input-not-stored`** from `preview_text`
+
+These come from the API; the MCP rewords them for the common case. An inline `convert_subtitle` result (no
+output location) is attached to the convert result and stored nowhere, so there is no output to preview: save the
+attached file and read it locally, or convert again with an API `output`. A source sent as `content` or a local
+`path` has no stored input either.
+
+## Browsing and reading by location
+
+**`list_files` is missing, or `preview_text` rejects `location`**
+
+- **Why:** The MCP has `SUBTITLE_MCP_LIST_ENABLED=false`.
+- **What to do:** Remove it (or set it to `true`) and restart the server
+  ([tools.md](tools.md#browsing-and-reading-by-location)).
+
+**`storage-list-disabled`**
+
+- **What:** An API location was listed or read, but the API doesn't allow browsing (or is older than this feature).
+  `list_allowed_folders` shows `remote.state: "disabled-api"`.
+- **What to do:** Local folders still work. For the API's storage, the API operator sets `STORAGE_LIST_ENABLED=true`.
+  The MCP picks the change up when its limits cache expires (`SUBTITLE_MCP_LIMITS_TTL_MS`) or at once after a refused
+  call.
+
+**`storage-not-listable`**
+
+- **What:** The location is an HTTPS URL (or another kind the API can't list). HTTPS works as a conversion `input` or
+  `output`, but it can't be browsed or read by location.
+
+**`list-cursor-invalid`** and **`storage-cursor-invalid`**
+
+- **What:** The `list_files` `cursor` is altered, or belongs to another location, prefix or side (local or API).
+- **What to do:** Pass `next` unchanged with the same `location` and `prefix`, or start again without `cursor`.
+
+**Hidden files: `hidden-path` for a dotfile or dot-named folder**
+
+- **What:** The path, or one of its folders, starts with `.` (also because the allowed folder itself is hidden).
+  Hidden files are never read, listed or written, locally or by the API.
+- **What to do:** Copy or rename the file to a name and folder without a leading dot
+  ([tools.md](tools.md#hidden-files-and-folders)).
+
+**`storage-location-rejected`** or **`path-not-allowed`** from `list_files`
+
+- **What:** The location is outside the API's allowlists or the MCP's allowed folders. Pick one from
+  `list_allowed_folders`.
 
 ## Character sets and formats
 

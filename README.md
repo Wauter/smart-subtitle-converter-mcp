@@ -1,48 +1,95 @@
 # Smart Subtitle Converter MCP
 
-**Let Claude and other AI agents convert subtitles with Subtitle Edit's engine, only inside the folders you allow.**
+[![CI](https://github.com/Wauter/smart-subtitle-converter-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Wauter/smart-subtitle-converter-mcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+**An MCP server for converting and checking subtitles from Claude, Cursor or any other MCP client.**
+
+It handles SRT, WebVTT, TTML, ASS and broadcast formats such as EBU STL, PAC and Cavena 890. The agent is told
+whether anything was lost in the conversion and which setting fixes it. Files go by path, so their contents
+don't need to pass through the model's context.
 
 > **Built on Subtitle Edit.** Conversions run in the
 > [Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api), which wraps `libse`, the
 > library behind [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit) by **Nikolaj Olsson** (MIT).
 > This is a community project, **not an official Subtitle Edit project**.
 >
-> **Status: alpha.** It works and is tested, but hasn't been through real-world use yet. Expect changes, and
-> please [report issues](https://github.com/Wauter/smart-subtitle-converter-mcp/issues).
+> **Early software.** Expect changes, and please
+> [report issues](https://github.com/Wauter/smart-subtitle-converter-mcp/issues).
 
-This [Model Context Protocol](https://modelcontextprotocol.io) server gives AI agents the Smart Subtitle Converter
-API and adds what an agent working on your files needs: access only to folders you name, atomic single-file writes
-through staging, and structured errors and warnings the agent can act on. It does no conversion itself.
+## How it works
 
-## What it adds
+![How it fits together: an AI client goes through the MCP server to the API, your own platform calls the API directly, and the API uses libse and your storage](docs/architecture.svg)
 
-- **Allowed folders only:** it reads and writes only inside folders you name in the settings
+The MCP server does no conversion itself. It passes requests to the API, which runs in a container,
+and handles the files on your machine. If you want to call the converter from your own platform instead of an AI
+client, use the [API](https://github.com/Wauter/smart-subtitle-converter-api) directly.
+
+## What you get
+
+- **A verdict on every broadcast output.** EBU STL, PAC and the other binary outputs are read back and reported
+  as `lossless`, `quantised`, `lossy` or `unverified`. Warnings carry a `hint` and structured `details`, such as a
+  `remedy` for lost characters.
+- **Files go by path.** Their contents don't need to pass through the model's context. Content, keys and tokens
+  are never logged.
+- **Access to named folders only.** The server reads and writes inside the folders you set
   (`SUBTITLE_MCP_ALLOWED_DIRS` / `SUBTITLE_MCP_READONLY_DIRS`). Read-only folders stay read-only.
-- **Atomic writes:** single files are staged and committed with a rename; existing files are never overwritten
+- **Subtitle files only.** It reads, lists and writes only files with a subtitle extension, never touches hidden
+  files or folders (names starting with `.`), and never follows symbolic links
+  ([security](docs/security.md#allowed-folders)).
+- **Atomic writes.** Single files are staged and committed with a rename. Existing files are never overwritten
   unless you allow it.
-- **Results with a verdict:** binary outputs carry the API's `verification` verdict, and warnings carry a `hint`
-  and structured `details` (such as a `remedy` for lost characters). Errors have a stable `code`, a `hint` and,
-  for path errors, the allowed folders.
-- **Content stays on your machine:** files go by `path`, so their contents don't pass through the model's context;
-  content, keys and tokens are never logged.
+- **Errors the agent can act on.** Each has a stable `code`, a `hint` and, for path errors, the allowed folders.
+  With a broken setup the server still starts and every tool reports what to fix, so the agent doesn't just see a
+  closed connection.
 
 ## Quick start (Claude Code)
 
-Start the API first (its [quick start](https://github.com/Wauter/smart-subtitle-converter-api#quick-start) serves
-`http://localhost:8080`), then:
+**1. Start the API.** Its [quick start](https://github.com/Wauter/smart-subtitle-converter-api#quick-start) serves
+`http://localhost:8080` and writes an API key to `api_keys.txt`.
+
+**2. Give the MCP the key.** Open the API's `api_keys.txt` (it belongs to the API's container user, so you may
+need `sudo cat api_keys.txt`) and save the key in a file of your own, for example `~/subtitle-api-key.txt`, with
+nothing else in it. Keep that file private (`chmod 600`).
+
+**3. Add the server.** Point `SUBTITLE_MCP_ALLOWED_DIRS` at the folder that holds your subtitles:
 
 ```bash
-claude mcp add --transport stdio \
+claude mcp add \
   --env SUBTITLE_API_URL=http://localhost:8080 \
+  --env SUBTITLE_API_KEY_FILE=/Users/me/subtitle-api-key.txt \
   --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/Subtitles \
-  smart-subtitle -- npx -y smart-subtitle-converter-mcp
+  --transport stdio \
+  smart-subtitle-convert -- npx -y smart-subtitle-converter-mcp
 ```
 
-Point `SUBTITLE_MCP_ALLOWED_DIRS` at the folder that holds your subtitles, then ask:
+`SUBTITLE_API_KEY=<key>` works too. Without a key, conversions fail with `unauthorized`.
 
-> Convert `movie.srt` in `/Users/me/Subtitles` to EBU STL at 25 fps and tell me whether anything was lost.
+**4. Ask for a conversion:**
+
+> Convert `movie123.srt` in `/Users/me/Subtitles` to EBU STL
+
+> Convert `movie123.srt` in `/Users/me/Subtitles` to EBU STL, place it in `s3://customer1/2026-11-12/`
+
+The second one needs that bucket in the API's
+[storage allowlist](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/configuration.md#jobs-and-storage).
 
 Claude Desktop, Cursor, Windows, a VM, or building from source: see [docs/clients.md](docs/clients.md).
+
+## Supported subtitle formats
+
+| | Formats |
+|---|---|
+| **Text, read and write** | SRT, WebVTT, ASS/SSA, TTML/DFXP, SBV, SMI and Subtitle Edit's other text formats |
+| **Editing and post-production** | Final Cut Pro XML captions (`.fcpxml`), and marker lists from Avid and EDIUS |
+| **Binary broadcast, read and write** | EBU STL, PAC, FPC, Cavena 890, CapMaker Plus, Cheetah CAP |
+| **Binary, read only** | Avid STL, Ayato and others |
+| **Not supported** | Image-based and container formats (Blu-ray sup, VobSub, Matroska, MP4) |
+
+The `list_formats` tool has the live list. Code pages, frame rates and detection rules are in the API's
+[formats page](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/formats.md), and Subtitle
+Edit's [supported formats](https://subtitleedit.github.io/subtitleedit/reference/supported-formats.html) page
+describes the formats themselves.
 
 ## Tools
 
@@ -53,23 +100,39 @@ Claude Desktop, Cursor, Windows, a VM, or building from source: see [docs/client
 | `list_formats` | Formats with read/write and text/binary flags |
 | `list_presets` / `get_profile` | Built-in and mounted presets, raw and resolved |
 | `validate_profile` | Check a profile, with pointer-level errors and hints |
-| `get_job_file` | Re-read the stored input or output of an API job (storage-to-storage conversions) |
-| `list_allowed_folders` | The folders in effect right now, with mode and source |
+| `preview_text` | Read the text of an API job's stored input or output, or of a file by location, page by page (binary formats shown as SRT) |
+| `list_files` | List a local folder or an API storage location, page by page (`SUBTITLE_MCP_LIST_ENABLED=false` hides it) |
+| `list_allowed_folders` | The folders in effect right now, with mode and source; with browsing on, also the API's storage locations |
 
 Inputs, results and warning fields: [docs/tools.md](docs/tools.md).
 
-## API locations and job tracking
+## API storage and job tracking
 
-Besides local files, `convert_subtitle` can hand the API its own `input` and `output` locations (an allowlisted
-folder on the API server, an S3-compatible bucket or an HTTPS URL), with an optional `sidecar` JSON next to the
-output; `detect_format` accepts `input` too. These are resolved by the API with its own allowlists, separately from
-the MCP's local folders. Outputs are never overwritten unless you send `ifExists: "replace"`. One file per call.
+- **API locations.** Besides local files, `convert_subtitle` can hand the API its own `input` and `output`
+  locations (an allowlisted folder on the API server, an S3-compatible bucket or an HTTPS URL), with an optional
+  `sidecar` JSON next to the output. `detect_format` accepts `input` too. These are resolved by the API with its
+  own allowlists, separately from the MCP's local folders.
+- **No silent overwrites.** Outputs are never overwritten unless you send `ifExists: "replace"`. One file per call.
+- **Jobs.** Every conversion returns a `jobId`. When work outlasts the wait, the MCP polls the job. The API keeps
+  metadata only, so use an API `output` location for work that may take a while.
+- **Previewing.** `preview_text` reads the text of a job's stored input or output, in pages that end on whole
+  cues, while the API still has its record.
+- **Browsing.** `list_files` lists a folder and `preview_text` reads a file by its full URI or path. The API's
+  storage is browsable whenever the API allows it (its default)
+  ([browsing](docs/tools.md#browsing-and-reading-by-location)).
+- **Inline results.** Without any output location, `convert_subtitle` attaches the whole converted file to its
+  result for the client to save.
 
-Every conversion returns a `jobId`. When work outlasts the wait, the MCP polls the job; the API keeps metadata only,
-so use an API `output` location for work that may take a while. `get_job_file` re-reads a job's stored input or
-output while the API still has its record. See [tools](docs/tools.md#api-storage-and-job-ids),
+See [tools](docs/tools.md#api-storage-and-job-ids),
 [configuration](docs/configuration.md#api-storage-and-asynchronous-jobs) and
 [writing files](docs/writing-files.md#api-destinations-are-separate).
+
+## Safeguards
+
+The usual setup is stdio: the server talks to one local client, not the network. It has not been independently
+audited, and it is meant for a trusted environment, not the public internet. Details:
+[docs/security.md](docs/security.md) and the API's
+[security notes](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/security.md).
 
 ## Documentation
 
@@ -90,10 +153,18 @@ output while the API still has its record. See [tools](docs/tools.md#api-storage
 **Versions:** use the MCP release whose major.minor matches your API; patch versions may differ. On a mismatch the
 server adds an `mcp-api-version-mismatch` warning.
 
+## Feedback and author
+
+Bug reports are welcome, especially with the file and the client involved:
+[open an issue](https://github.com/Wauter/smart-subtitle-converter-mcp/issues).
+
+Built by [Wauter De Bruyne](https://www.linkedin.com/in/wauterdebruyne/), a solution architect working on media
+workflow automation for broadcasters, sports organisations and streaming platforms.
+
 ## Credits and license
 
 All subtitle format support comes from [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit) and its
 `libse` library by Nikolaj Olsson and contributors (MIT), through the
-[Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api). Thank you.
+[Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api).
 
 This server is MIT licensed, see [LICENSE](LICENSE).

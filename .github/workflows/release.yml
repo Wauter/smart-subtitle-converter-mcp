@@ -11,7 +11,7 @@ permissions:
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
-  API_IMAGE: ghcr.io/wauter/smart-subtitle-converter-api:1.3   # Paired API major/minor (D-43); no publishing triggered by this change.
+  API_IMAGE: ghcr.io/wauter/smart-subtitle-converter-api:1.4   # Paired API major/minor (D-43); no publishing triggered by this change.
 
 jobs:
   test:

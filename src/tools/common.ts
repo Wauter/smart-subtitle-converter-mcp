@@ -3,7 +3,7 @@ import type { McpServer, RegisteredTool } from "@modelcontextprotocol/sdk/server
 import type { CallToolResult, ContentBlock, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { errorText, FieldError, mcpError, ToolFailure, ToolErrorSchema, Warning, type ToolError, type WarningT } from "../errors.js";
 import { newCallId, withSuffix } from "../ids.js";
-import { newStats } from "../api/client.js";
+import { newStats, type CallCtx } from "../api/client.js";
 import { capsFrom, type Caps } from "../api/limits.js";
 import { toInt } from "../api/coerce.js";
 import type { Call, Deps } from "../context.js";
@@ -11,6 +11,7 @@ import { isValidBase64, decodedBase64Length } from "../base64.js";
 import { readFileChecked } from "../fs/guard.js";
 import { mcpErrorFromZod } from "./zodError.js";
 import { apiInfo, mismatchWarning } from "../api/info.js";
+import { extensionCheckSkippedWarning } from "../fs/extensions.js";
 import { probeApi } from "../probe.js";
 
 export { FieldError, Warning };
@@ -81,7 +82,7 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
       outputSchema: {
         ...Object.fromEntries(Object.entries(def.output).map(([key, value]) => [key, value.optional()])),
         error: ToolErrorSchema.optional(),
-        ...(def.output.warnings ? { warnings: z.union([def.output.warnings, z.array(Warning)]).optional() } : { warnings: z.array(Warning).optional() }),
+        warnings: errorWarnings(def.output.warnings),
       },
       annotations: { title: def.title, openWorldHint: false, ...def.annotations },
     },
@@ -109,17 +110,18 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
       let apiStatus: number | undefined;
       try {
         const parsed = strict.safeParse(rawArgs ?? {});
-        if (!parsed.success) throw mcpErrorFromZod(parsed.error);
+        if (!parsed.success) throw mcpErrorFromZod(parsed.error, def.shape, rawArgs);
         const out = await def.handler(parsed.data as any, call);
         Object.assign(call.log, out.logFields ?? {});
-        const mm = mismatchWarning();
-        if (mm) {
-          // §10 [DC]: the short version-mismatch warning rides on results while the mismatch persists.
+        // §10 [DC]: the short version-mismatch warning rides on results while the mismatch persists; likewise the
+        // skipped extension check (an older API without storage.extensions).
+        for (const w of [mismatchWarning(), call.extensionCheckSkipped ? extensionCheckSkippedWarning(apiInfo.version) : undefined]) {
+          if (!w) continue;
           if (def.warningArray) {
             if (!Array.isArray(out.structured.warnings)) out.structured.warnings = [];
-            (out.structured.warnings as WarningT[]).push(mm);
+            (out.structured.warnings as WarningT[]).push(w);
           }
-          out.summary += `\nWarning ${mm.code}: ${mm.message}`;
+          out.summary += `\nWarning ${w.code}: ${w.message}`;
         }
         z.object(def.output).passthrough().parse(out.structured);
         return {
@@ -134,8 +136,8 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
         code = tf.toolError.code;
         apiStatus = tf.toolError.status;
         const structured: Record<string, unknown> = { error: tf.toolError, ...((tf as any).partial ?? {}) };
-        const mm = mismatchWarning();
-        if (mm && !tf.warnings.some((w) => w.code === mm.code)) tf.warnings.push(mm);
+        for (const mm of [mismatchWarning(), call.extensionCheckSkipped ? extensionCheckSkippedWarning(apiInfo.version) : undefined])
+          if (mm && !tf.warnings.some((w) => w.code === mm.code)) tf.warnings.push(mm);
         if (tf.warnings.length) structured.warnings = tf.warnings;
         let text = errorText(tf.toolError);
         if (tf.warnings.length) text += "\n" + tf.warnings.map((w) => `Warning ${w.code}: ${w.message}`).join("\n");
@@ -164,6 +166,17 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
     list.push({ tool: registered, describe });
     dynamicDescriptions.set(server, list);
   }
+}
+
+/**
+ * Error results carry Warning[] in `warnings`. A success shape that already is Warning[] keeps its own schema (once,
+ * not listed twice); a different success shape (e.g. profile FieldError[]) is unioned with Warning[].
+ */
+function errorWarnings(success: z.ZodType | undefined): z.ZodType {
+  if (!success) return z.array(Warning).optional();
+  const base: any = success instanceof z.ZodOptional ? success.unwrap() : success;
+  if (base instanceof z.ZodArray && base.element === Warning) return success.optional();
+  return z.union([success, z.array(Warning)]).optional();
 }
 
 function internalFailure(err: unknown, deps: Deps): ToolFailure {
@@ -228,14 +241,51 @@ export interface SourceInput {
   ext?: string;
 }
 
+/** API input scheme for logs: s3 | file | https (a bare absolute path is file). */
+export function inputScheme(input: string): string {
+  if (input.startsWith("/")) return "file";
+  const m = /^([a-z][a-z0-9+.-]*):/i.exec(input);
+  return m ? m[1].toLowerCase() : "unknown";
+}
+
+/** An API input without credentials, query or fragment (presigned HTTPS signatures never reach logs or text). */
+export function redactInput(input: string): string {
+  if (input.startsWith("/")) return input;
+  try { const u = new URL(input); u.username = ""; u.password = ""; u.search = ""; u.hash = ""; return u.href; } catch { return "[invalid uri]"; }
+}
+
+/** Last path segment of an API input, or undefined. */
+function inputBaseName(input: string): string | undefined {
+  const p = input.startsWith("/") ? input : (() => { try { return new URL(input).pathname; } catch { return ""; } })();
+  const last = p.split("/").pop();
+  if (!last) return undefined;
+  try { return decodeURIComponent(last); } catch { return last; }
+}
+
+/** Log fields for the source: `source` is path | inline | s3 | file | https (the API input's scheme). */
+export function logSource(deps: Deps, call: Call, src: SourceInput): void {
+  call.log.source = src.input !== undefined ? inputScheme(src.input) : src.callerPath ? "path" : "inline";
+  const name = src.input !== undefined ? inputBaseName(src.input) : src.fileName;
+  const ext = src.ext ?? (name && /\.[^./]+$/.exec(name)?.[0].toLowerCase());
+  if (ext) call.log.inputExt = ext;
+  if (src.input !== undefined) call.log.inputHash = deps.log.p(redactInput(src.input));
+  else if (src.callerPath) call.log.inputHash = deps.log.p(src.callerPath);
+  else if (src.fileName) call.log.inputHash = deps.log.p(src.fileName);
+}
+
+/** Human name of the source for summaries: the file name, else the API input's last segment, else "content". */
+export function sourceLabel(src: SourceInput): string {
+  return src.fileName ?? (src.input !== undefined ? inputBaseName(src.input) ?? redactInput(src.input) : undefined) ?? "content";
+}
+
 /** §4.2: path → base64 of raw bytes with fileName=basename; inline content validated. */
-export async function loadSource(deps: Deps, args: { content?: string; contentEncoding?: "text" | "base64"; path?: string; fileName?: string; input?: string }, caps: Caps): Promise<SourceInput> {
+export async function loadSource(deps: Deps, args: { content?: string; contentEncoding?: "text" | "base64"; path?: string; fileName?: string; input?: string }, caps: Caps, call?: CallCtx): Promise<SourceInput> {
   if (args.input !== undefined) {
     return { input: args.input, content: "", contentEncoding: "text", fileName: args.fileName, size: 0 };
   }
   const cap = inputCap(caps);
   if (args.path !== undefined) {
-    const r = await deps.guard.resolveInputFile(args.path);
+    const r = await deps.guard.resolveInputFile(args.path, (name) => deps.extensions.check(name, "read", call));
     const nodePath = await import("node:path");
     const fileName = args.fileName ?? nodePath.basename(args.path);
     const readCap = cap;

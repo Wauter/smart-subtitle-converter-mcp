@@ -27,18 +27,31 @@ describe("metadata tools", () => {
   });
   afterEach(() => h.close());
 
-  it("list_formats: text by default, binary on request, writableOnly filters", async () => {
+  it("list_formats: text and binary by default, includeBinary: false for text only, writableOnly filters", async () => {
+    // Regression: the default used to list text formats only, so agents never saw EBU STL, PAC, ….
     let r = await callTool(h, "list_formats", {});
     expect(r.isError).toBeFalsy();
-    expect(r.structuredContent.formats.map((f: any) => f.id)).toEqual(["subrip", "webvtt"]);
+    expect(r.structuredContent.formats.map((f: any) => f.id)).toEqual(["subrip", "webvtt", "ebustl", "avidstl"]);
     expect(recorded.at(-1)!.path).toBe("/v1/formats");
-    r = await callTool(h, "list_formats", { includeBinary: true, writableOnly: true, query: "stl" });
-    const q = new URL("http://x" + "/?" + new URLSearchParams({ q: "stl", kind: "text,binary", writable: "true" })).search;
-    expect(q).toContain("kind=text%2Cbinary");
-    expect(r.structuredContent.formats.map((f: any) => f.id)).toEqual(["subrip", "webvtt", "ebustl"]);
+    expect(recorded.at(-1)!.url).toContain("kind=text%2Cbinary");
     expect(r.content[0].text).toMatch(/ebustl \| EBU STL \(\.stl\) \| binary \| read\/write/);
+    r = await callTool(h, "list_formats", { includeBinary: false });
+    expect(r.structuredContent.formats.map((f: any) => f.id)).toEqual(["subrip", "webvtt"]);
+    expect(recorded.at(-1)!.url).toMatch(/kind=text(&|$)/);
+    r = await callTool(h, "list_formats", { writableOnly: true, query: "stl" });
+    expect(recorded.at(-1)!.url).toContain("kind=text%2Cbinary");
+    expect(recorded.at(-1)!.url).toContain("writable=true");
+    expect(r.structuredContent.formats.map((f: any) => f.id)).toEqual(["subrip", "webvtt", "ebustl"]);
     r = await callTool(h, "list_formats", { limit: 1 });
-    expect(r.structuredContent).toMatchObject({ total: 2, truncated: true });
+    expect(r.structuredContent).toMatchObject({ total: 4, truncated: true });
+  });
+
+  it("list_formats: empty text-only result suggests dropping includeBinary: false", async () => {
+    mswServer.use(http.get(`${API}/v1/formats`, () => HttpResponse.json([])));
+    let r = await callTool(h, "list_formats", { includeBinary: false, query: "stl" });
+    expect(r.content[0].text).toMatch(/No formats matching 'stl'\. Try a broader query or drop includeBinary: false\./);
+    r = await callTool(h, "list_formats", { query: "zzz" });
+    expect(r.content[0].text).toMatch(/No formats matching 'zzz'\. Try a broader query\.$/m);
   });
 
   it("D-36 sanity check: items without `kind` → version-mismatch log warning, treated as text, no fallback mode", async () => {
@@ -54,7 +67,7 @@ describe("metadata tools", () => {
     apiInfo.version = "1.0.0";
     apiInfo.versionMismatch = true;
     const r = await callTool(h, "list_formats", {});
-    expect(r.content[0].text).toMatch(/mcp-api-version-mismatch: API version 1\.0\.0 is not compatible with this MCP \(1\.3\.x\)/);
+    expect(r.content[0].text).toMatch(/mcp-api-version-mismatch: API version 1\.0\.0 is not compatible with this MCP \(1\.4\.x\)/);
 
     // Tools whose `warnings` are FieldErrors keep a valid output schema (found by the contract run).
     mswServer.use(http.post(`${API}/v1/profiles/validate`, () => HttpResponse.json({ valid: true, errors: [], warnings: [{ pointer: "/target/format", message: "No target format" }], resolved: {} })));
@@ -142,16 +155,19 @@ describe("convert_subtitle", () => {
     if (dir) fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it("inline text result; path input is sent as base64 with fileName; only allowed headers upstream", async () => {
+  it("inline text result is the whole file as a text resource; path input is sent as base64 with fileName; only allowed headers upstream", async () => {
     await setup({ apiKey: "upstream-key" });
     mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "movie.vtt", content: "WEBVTT\n" }]))));
     const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "webvtt" });
     expect(r.isError).toBeFalsy();
-    expect(r.content[0].text).toBe("Converted movie.srt (SubRip, utf-8, en) → movie.vtt (WebVTT, utf-8): 1 → 1 cues in 4 ms.");
-    expect(r.content[1]).toEqual({ type: "text", text: "WEBVTT\n" });
-    expect(r.structuredContent.outputs[0]).toMatchObject({ inline: "text", cues: 1, bytes: 7 });
+    expect(r.content[0].text).toBe("Converted movie.srt (SubRip, utf-8, en) → movie.vtt (WebVTT, utf-8): 1 → 1 cues in 4 ms. The whole converted file is attached as an embedded resource; use outputPath/outputDir to write it to disk instead.");
+    // This mock answers in text form, which (like the real API) has no BOM; utf-8 means with BOM, so it is restored.
+    expect(r.content[1]).toMatchObject({ type: "resource", resource: { mimeType: "text/vtt", text: "\uFEFFWEBVTT\n" } });
+    expect(r.content).toHaveLength(2);
+    expect(r.structuredContent.outputs[0]).toMatchObject({ attached: true, contentEncoding: "text", cues: 1, bytes: 10 });
+    expect(r.structuredContent.outputs[0].text).toBeUndefined(); expect(r.structuredContent.outputs[0].inline).toBeUndefined();
     const c = convertCalls()[0];
-    expect(c.body).toEqual({ content: Buffer.from(SRT).toString("base64"), contentEncoding: "base64", fileName: "movie.srt", target: "webvtt" });
+    expect(c.body).toEqual({ content: Buffer.from(SRT).toString("base64"), contentEncoding: "base64", fileName: "movie.srt", target: "webvtt", responseEncoding: "base64" });
     const TRANSPORT = ["accept-encoding", "accept-language", "connection", "content-length", "host", "sec-fetch-mode", "user-agent"];
     expect(Object.keys(c.headers).filter((k) => !TRANSPORT.includes(k)).sort()).toEqual(["accept", "authorization", "content-type", "prefer", "x-request-id"]);
     expect(c.headers.authorization).toBe("Bearer upstream-key");
@@ -160,19 +176,80 @@ describe("convert_subtitle", () => {
     expect(h.logs.join("\n")).not.toContain("upstream-key");
   });
 
-  it("large text and binary results are embedded resources", async () => {
-    await setup({ inlineTextMaxBytes: 4 });
+  it("returns every inline result whole as an embedded resource (text and binary), with jobId and a preview_text hint", async () => {
+    await setup();
+    const srt = Array.from({ length: 3000 }, (_, i) => `${i + 1}\n00:00:01,000 --> 00:00:02,000\nHello world, line ${i + 1}\n\n`).join(""); // > 64 KB: never cut
     mswServer.use(
       http.post(`${API}/v1/convert/json`, () =>
-        HttpResponse.json(convertOk([{ fileName: "subtitle.vtt", content: "WEBVTT\n" }, { fileName: "subtitle.stl", content: Buffer.from([1, 2, 3]).toString("base64"), contentEncoding: "base64", formatId: "ebustl", kind: "binary" }])),
-      ),
+        HttpResponse.json({ id: "job123", ...convertOk([{ fileName: "subtitle.srt", content: srt, formatId: "subrip" }, { fileName: "subtitle.stl", content: Buffer.from([1, 2, 3]).toString("base64"), contentEncoding: "base64", formatId: "ebustl", kind: "binary" }]) })),
     );
     const r = await callTool(h, "convert_subtitle", { content: SRT, preset: "x" });
-    expect(r.content[1].type).toBe("resource");
-    expect(r.content[1].resource.text).toBe("WEBVTT\n");
-    expect(r.content[2].resource.blob).toBe("AQID");
-    expect(r.structuredContent.outputs[1].resourceUri).toMatch(/^subtitleedit:\/\/outputs\/.+\/subtitle\.stl$/);
-    expect(JSON.stringify(r.structuredContent)).not.toContain("AQID");
+    expect(Buffer.byteLength(srt)).toBeGreaterThan(65536);
+    const [txt, bin] = r.structuredContent.outputs;
+    expect(r.content[1].resource).toMatchObject({ mimeType: "text/vtt", text: "\uFEFF" + srt }); expect(r.content[1].resource.uri).toMatch(/^subtitleedit:\/\/outputs\/.+\/subtitle\.srt$/);
+    expect(r.content[2].resource.blob).toBe("AQID"); expect(r.content[2].resource.uri).toMatch(/^subtitleedit:\/\/outputs\/.+\/subtitle\.stl$/);
+    expect(txt).toMatchObject({ attached: true, bytes: Buffer.byteLength(srt) + 3 }); expect(bin).toMatchObject({ attached: true, kind: "binary" });
+    for (const o of [txt, bin]) for (const k of ["text", "truncated", "preview", "resourceUri", "inline"]) expect(o[k]).toBeUndefined();
+    expect(JSON.stringify(r.structuredContent)).not.toMatch(/AQID|Hello world/);
+    expect(r.structuredContent.jobId).toBe("job123");
+    expect(r.structuredContent.hint).toBe("The whole file is in the attached embedded resource; save it to disk and read it locally if you need the text. To preview it with preview_text instead, convert with an API `output` location.");
+    expect(r.content[0].text).toContain("whole converted file is attached as an embedded resource");
+    expect(r.content[0].text).not.toMatch(/TRUNCATED|Hello world/);
+  });
+
+  it("inline text resources are byte-identical to the stored deliverable: BOM kept, bytes match, UTF-16 as a blob", async () => {
+    await setup();
+    const srt = "1\n00:00:01,000 --> 00:00:02,000\nCafé ünïcode\n";
+    const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(srt)]); // what the API stores for encoding utf-8
+    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(srt, "utf16le")]);
+    let stored: Buffer | undefined;
+    mswServer.use(http.post(`${API}/v1/convert/json`, async ({ request }) => {
+      const body: any = await request.json();
+      const outs = [
+        { fileName: "a.srt", content: bom.toString("base64"), contentEncoding: "base64", formatId: "subrip", encoding: "utf-8", bytes: bom.length },
+        { fileName: "b.srt", content: Buffer.from(srt).toString("base64"), contentEncoding: "base64", formatId: "subrip", encoding: "utf-8-no-bom", bytes: Buffer.byteLength(srt) },
+        { fileName: "c.srt", content: utf16.toString("base64"), contentEncoding: "base64", formatId: "subrip", encoding: "utf-16", bytes: utf16.length },
+      ];
+      if (body.output) { stored = bom; return HttpResponse.json({ id: "j", ...convertOk([{ ...outs[0], content: undefined as any, output: body.output } as any]) }); }
+      expect(body.responseEncoding).toBe("base64");
+      return HttpResponse.json({ id: "j", ...convertOk(outs as any) });
+    }));
+    const r = await callTool(h, "convert_subtitle", { content: SRT, target: "srt" });
+    const [a, b, c] = r.content.slice(1).map((x: any) => x.resource);
+    const st = await callTool(h, "convert_subtitle", { content: SRT, target: "srt", output: "s3://subs/out/a.srt" });
+    expect(st.isError).toBeFalsy();
+    expect(Buffer.from(a.text, "utf8").equals(stored!)).toBe(true); // same bytes as the stored-output equivalent
+    expect(r.structuredContent.outputs[0]).toMatchObject({ contentEncoding: "text", bytes: stored!.length });
+    expect(b.text).toBe(srt); expect(r.structuredContent.outputs[1].bytes).toBe(Buffer.byteLength(srt));
+    expect(c.text).toBeUndefined(); expect(Buffer.from(c.blob, "base64").equals(utf16)).toBe(true);
+    expect(r.structuredContent.outputs[2]).toMatchObject({ contentEncoding: "base64", bytes: utf16.length });
+    const forced = await callTool(h, "convert_subtitle", { content: SRT, target: "srt", responseEncoding: "base64" });
+    expect(Buffer.from(forced.content[1].resource.blob, "base64").equals(bom)).toBe(true);
+  });
+
+  it("hints preview_text on the stored output, and on the stored input for inline results from an API input", async () => {
+    await setup();
+    mswServer.use(http.post(`${API}/v1/convert/json`, async ({ request }) => {
+      const body: any = await request.json();
+      const b: any = { id: "job9", ...convertOk([{ fileName: "show.stl", content: "AQID", contentEncoding: "base64", formatId: "ebustl", kind: "binary" }]) };
+      if (body.output) { delete b.outputs[0].content; b.outputs[0].output = body.output; }
+      return HttpResponse.json(b);
+    }));
+    const stored = await callTool(h, "convert_subtitle", { input: "s3://subs/in/show.srt", output: "s3://subs/out/show.stl", target: "ebustl" });
+    expect(stored.structuredContent.hint).toBe('Read the converted text with preview_text {jobId:"job9", which:"output"}.');
+    expect(stored.structuredContent.outputs[0].attached).toBeUndefined(); expect(stored.content).toHaveLength(1);
+    const inline = await callTool(h, "convert_subtitle", { input: "s3://subs/in/show.srt", target: "ebustl" });
+    expect(inline.structuredContent.hint).toContain('preview_text {jobId:"job9", which:"input"}');
+    expect(inline.content[1].resource.blob).toBe("AQID");
+  });
+
+  it("stored outputs report the stored object's name, not the converter's generated name", async () => {
+    await setup();
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => { const b: any = convertOk([{ fileName: "show.srt", content: "x", formatId: "subrip" }]); delete b.outputs[0].content; b.outputs[0].output = "s3://broadcast-delivery/qa-p6/test2-145152.srt"; b.outputs[0].bytes = 271; return HttpResponse.json(b); }));
+    const r = await callTool(h, "convert_subtitle", { input: "s3://in/show.stl", output: "s3://broadcast-delivery/qa-p6/test2-145152.srt", target: "srt" });
+    expect(r.structuredContent.outputs[0]).toMatchObject({ fileName: "test2-145152.srt", output: "s3://broadcast-delivery/qa-p6/test2-145152.srt", bytes: 271 });
+    expect(r.structuredContent.outputs[0].text).toBeUndefined();
+    expect(r.content[0].text).toContain("→ test2-145152.srt (");
   });
 
   it("outputDir: writes the API's bytes verbatim via base64, resource_link, warnings passed through", async () => {
@@ -285,8 +362,12 @@ describe("convert_subtitle", () => {
   it("D-36: /v1/limits 404 → documented defaults + mismatch warning; no multipart path exists", async () => {
     await setup({ jsonMaxDecodedBytes: 10 });
     mswServer.use(http.get(`${API}/v1/limits`, () => problem(404, "not-found")));
-    const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "webvtt", outputDir: path.join(dir, "out") });
+    const r = await callTool(h, "convert_subtitle", { content: SRT, fileName: "movie.srt", target: "webvtt" });
     expect(r.structuredContent.error).toMatchObject({ code: "precheck-too-large", limit: { name: "json.maxDecodedContentBytes", value: 10 } });
+    // Local files: the same pre-check applies (the extension check is skipped with a warning, the API has no list).
+    const local = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "webvtt", outputDir: path.join(dir, "out") });
+    expect(local.structuredContent.error.code).toBe("precheck-too-large");
+    expect(local.structuredContent.warnings.map((w: any) => w.code)).toContain("mcp-extension-check-skipped");
     expect(recorded.some((x) => x.path === "/v1/convert" || x.path === "/v1/convert/json")).toBe(false);
     expect(h.logs.some((l) => /\/v1\/limits returned 404/.test(l))).toBe(true);
   });
@@ -433,7 +514,7 @@ describe("modes, annotations, resources", () => {
     mswServer.use(...baseHandlers());
     const h = await harness();
     const { tools } = await h.client.listTools();
-    expect(tools.map((t) => t.name)).toEqual(["list_formats", "list_presets", "get_profile", "validate_profile", "detect_format", "convert_subtitle", "get_job_file", "list_allowed_folders"]);
+    expect(tools.map((t) => t.name)).toEqual(["list_formats", "list_presets", "get_profile", "validate_profile", "detect_format", "convert_subtitle", "preview_text", "list_allowed_folders", "list_files"]);
     const conv = tools.find((t) => t.name === "convert_subtitle")!;
     expect(Object.keys(conv.inputSchema.properties!)).toContain("outputDir");
     expect(conv.inputSchema.additionalProperties).toBe(false);

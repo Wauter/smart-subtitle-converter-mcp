@@ -6,7 +6,7 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 | Variable | Flag | Default | Description |
 |---|---|---|---|
 | `SUBTITLE_API_URL` | `--api-url` | **required** | API base URL: `http://localhost:8080` for the API's Compose on your machine (host port 8080), `http://api:8080` from a container on the same Docker network (container port) |
-| `SUBTITLE_API_KEY` / `SUBTITLE_API_KEY_FILE` | – | unset | Bearer key sent to the API (the only upstream key; never taken from requests) |
+| `SUBTITLE_API_KEY` / `SUBTITLE_API_KEY_FILE` | – | unset | Bearer key sent to the API (the only upstream key; never taken from requests). The API needs one by default: point `SUBTITLE_API_KEY_FILE` at a file holding its key, such as a copy of the API's `api_keys.txt` (first non-comment line is used, re-read on change) |
 | `SUBTITLE_MCP_HTTP_TOKEN` / `SUBTITLE_MCP_HTTP_TOKEN_FILE` | – | unset | HTTP mode: inbound token(s), ≥ 32 chars, comma list / one per line, file re-read on change. Required with `--http` |
 | `SUBTITLE_MCP_HTTP` | `--http [host:]port` | stdio | Serve Streamable HTTP on `/mcp` ([http-sidecar.md](http-sidecar.md)) |
 | `SUBTITLE_MCP_HOSTED` | `--hosted` | `false` | Hosted mode (not available yet: refuses to start) |
@@ -19,7 +19,11 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 | `SUBTITLE_MCP_RETRY_MAX_ATTEMPTS` | – | `3` | Retries for safe metadata/read-only calls; conversion POST is never replayed |
 | `SUBTITLE_MCP_RETRY_MAX_WAIT_MS` | – | `60000` | Longest single `Retry-After` wait accepted |
 | `SUBTITLE_MCP_RETRY_BUDGET_MS` | – | `90000` | Total retry wait per call |
-| `SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES` | – | `65536` | Larger inline text outputs come back as an embedded resource |
+| `SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES` | – | `65536` | `preview_text` page size, in UTF-8 bytes, when the call gives no `maxBytes`. At least 4096 and at most `SUBTITLE_MCP_PREVIEW_MAX_BYTES` |
+| `SUBTITLE_MCP_PREVIEW_MAX_BYTES` | – | `262144` | Largest `preview_text` page, in UTF-8 bytes; larger `maxBytes` requests are lowered to it, and a single cue over it can't be previewed (`preview-cue-too-large`). 4096 to 1048576 |
+| `SUBTITLE_MCP_PREVIEW_CACHE_BYTES` | – | `67108864` | Memory for cached `preview_text` texts (64 MiB). Least recently used entries go first; a text bigger than the whole cache isn't cached. `0` turns the cache off |
+| `SUBTITLE_MCP_PREVIEW_CACHE_TTL_MS` | – | `300000` | A cached preview unused for this long is dropped |
+| `SUBTITLE_MCP_LIST_ENABLED` | – | `true` | Optional. Unset or `true`: register `list_files` and accept `location` in `preview_text`; local folders are browsable, and API locations follow the API's own `STORAGE_LIST_ENABLED` (on by default there). `false`: hide both ([tools.md](tools.md#browsing-and-reading-by-location)) |
 | `SUBTITLE_MCP_JSON_MAX_DECODED_BYTES` | – | unset (10485760) | JSON decoded-content cap while `/v1/limits` is unreadable |
 | `SUBTITLE_MCP_LIMITS_TTL_MS` | – | `300000` | `/v1/limits` cache TTL |
 | `SUBTITLE_MCP_INCLUDE_DEBUG` | – | `false` | Pass the API's `debug` member into errors |
@@ -27,6 +31,9 @@ Settings come from environment variables (most also have a flag). Unknown `SUBTI
 | `SUBTITLE_MCP_ALLOWED_HOSTS` | – | `localhost,127.0.0.1,[::1]` + bind host | HTTP: `Host` allowlist (DNS rebinding) |
 | `SUBTITLE_MCP_LOG_LEVEL` | `--log-level` | `info` | `error`, `warn`, `info`, `debug` (JSON lines on stderr) |
 | `SUBTITLE_MCP_LOG_PATHS` | – | `false` | Log full paths instead of `sha256[:12]` + extension |
+
+`SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES` no longer exists: `convert_subtitle` returns whole files, and `preview_text`
+pages its text. Setting it fails startup with a message pointing to the two preview settings above.
 
 ## Logging and privacy
 

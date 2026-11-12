@@ -1,21 +1,147 @@
 # Tools
 
 The server is a thin client over the [Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api);
-each tool maps to an API endpoint, except `list_allowed_folders`, which is local. The tool descriptions the client
+each tool maps to an API endpoint, except `list_allowed_folders` and local `list_files` calls, which stay in the MCP. The tool descriptions the client
 sees are the authoritative, live version of this page (they include the allowed folders in effect).
 
 | Tool | API endpoint | Purpose |
 |---|---|---|
-| `list_formats` | `GET /v1/formats` | Formats (id, name, extensions, read/write, text/binary); `includeBinary`, `writableOnly`, `limit` |
+| `list_formats` | `GET /v1/formats` | Formats (id, name, extensions, read/write, text/binary); text and binary by default, `includeBinary: false` for text only; `writableOnly`, `limit` |
 | `list_presets` | `GET /v1/profiles` | Built-in and mounted presets, with validity and load errors |
 | `get_profile` | `GET /v1/profiles/{name}` | Raw and resolved preset JSON |
 | `validate_profile` | `POST /v1/profiles/validate` | Validate a profile (inline or `path`); pointer-level errors with hints |
 | `detect_format` | `POST /v1/detect` | Format, encoding and language of inline content, a local `path` or API `input`, plus `bom`, `lineEndings` and source `warnings` |
 | `convert_subtitle` | `POST /v1/convert/json` | Convert one file: exactly one content/path/input; result inline, local outputPath/outputDir or API output |
-| `get_job_file` | `GET /v1/jobs/{id}/input` or `/output` | Re-read the job's current stored input or single subtitle output |
-| `list_allowed_folders` | – (local) | The folders in effect, with `mode`, `source` and `state` ([folders-and-roots.md](folders-and-roots.md)) |
+| `preview_text` | `GET /v1/jobs/{id}/input` or `/output`, or `GET /v1/storage/file` for an API location (+ `POST /v1/convert/json` to SRT for binary files) | Read the text of a job's stored input or output, or of a file by location, one page at a time |
+| `list_files` | – (local) or `GET /v1/storage/list` | Unless `SUBTITLE_MCP_LIST_ENABLED=false`: one page of the files and sub-folders in a location |
+| `list_allowed_folders` | – (local), + `GET /v1/storage/locations` when browsing is on | The folders in effect, with `mode`, `source` and `state` ([folders-and-roots.md](folders-and-roots.md)); with browsing on, also the API's storage locations |
 
-`list_allowed_folders` stays registered even when paths are unavailable (empty folders, state none). It covers MCP-local folders only, never API input/output URIs. Inline text outputs larger than `SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES` come back as an embedded resource.
+`list_allowed_folders` stays registered even when paths are unavailable (empty folders, state none). With browsing
+off (the default) it covers MCP-local folders only, never API input/output URIs.
+
+## Browsing and reading by location
+
+Browsing is on by default and follows the API:
+
+- `list_files` is registered and `preview_text` takes a `location` unless the MCP has
+  `SUBTITLE_MCP_LIST_ENABLED=false`. The MCP's local allowed folders are always browsable then.
+- The API's own `STORAGE_LIST_ENABLED` (on by default) decides whether the API lists and reads its own storage (`STORAGE_FILE_ROOTS` and
+  `S3_ALLOWED_BUCKETS` × `S3_ALLOWED_PREFIXES`). The MCP finds out from `GET /v1/limits` (`storage.list`) when it
+  starts, and again whenever the limits cache (`SUBTITLE_MCP_LIMITS_TTL_MS`) expires. The API checks its own switch
+  on every request, so a stale cache can't get past it.
+
+| MCP | API | `list_allowed_folders` | `list_files` / `preview_text {location}` |
+|---|---|---|---|
+| `false` | any | Local folders only, as before; no `remote` member | `list_files` not registered; `location` not accepted |
+| unset or `true` | off, older API, or unreachable | Local folders, plus `remote: {state: "disabled-api" or "unknown", locations: [], hint}` | Local paths work; API locations fail with `storage-list-disabled` (or `api-unreachable`) and a hint |
+| unset or `true` | on | Local folders, plus `remote: {state: "on", locations: [...]}` | Local paths and API `file://` / `s3://` locations work |
+
+API allowlists never appear while the API's switch is off. Job previews (`jobId` + `which`) work in every combination.
+
+### `list_allowed_folders` with browsing on
+
+`remote.locations[]` has `location` (a folder URI such as `file:///data/subtitles/` or `s3://subs/tmp/`), `scheme`,
+`listable`, `readable`, and when useful `prefix` (an allowed S3 key prefix that ends mid-name, such as `tmp/show-`,
+which `list_files` uses as its name filter) and `note`. HTTPS hosts are listed with `listable: false` and
+`readable: false`: they can be used as conversion `input` and `output`, but can't be browsed or previewed by
+location. Locations never contain credentials, query strings or presigned parts.
+
+Local folders (the `folders` list) are paths on the MCP's machine. API locations are paths on the API's machine or
+in its buckets, even when they look alike. In a sidecar deployment the two are usually different filesystems.
+
+### Hidden files and folders
+
+Hidden files and folders are never read, listed or written, by any tool, with browsing on or off. A path is hidden when any
+of its components starts with `.`: a dotfile (`.env`), anything inside a dot-named folder at any depth
+(`.git/config`), and everything in an allowed folder that is itself hidden or inside a hidden folder
+(`/home/me/.subtitles`). Dots inside names are fine: `show.en.v2.srt` and `v1.2/ep.srt` are ordinary files.
+
+- **Local (this MCP server):** applies to `preview_text {location}`, `list_files` (and its `prefix`), the `path` and
+  `profilePath` of `convert_subtitle`, `detect_format` and `validate_profile`, and to `outputPath` / `outputDir` and
+  the names of the files written there. A path outside the allowed folders is `path-not-allowed` first; a hidden
+  path inside them is `hidden-path`, whether the file exists or not. The requested path is checked before any
+  filesystem call. Plain paths are taken literally: `%2Eenv` is a file named `%2Eenv`, not `.env`.
+- **API locations:** the API applies the same rule to `file://` and `s3://` locations (percent-decoded first, so
+  `%2Eenv` is `.env`), for reads, listings, writes, conversion inputs and job file reads, and answers `hidden-path`.
+  HTTPS URLs are not affected.
+- **Hidden allowed folders** aren't named in `list_allowed_folders`, tool descriptions or error hints;
+  `list_allowed_folders` reports how many there are as `hiddenFolders`. The API leaves hidden roots and prefixes out
+  of its locations.
+- **Writes** follow the same rule: a dot-named output, an output in a hidden folder, or a hidden allowed folder is
+  refused before anything is converted or written. (The MCP's own `.subtitle-mcp-staging/` folder is internal.)
+- **Limits:** the rule is name-based on every platform. Windows hidden or system attributes and macOS `UF_HIDDEN`
+  aren't consulted.
+
+### `list_files`
+
+| Argument | Required | Description |
+|---|---|---|
+| `location` | yes | A folder: a local absolute path inside the allowed folders, or an API `file://` or `s3://` folder URI |
+| `prefix` | no | Name prefix filter. A `/` in it descends into a sub-folder (`season1/ep` lists `season1/` names starting with `ep`). No globs |
+| `cursor` | no | `next` from the previous page, unchanged |
+
+The result has `location`, `where` (`local` or `remote`), `prefix`, `items`, `returned`, `truncated` and, when
+truncated, `next`. Each item has `name` (folders end in `/`), `location` (pass it to `preview_text` for a file or to
+`list_files` for a folder), `type` (`file` or `folder`), and for files `size` and `modified` (ISO 8601, UTC).
+
+A page has up to 200 items, in name order (local folders and the API filesystem sort by UTF-8 bytes; S3 uses the
+bucket's key order). There is no total count, no sorting by date and no offsets. Hidden entries (names starting with
+`.`), symbolic links, special files and files without a subtitle extension are skipped, and a hidden folder or
+prefix can't be listed ([hidden files](#hidden-files-and-folders)). Sub-folders are listed whatever their names.
+A folder (or prefix) with more than 5000 such entries fails with `folder-too-large`; list it with a narrower
+`prefix`. The API does the same with its own cap (`GET /v1/limits` `storage.listMaxEntries`).
+
+Paging is stateless and there is no snapshot. A file that exists for the whole walk and isn't renamed appears
+exactly once. A file added or removed during the walk may or may not appear. A cursor belongs to one location,
+prefix and side (local or API); anything else fails with `list-cursor-invalid` (local) or `storage-cursor-invalid`
+(API). A location outside the allowlists fails with `path-not-allowed` (local) or `storage-location-rejected` (API),
+an HTTPS location with `storage-not-listable`.
+
+## Inline convert results
+
+Without an output location (`outputPath`/`outputDir` or an API `output`), `convert_subtitle` attaches the whole
+converted file to its result as an embedded resource, for text and binary targets alike, with the format's
+`mimeType`. The file is never cut, and it is byte-identical to what the same conversion would store with an API
+`output`:
+
+- UTF-8 text (`encoding` `utf-8`, which has a byte order mark, or `utf-8-no-bom`) comes as `text`. With `utf-8` the
+  text starts with U+FEFF, so writing it out as UTF-8 reproduces the BOM.
+- Binary formats (EBU STL, PAC, …) and text in other encodings (UTF-16, legacy code pages) come as a base64
+  `blob` of the exact bytes. `responseEncoding: "base64"` sends UTF-8 text as a `blob` too.
+
+`outputs[].contentEncoding` says which (`text` or `base64`), and `outputs[].bytes` is the size of the file the
+resource holds. The resource is the deliverable, for the client to save; its `uri` only labels the block and is
+not readable with `resources/read`.
+
+The structured result describes the file but doesn't repeat its content: `outputs[]` has `fileName`, `format`,
+`formatId`, `kind`, `mediaType`, `encoding`, `cues`, `bytes` and `attached: true`, plus `verification` for
+binary targets. Alongside it are `jobId`, `detected`, `stats`, `warnings` and a short `hint` on reading the
+converted text. Some clients (Claude Code, for example) show the model only the structured result when there is
+one, so the model sees this metadata and the client still receives the file.
+
+Inline results are not stored anywhere, so `preview_text` cannot read them: the attached file is the only copy. If
+the text is needed, save the file to disk and read it locally. To preview it with `preview_text` instead, convert
+with an API `output` location, then call `preview_text` with `which: "output"`. When the source came from an API
+`input`, `preview_text` with `which: "input"` works straight away. `hint` says which of these applies.
+
+Example result for an inline conversion to EBU STL:
+
+```json
+{
+  "content": [
+    { "type": "text", "text": "Converted show.srt (SubRip, utf-8, en) → show.stl (EBU STL, iso-6937): 412 → 412 cues in 38 ms. The whole converted file is attached as an embedded resource." },
+    { "type": "resource", "resource": { "uri": "subtitleedit://outputs/mcp-…/show.stl", "mimeType": "application/octet-stream", "blob": "…" } }
+  ],
+  "structuredContent": {
+    "jobId": "0de4707d46fe4ff9b06ae83736f7dbbb",
+    "outputs": [{ "fileName": "show.stl", "format": "EBU STL", "formatId": "ebustl", "kind": "binary", "mediaType": "application/octet-stream",
+                  "encoding": "iso-6937", "contentEncoding": "base64", "cues": 412, "bytes": 52224, "attached": true, "verification": { "…": "…" } }],
+    "hint": "The whole file is in the attached embedded resource; save it to disk and read it locally if you need the text. To preview it with preview_text instead, convert with an API `output` location.",
+    "warnings": [], "…": "…"
+  }
+}
+```
+
 How files are written: [writing-files.md](writing-files.md).
 
 ## Resources
@@ -25,10 +151,10 @@ How files are written: [writing-files.md](writing-files.md).
 ## Errors
 
 Errors come back as `isError: true` with a structured `error`: `source` (`api` or `mcp`), `code`, `detail`, `hint`,
-`requestId`, and where they apply `errors[]` (pointer, message, hint), `candidates` and `probe`, `jobId` /
+`requestId`, and where they apply `errors[]` (pointer, message, hint), `candidates` and `probe` (strings for `ambiguous-format` and PAC code pages; `{encoding, language, hits, sample}` objects for `ambiguous-encoding` with probe `text-encoding`), `jobId` /
 `jobUrl`, a redacted `location`, `limit`, `retryAfterSeconds`, and for local write failures `path` + `osError`.
 API codes are on the API's [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page
-(what happened, why, what to do). MCP codes (`path-not-allowed`, `output-exists`, `cross-device`, …) are in
+(what happened, why, what to do). MCP codes (`mcp-misconfigured`, `path-not-allowed`, `hidden-path`, `extension-not-allowed`, `folder-too-large`, `output-exists`, `cross-device`, …) are in
 [troubleshooting.md](troubleshooting.md). `path-not-allowed` hints include the current allowed folders.
 
 ## Warnings
@@ -38,8 +164,8 @@ that fixes it) and `details` (positions and settings, never cue text). What each
 `characters-replaced` remedy fields: the API's [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page.
 
 The MCP passes API warnings through unchanged. It adds only `mcp-api-version-mismatch`
-([troubleshooting.md](troubleshooting.md#version-mismatch)) and `mcp-ebu-size` (a local `.stl` larger than
-the API's EBU STL limit).
+([troubleshooting.md](troubleshooting.md#version-mismatch)), `mcp-ebu-size` (a local `.stl` larger than
+the API's EBU STL limit) and `max-bytes-clamped` (a `preview_text` page size out of range).
 
 ## Verification
 
@@ -62,24 +188,92 @@ Failed admitted conversions also surface `error.jobId` / `error.jobUrl` when sup
 schemas permit structured errors as well as success results; required success fields are validated before
 returning a success. No external polling location is followed.
 
-## Re-reading a job file
+## Previewing a job's text
 
-`get_job_file` accepts exactly `{jobId, which:"input"|"output"}`. Use it after storage-to-storage conversion
-when the actual files are needed, often alongside warnings. Output means the single subtitle destination,
-never a sidecar. There is no arbitrary URI or local save-path parameter. Local path uploads have no stored
-input, and omitted API output has no stored output: use the original local file or conversion response.
+`preview_text` reads the subtitle text of a job's stored input or output so the model can check spelling,
+language and timing. It is a view, not a download: it never returns bytes to save.
 
-It uses the configured API key, not an owner/admin role. Job ids are unguessable capability tokens. It re-reads
-current storage through current API allowlists/limits, without detection or conversion. Files can change or
-vanish; a signed HTTPS query is not retained, so that location cannot be replayed.
+Arguments:
 
-Results include jobId, which, fileName, mediaType, decoded bytes, redacted location, contentEncoding and
-where the body is in content[]. Unicode text is inline up to the normal text limit; larger text and binary
-are embedded resources. Subtitle text is not logged. Errors distinguish `job-not-ready`, `job-not-found`,
-`job-input-not-stored`, `job-output-not-stored`, `job-file-gone` and `job-location-not-replayable` (see the API's
-[errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page); the last two
-include a redacted location. Input may be readable while output is pending. A failed job has no successful
-stored output. A missing job is not a failed conversion.
+| Argument | Required | Description |
+|---|---|---|
+| `jobId` | yes, unless `location` | The `jobId` from `convert_subtitle` |
+| `which` | with `jobId` | `input` (the stored source) or `output` (the single stored subtitle result, never a sidecar) |
+| `location` | instead of `jobId` | The file's full URI or absolute path, as `list_files` `items[].location`: `s3://bucket/key`, `file:///path`, or a local absolute path inside the allowed folders (e.g. `s3://subs/show.srt`, or the sidecar `s3://subs/show.srt.json`). Not with `SUBTITLE_MCP_LIST_ENABLED=false` ([browsing](#browsing-and-reading-by-location)) |
+| `maxBytes` | no | Page size in UTF-8 bytes. Defaults to `SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES` (65536); values below 4096 are raised to 4096 and values above `SUBTITLE_MCP_PREVIEW_MAX_BYTES` (262144) are lowered to it, with a `max-bytes-clamped` warning (`details.fields.requested` and `applied`). The value in effect comes back as `maxBytes` |
+| `cursor` | no | The `next` value from the previous page, unchanged. Omit it for the first page |
+
+Give either `jobId` and `which`, or `location`. With browsing off, files are reached by job id only. Local path
+uploads and inline content have no stored input, and a conversion without an API `output` has no stored output.
+
+A `location` read goes through the same checks as a conversion source: the local allowed folders (with traversal and
+symbolic-link checks) for a path, or the API's allowlists, its traversal and symbolic-link guards and its decoding
+checks for a URI. HTTPS URLs can't be read by location. The paging, the SRT view of binary files and the result are
+the same as for a job, with `source` saying which kind of read it was (`job`, `local` or `remote`).
+
+Text files are returned as stored (UTF-8, UTF-16 or the recorded legacy encoding, decoded exactly). Binary files
+(EBU STL, PAC, Cavena 890, …) are converted to SRT through the API, inline only (nothing is written, the stored
+file is unchanged). Then `convertedFrom` is the stored format id, `convertedTo` is `"srt"`, and `warnings` say what
+the SRT view lost. If that conversion fails (for example `ambiguous-encoding` on a PAC file), the normal error comes
+back with its candidates, and the hint says how to read the file with `convert_subtitle` and the right setting.
+
+### Pages
+
+The text is split into whole units: cues for SRT and WebVTT (a WebVTT header or `NOTE` block travels with the
+next cue), lines for everything else. A page is the longest run of whole units that fits in `maxBytes`. Pages
+always end on a whole cue and never split a character. Only a single cue larger than `maxBytes` makes a page go
+over it, and that cue is then returned alone. A cue larger than `SUBTITLE_MCP_PREVIEW_MAX_BYTES` can't be
+previewed (`preview-cue-too-large`, which names the stored file's location), and nor can the text after it.
+Joining all pages gives back the whole text exactly.
+
+Byte counts are UTF-8 bytes of the text without a byte order mark, so `totalBytes` can be a few bytes smaller
+than `bytes`, the stored file's size. For a binary file they count the SRT text, not the stored bytes.
+
+When more text follows, `truncated` is `true` and `next` holds an opaque cursor. Call again with the same `jobId`
+and `which` (or the same `location`) and `cursor: next`; `maxBytes` may change between pages. The last page has `truncated: false` and no
+`next`.
+
+Paging is stateless: there is nothing to close or expire on the server. Each call reads the stored file again, and
+the cursor carries a fingerprint (a SHA-256 hash) of the stored bytes. If the file changed between pages, the call
+fails with `preview-source-changed`, and you start again without `cursor`. Any other cursor problem is
+`preview-cursor-invalid`: a value that isn't one `preview_text` returned (empty, altered, too long), or a cursor
+used with another job, `which` or location.
+
+The decoded text is cached in memory (`SUBTITLE_MCP_PREVIEW_CACHE_BYTES`, default 64 MiB, least recently used first,
+dropped after `SUBTITLE_MCP_PREVIEW_CACHE_TTL_MS` unused), so later pages don't read or convert the file again. Each
+call still checks that the file hasn't changed: locally by its size, modification time and inode, for API files by
+asking with the cached `ETag` (`If-None-Match`; a `304` means unchanged). A changed file is read again, and a cursor
+from before the change gives `preview-source-changed`. Older APIs without an `ETag` mean every page reads the file
+again, as before.
+
+### Result
+
+| Field | Description |
+|---|---|
+| `text` | One page of text, ending on a whole cue or line, without a BOM |
+| `unit` | `cue` (SRT, WebVTT) or `line` (other text) |
+| `truncated`, `next` | More text follows; pass `next` as `cursor` |
+| `maxBytes` | Page size in effect after clamping |
+| `returnedBytes`, `totalBytes` | UTF-8 bytes of this page and of the whole text |
+| `fromCue`, `toCue`, `returnedCues`, `totalCues` | With `unit: "cue"`: 1-based position of this page and the cue counts |
+| `fromLine`, `toLine`, `returnedLines`, `totalLines` | With `unit: "line"`: the same in lines |
+| `source` | `job`, `local` or `remote` |
+| `jobId`, `which`, `fileName`, `mediaType`, `bytes`, `location`, `format` | The file: name, media type, size, redacted location and recorded format id (`jobId`, `which` and `format` for job previews) |
+| `convertedFrom`, `convertedTo` | Set for binary files converted to SRT |
+| `warnings` | `max-bytes-clamped` when `maxBytes` was out of range, and what the SRT conversion of a binary file lost |
+
+The text is sent once, in the structured result's `text`. The content block is a one-line summary of the page
+(which cues, how many bytes, whether more follows), without the text. Subtitle text is not logged.
+
+It uses the configured API key, not an owner or admin role. Job ids are unguessable capability tokens. It reads
+current storage through the API's current allowlists and limits; files can change or disappear, and a signed
+HTTPS query is not kept, so that location cannot be read again. Errors distinguish `job-not-ready`,
+`job-not-found`, `job-input-not-stored`, `job-output-not-stored`, `job-file-gone` and
+`job-location-not-replayable` (see the API's
+[errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page), and
+the paging codes `preview-source-changed`, `preview-cursor-invalid` and `preview-cue-too-large`
+([troubleshooting.md](troubleshooting.md#jobs-and-storage-uris)). Input may be readable while output is pending. A
+failed job has no stored output. A missing job is not a failed conversion.
 
 The convert description reports API storage schemes when limits are known; `subtitleedit://limits` exposes
 the full API response. The schemes line is omitted if either input/output scheme array is missing. `Prefer: wait` is bounded by MCP timeout and API maximum wait, not by destination.

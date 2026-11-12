@@ -60,6 +60,13 @@ describe("config", () => {
     }
   };
   const token = "t".repeat(32);
+  it("SUBTITLE_MCP_LIST_ENABLED is on by default (API locations follow the API), false turns it off, strict", () => {
+    expect(cfg([]).listEnabled).toBe(true);
+    expect(cfg([], { SUBTITLE_MCP_LIST_ENABLED: "true" }).listEnabled).toBe(true);
+    expect(cfg([], { SUBTITLE_MCP_LIST_ENABLED: "false" }).listEnabled).toBe(false);
+    expect(err([], { SUBTITLE_MCP_LIST_ENABLED: "maybe" })).toMatch(/SUBTITLE_MCP_LIST_ENABLED/);
+  });
+
   it("defaults to local stdio", () => {
     const c = cfg([]);
     expect(c.mode).toBe("local");
@@ -73,6 +80,14 @@ describe("config", () => {
     expect(c.mode).toBe("sidecar");
     expect(c.http).toEqual({ host: "0.0.0.0", port: 3001 });
     expect(c.apiUrl).toBe("http://other");
+  });
+  it("preview page sizes: defaults, range, hard ceiling and the removed inline-text variable", () => {
+    expect(cfg([])).toMatchObject({ previewDefaultBytes: 65536, previewMaxBytes: 262144 });
+    expect(cfg([], { SUBTITLE_MCP_PREVIEW_MAX_BYTES: "8192" })).toMatchObject({ previewDefaultBytes: 8192, previewMaxBytes: 8192 });
+    expect(err([], { SUBTITLE_MCP_PREVIEW_MAX_BYTES: "2000000" })).toMatch(/at most 1048576/);
+    expect(err([], { SUBTITLE_MCP_PREVIEW_MAX_BYTES: "100" })).toMatch(/>= 4096/);
+    expect(err([], { SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES: "300000" })).toMatch(/must not exceed SUBTITLE_MCP_PREVIEW_MAX_BYTES/);
+    expect(err([], { SUBTITLE_MCP_INLINE_TEXT_MAX_BYTES: "65536" })).toMatch(/was removed.*SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES/);
   });
   it("rejects invalid values, unknown vars, both key sources and hosted", () => {
     expect(err([], { SUBTITLE_API_URL: undefined })).toMatch(/required/);
@@ -145,10 +160,20 @@ describe("version check (D-37/D-43)", () => {
     expect(versionCompatible("1.1.0", "1.1.2")).toBe(true);
     expect(versionCompatible("1.2.0", "1.1.2")).toBe(false);
   });
-  it("package.json carries the shared 1.3 version line (pairs with API 1.3.x) and is publishable", async () => {
+  it("package.json carries the shared 1.4 version line (pairs with API 1.4.x) and is publishable", async () => {
     const pkg = JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
-    expect(pkg.version).toMatch(/^1\.3\.\d+$/);
+    expect(pkg.version).toMatch(/^1\.4\.\d+$/);
     expect(pkg.private).toBeUndefined();
   });
 });
 
+
+describe("locationBaseName", async () => {
+  const { locationBaseName } = await import("../../src/tools/textPage.js");
+  it("derives stored names from locations", () => {
+    expect(locationBaseName("s3://subs/qa/test2-145152.srt")).toBe("test2-145152.srt");
+    expect(locationBaseName("https://h.example.com/out/a%20b.srt")).toBe("a b.srt");
+    expect(locationBaseName("/data/out/x.vtt")).toBe("x.vtt");
+    expect(locationBaseName("s3://bucket/")).toBeUndefined();
+  });
+});

@@ -6,6 +6,7 @@ import type { Logger } from "../log.js";
 import { abortableSleep, backoffMs, parseRetryAfter, retryAfterWaitMs } from "./retry.js";
 
 export interface CallStats {
+  /** Most tries any single API request in this call needed (1 + its retries); 0 before the first request. */
   attempts: number;
   retryWaitMs: number;
   requestIds: string[];
@@ -20,6 +21,8 @@ export interface CallCtx {
   signal?: AbortSignal;
   onProgress?: (message: string) => void | Promise<void>;
   stats: CallStats;
+  /** Set when a local extension check was skipped because the API doesn't report its list (older minor version). */
+  extensionCheckSkipped?: boolean;
 }
 
 export interface ApiRequest {
@@ -86,7 +89,9 @@ export class ApiClient {
       if (ctx.signal?.aborted) throw mcpError("cancelled", "The client cancelled the request.", undefined, { attempts: ctx.stats.attempts });
       const rid = retries === 0 ? ctx.requestId : withSuffix(ctx.requestId, `.r${retries}`);
       ctx.stats.requestIds.push(rid);
-      ctx.stats.attempts++;
+      // Tries of this request, not a count of every request in the call: a tool that makes several
+      // different requests (job metadata, then the file) still reports 1 when nothing was retried.
+      ctx.stats.attempts = Math.max(ctx.stats.attempts, retries + 1);
       const headers: Record<string, string> = { ...req.headers, Accept: req.accept ?? "application/json", "X-Request-Id": rid };
       if (req.json !== undefined) headers["Content-Type"] = "application/json";
       else if (req.raw) headers["Content-Type"] = req.raw.contentType;
@@ -168,7 +173,7 @@ export class ApiClient {
         if (ra !== undefined) te.retryAfterSeconds = ra;
         const w = await this.planWait(retries, waited, ra);
         if (w !== undefined) {
-          const what = res.status === 429 ? "API rate limited" : res.status === 503 ? "Converter busy (queue full)" : "Converter overloaded (queue timeout)";
+          const what = res.status === 429 ? "API rate limited" : res.status === 503 ? (te.code === "browse-busy" ? "API busy (browse queue full)" : te.code === "conversion-engine-stuck" ? "Converter stuck on a previous conversion" : "Converter busy (queue full)") : "Converter overloaded (queue timeout)";
           await this.doWait(w, ctx, `${what}; retrying in ${Math.ceil(w / 1000)}s (attempt ${retries + 2}/${this.cfg.retryMaxAttempts + 1})`);
           waited += w;
           retries++;

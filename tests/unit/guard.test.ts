@@ -93,8 +93,9 @@ describe("PathGuard", () => {
       expect((e as ToolFailure).toolError.detail).not.toContain("secret");
     }
   });
-  it("allows symlinks that stay inside", async () => {
-    expect((await guard.resolveInputFile(path.join(rw, "inside-link.srt"))).real).toBe(path.join(rw, "a.srt"));
+  it("never follows symlinks, even ones that stay inside (H10)", async () => {
+    expect(await code(guard.resolveInputFile(path.join(rw, "inside-link.srt")))).toBe("path-not-allowed");
+    expect((await guard.resolveInputFile(path.join(rw, "a.srt"))).real).toBe(path.join(rw, "a.srt"));
   });
   it("not found and not a file", async () => {
     expect(await code(guard.resolveInputFile(path.join(rw, "nope.srt")))).toBe("path-not-found");

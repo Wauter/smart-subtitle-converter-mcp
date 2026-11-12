@@ -20,6 +20,7 @@ const srt = (n: number, text = "Hello") =>
 
 describe.skipIf(!URL_)("contract: real API", () => {
   let dir: string, h: Harness;
+  let hasList = false; // the API reports storage.extensions (older APIs don't: the MCP skips the check and warns)
   const mk = async (cfg = {}) => harness({ apiUrl: URL_!, apiKey: KEY, ...cfg }, { roots: await realpathRoots([dir], []) });
   const put = (rel: string, content: string | Buffer = SRT) => {
     const p = path.join(dir, ...rel.split("/"));
@@ -35,6 +36,15 @@ describe.skipIf(!URL_)("contract: real API", () => {
     dir = fs.realpathSync(tmpDir("contract-"));
     h = await mk();
     await probeApi(h.deps.cfg, h.deps.log);
+    const limits: any = await (await fetch(`${URL_}/v1/limits`, { headers: KEY ? { authorization: `Bearer ${KEY}` } : {} })).json().catch(() => undefined);
+    hasList = Array.isArray(limits?.storage?.extensions);
+  });
+
+  it("local files: checked against the API's extension list, or unchecked with a warning on older APIs", async () => {
+    const r = await callTool(h, "detect_format", { path: put("local/check.srt") });
+    expect(r.isError, JSON.stringify(r.structuredContent?.error)).toBeFalsy();
+    if (hasList) expect(r.content[0].text).not.toContain("mcp-extension-check-skipped");
+    else expect(r.content[0].text).toContain("Warning mcp-extension-check-skipped");
   });
   afterAll(async () => {
     await h.close();
@@ -80,13 +90,17 @@ describe.skipIf(!URL_)("contract: real API", () => {
     it("SRT→VTT inline and to disk byte-exact vs direct API output", async () => {
       const inline = await callTool(h, "convert_subtitle", { content: SRT, fileName: "a.srt", target: "webvtt" });
       expect(inline.isError).toBeFalsy();
-      expect(inline.content.find((c: any) => c.type === "text" && c.text.startsWith("WEBVTT"))).toBeTruthy();
+      const res = inline.content.find((c: any) => c.type === "resource")?.resource;
+      expect(res?.text?.replace(/^\uFEFF/, "")).toMatch(/^WEBVTT/);
+      expect(inline.structuredContent.outputs[0].attached).toBe(true);
+      expect(Buffer.byteLength(res.text, "utf8")).toBe(inline.structuredContent.outputs[0].bytes);
       const src = put("single/a.srt");
       const out = path.join(dir, "single", "a.vtt");
       const disk = await callTool(h, "convert_subtitle", { path: src, target: "webvtt", outputPath: out });
       expect(disk.structuredContent.outputs[0]).toMatchObject({ writtenTo: out, action: "written" });
       const ref = await direct({ content: Buffer.from(SRT).toString("base64"), contentEncoding: "base64", fileName: "a.srt", target: "webvtt", responseEncoding: "base64" });
       expect(fs.readFileSync(out).equals(Buffer.from(ref.outputs[0].content, "base64"))).toBe(true);
+      expect(Buffer.from(res.text, "utf8").equals(Buffer.from(ref.outputs[0].content, "base64"))).toBe(true); // inline resource = stored/written bytes, BOM included
       expect(fs.readdirSync(path.dirname(out)).filter((n) => n.endsWith(".partial"))).toEqual([]);
     });
     it("target.additional: multiple-outputs with outputPath, success with outputDir", async () => {
@@ -136,14 +150,14 @@ describe.skipIf(!URL_)("contract: real API", () => {
       expect(job.status).toBe("succeeded"); expect(job.result.outputs[0].content).toBeUndefined();
       expect((await h.client.listTools()).tools.some((t) => t.name === "convert_batch")).toBe(false);
     });
-    it("get_job_file explains response-only jobs and forgotten ids", async () => {
+    it("preview_text explains response-only jobs and forgotten ids", async () => {
       const result = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
       for (const which of ["input", "output"] as const) {
-        const missing = await callTool(h, "get_job_file", { jobId: result.structuredContent.jobId, which });
+        const missing = await callTool(h, "preview_text", { jobId: result.structuredContent.jobId, which });
         expect(missing.structuredContent.error.code).toBe(which === "input" ? "job-input-not-stored" : "job-output-not-stored");
         expect(missing.structuredContent.error.jobId).toBe(result.structuredContent.jobId);
       }
-      const unknown = await callTool(h, "get_job_file", { jobId: "00000000000000000000000000000000", which: "output" });
+      const unknown = await callTool(h, "preview_text", { jobId: "00000000000000000000000000000000", which: "output" });
       expect(unknown.structuredContent.error.code).toBe("job-not-found");
     });
     it("Prefer wait=0 returns 202 and a retrievable terminal job", async () => {
@@ -168,17 +182,17 @@ describe.skipIf(!URL_)("contract: real API", () => {
         expect(r.isError).toBeFalsy(); expect(r.structuredContent.outputs[0].output).toBe(output);
         expect(fs.readFileSync(output, "utf8")).toContain("WEBVTT"); expect(fs.existsSync(output + ".json")).toBe(true);
         for (const which of ["input", "output"] as const) {
-          const file = await callTool(h, "get_job_file", { jobId: r.structuredContent.jobId, which });
+          const file = await callTool(h, "preview_text", { jobId: r.structuredContent.jobId, which });
           expect(file.isError).toBeFalsy(); expect(file.structuredContent.which).toBe(which);
           expect(file.structuredContent.bytes).toBe(fs.statSync(which === "input" ? source : output).size);
-          expect(file.content[1].text).toContain(which === "input" ? "Hello" : "WEBVTT");
+          expect(file.structuredContent.text).toContain(which === "input" ? "Hello" : "WEBVTT");
         }
         const collision = await callTool(h, "convert_subtitle", { input: source, output, target: "vtt" });
         expect(collision.structuredContent.error.code).toBe("output-exists"); expect(collision.structuredContent.error.hint).toContain("error | replace");
         const replaced = await callTool(h, "convert_subtitle", { input: source, output, sidecar: true, target: "vtt", ifExists: "replace" });
         expect(replaced.isError).toBeFalsy();
         fs.unlinkSync(output);
-        const gone = await callTool(h, "get_job_file", { jobId: r.structuredContent.jobId, which: "output" });
+        const gone = await callTool(h, "preview_text", { jobId: r.structuredContent.jobId, which: "output" });
         expect(gone.structuredContent.error.code).toBe("job-file-gone"); expect(gone.structuredContent.error.location).toBe(new URL(`file://${output}`).href);
 
       } finally { for (const f of [source, output, output + ".json"]) fs.rmSync(f, { force: true }); }
@@ -259,13 +273,15 @@ describe.skipIf(!URL_)("contract: real API", () => {
     });
     it("PAC/FPC ambiguity: no deciding name → ambiguous-format with candidates; .fpc name or source.format decides", async () => {
       const bytes = fs.readFileSync(new URL("./fixtures/sample.fpc.bin", import.meta.url));
-      const bin = put("v12/amb.bin", bytes);
-      const r = await callTool(h, "convert_subtitle", { path: bin, target: "subrip" });
+      // A local .bin file is not a subtitle file name, so the MCP never reads it (H3); inline content has no such rule.
+      if (hasList) expect((await callTool(h, "convert_subtitle", { path: put("v12/amb.bin", bytes), target: "subrip" })).structuredContent.error.code).toBe("extension-not-allowed");
+      const inline = { content: bytes.toString("base64"), contentEncoding: "base64", fileName: "amb.bin", target: "subrip" };
+      const r = await callTool(h, "convert_subtitle", inline);
       expect(r.isError).toBe(true);
       expect(r.structuredContent.error.code).toBe("ambiguous-format");
       expect(r.structuredContent.error.candidates).toEqual(expect.arrayContaining(["pacscreenelectronics", "pacunicodeunipac"]));
       expect(r.content[0].text).toMatch(/profile\.source\.format \('pac' or 'fpc'\)/);
-      const ok = await callTool(h, "convert_subtitle", { path: bin, target: "subrip", profile: { source: { format: "fpc" } } });
+      const ok = await callTool(h, "convert_subtitle", { ...inline, profile: { source: { format: "fpc" } } });
       expect(ok.isError).toBeFalsy();
       const named = await callTool(h, "detect_format", { path: put("v12/amb.fpc", bytes) });
       expect(named.structuredContent.id).toBe("pacunicodeunipac");
@@ -282,7 +298,7 @@ describe.skipIf(!URL_)("contract: real API", () => {
       expect(fs.readFileSync(stl).subarray(3, 11).toString("latin1")).toMatch(/^STL\d\d\.01$/);
       const back = await callTool(h, "convert_subtitle", { path: stl, target: "subrip" });
       expect(back.isError).toBeFalsy();
-      expect(back.content.map((c: any) => c.text ?? "").join("")).toMatch(/Round trip 3/);
+      expect(back.content.map((c: any) => c.resource?.text ?? "").join("")).toMatch(/Round trip 3/);
     });
     it("invalid-binary-input", async () => {
       const p = put("bin/bad.stl", Buffer.alloc(100, 0x41)); // shorter than the 1024-byte GSI block

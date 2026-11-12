@@ -102,6 +102,8 @@ export class SafeWriter {
     const { dir, name, ifExists } = req;
     if (ifExists !== "error" && ifExists !== "replace") throw mcpError("invalid-arguments", "Unknown ifExists policy.", "Valid ifExists values: error | replace.");
     const target = nodePath.join(dir, name);
+    // H2: a hidden name is never created (defence in depth; the tools check first).
+    if (name.startsWith(".")) throw mcpError("hidden-path", `Hidden files and folders are never read, listed or written: ${target}`, "Use a file name without a leading dot.", { path: target });
     const warnings: WarningT[] = [];
     let staging: string | undefined;
     const aborted = () => {
@@ -122,6 +124,8 @@ export class SafeWriter {
       let action: WriteAction = "written";
       if (existing) {
         if (existing.isDirectory()) throw mcpError("output-exists", `A folder exists at the output path: ${target}`, "Choose another output folder.", { path: target });
+        // H10: never write through, or replace, a symlink or special file.
+        if (!existing.isFile()) throw mcpError("path-not-allowed", `The output path is a symlink or special file, which is never written or replaced: ${target}`, "Choose another output name.", { path: target });
         switch (ifExists) {
           case "error":
             throw mcpError("output-exists", `Output already exists: ${target}`, "Valid ifExists values: error | replace. Choose another path or explicitly replace; a previous job may have written or still be writing this location.", { path: target });

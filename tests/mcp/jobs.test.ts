@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import fs from "node:fs";
 import path from "node:path";
 import { http, HttpResponse } from "msw";
-import { API, baseHandlers, callTool, convertOk, harness, mswServer, recorded, SRT, tmpDir, type Harness } from "../helpers/harness.js";
+import { API, EXTENSIONS, baseHandlers, callTool, convertOk, harness, mswServer, recorded, SRT, tmpDir, type Harness } from "../helpers/harness.js";
 import { realpathRoots } from "../../src/fs/guard.js";
 import { apiInfo } from "../../src/api/info.js";
 
@@ -46,7 +46,7 @@ describe("API locations and jobs", () => {
   });
   it("advertises distinct input/output schemes after limits, not MCP folder roots", async () => {
     h = await harness();
-    mswServer.use(http.get(`${API}/v1/limits`, () => HttpResponse.json({ requestWaitSeconds: 30, requestMaxWaitSeconds: 60, storage: { inputSchemes: ["file", "azure"], outputSchemes: ["s3", "ftp"] } })));
+    mswServer.use(http.get(`${API}/v1/limits`, () => HttpResponse.json({ requestWaitSeconds: 30, requestMaxWaitSeconds: 60, storage: { extensions: EXTENSIONS, inputSchemes: ["file", "azure"], outputSchemes: ["s3", "ftp"] } })));
     await h.client.readResource({ uri: "subtitleedit://limits" });
     const { tools } = await h.client.listTools();
     for (const name of ["convert_subtitle", "detect_format"]) {
@@ -56,7 +56,7 @@ describe("API locations and jobs", () => {
     }
   });
   it("omits scheme descriptions when either limits array is missing", async () => {
-    h = await harness(); mswServer.use(http.get(`${API}/v1/limits`, () => HttpResponse.json({ storage: { inputSchemes: ["file"] } })));
+    h = await harness(); mswServer.use(http.get(`${API}/v1/limits`, () => HttpResponse.json({ storage: { extensions: EXTENSIONS, inputSchemes: ["file"] } })));
     await h.client.readResource({ uri: "subtitleedit://limits" });
     for (const tool of (await h.client.listTools()).tools.filter(t => ["convert_subtitle", "detect_format"].includes(t.name)))
       expect(tool.description).not.toContain("API storage enabled:");
@@ -64,7 +64,21 @@ describe("API locations and jobs", () => {
   it("surfaces a synchronous job id without changing inline bytes", async () => {
     h = await harness(); mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.vtt", content: "WEBVTT\n" }], { id }))));
     const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
-    expect(r.structuredContent.jobId).toBe(id); expect(r.content[1].text).toBe("WEBVTT\n");
+    expect(r.structuredContent.jobId).toBe(id); expect(r.content[1].resource.text).toBe("\uFEFFWEBVTT\n");
+  });
+  it("logs API inputs by scheme and names them in the summary, never as inline content", async () => {
+    h = await harness(); mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.vtt", content: "WEBVTT\n" }], { id }))));
+    for (const [input, kind] of [["s3://subs/in/show.srt", "s3"], ["file:///data/in/show.srt", "file"], ["/data/in/show.srt", "file"], ["https://mam.example.com/in/show.srt?X-Amz-Signature=secret", "https"]]) {
+      h.logs.length = 0;
+      const r = await callTool(h, "convert_subtitle", { input, target: "vtt" });
+      expect(r.content[0].text).toMatch(/^Converted show\.srt \(/);
+      const line = h.logs.map((l) => JSON.parse(l)).find((l: any) => l.tool === "convert_subtitle");
+      expect(line).toMatchObject({ source: kind, inputExt: ".srt" }); expect(line.attempts).toBe(1);
+    }
+    expect(h.logs.join("\n")).not.toContain("secret");
+    h.logs.length = 0;
+    await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
+    expect(h.logs.map((l) => JSON.parse(l)).find((l: any) => l.tool === "convert_subtitle").source).toBe("inline");
   });
   it("passes detect input without inventing inline content", async () => {
     h = await harness(); mswServer.use(http.post(`${API}/v1/detect`, () => HttpResponse.json({ format: "SubRip", id: "subrip", encoding: "utf-8", encodingConfidence: "utf8-valid", paragraphs: 1 })));

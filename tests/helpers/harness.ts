@@ -13,12 +13,23 @@ import type { Root } from "../../src/fs/guard.js";
 
 export const API = "http://api.test";
 
+/** The API's storage.extensions as reported by a current API (the MCP has no built-in copy). */
+export const EXTENSIONS: readonly string[] = [
+  ".890", ".aqt", ".asc", ".ass", ".ats", ".aya", ".bcc", ".c", ".cac", ".cap", ".caption", ".chk", ".cin", ".cip", ".cmft", ".crk", ".csv",
+  ".ctm", ".dat", ".detx", ".dfxp", ".dtc", ".dv", ".edl", ".elr", ".eztxml", ".fcpxml", ".flc", ".fpc", ".gst", ".html", ".imscr", ".imtpro",
+  ".inqscr", ".ismt", ".itt", ".json", ".jss", ".lrc", ".mcc", ".mvt", ".pac", ".pjs", ".pns", ".psl", ".pst", ".rt", ".rtf", ".sbv", ".scc",
+  ".sif", ".smi", ".spt", ".sptx", ".srt", ".ssa", ".stl", ".stp", ".sub", ".subtitle", ".tek", ".titl", ".tmm", ".tmx", ".trs", ".tsv", ".tt",
+  ".ttml", ".tts", ".ttxt", ".txt", ".uld", ".ult", ".usf", ".utx", ".vid", ".vtt", ".w32", ".webvtt", ".wsrt", ".xif", ".xml", ".xmp",
+  ".xsubtitle", ".zeg",
+];
+
 export const LIMITS = {
   maxUploadBytes: 10485760,
   maxRequestBodyBytes: { multipart: 10747904, json: 14112088 },
   json: { maxDecodedContentBytes: 10485760, base64: "x" },
   maxProfileBytes: 65536, maxCues: 200000, maxLineChars: 10000,
   conversionTimeoutSeconds: 30, queue: { capacity: 32, depth: 0 }, rateLimitPerMinute: 0, auth: { required: false }, binary: { ebuStlMaxBytes: 2047999 },
+  storage: { extensions: EXTENSIONS } as Record<string, unknown>,
 };
 
 export const FORMATS = [
@@ -73,7 +84,7 @@ mswServer.events.on("request:start", async ({ request }) => {
 });
 
 export const baseHandlers = (opts: { limits?: "ok" | "404"; formats?: unknown[] } = {}): HttpHandler[] => [
-  http.get(`${API}/healthz`, () => HttpResponse.json({ status: "ok", version: "1.3.0", libse: "5.1.0" })),
+  http.get(`${API}/healthz`, () => HttpResponse.json({ status: "ok", version: "1.4.0", libse: "5.1.0" })),
   http.get(`${API}/v1/limits`, () => (opts.limits === "404" ? problem(404, "not-found") : HttpResponse.json(LIMITS))),
   http.get(`${API}/v1/formats`, () => HttpResponse.json(opts.formats ?? FORMATS)),
 ];
@@ -92,7 +103,7 @@ export interface Harness {
 export async function harness(cfg: Partial<Config> = {}, opts: DepsOptions & { roots?: Root[] } = {}): Promise<Harness> {
   const logs: string[] = [];
   const config = defaultConfig({ apiUrl: API, ...cfg });
-  const log = createLogger("debug", false, (l) => logs.push(l));
+  const log = createLogger("debug", config.logPaths, (l) => logs.push(l));
   const deps = buildDeps(config, { log, ...opts });
   const server = createServer(deps);
   const [ct, st] = InMemoryTransport.createLinkedPair();

@@ -19,6 +19,10 @@ export interface Limits {
   maxCues?: number;
   conversionTimeoutSeconds?: number;
   ebuStlMaxBytes?: number;
+  /** storage.list: the API serves /v1/storage/* (STORAGE_LIST_ENABLED). */
+  storageList?: boolean;
+  /** storage.listSchemes: the schemes it can list (file, s3). */
+  listSchemes?: string[];
   raw: unknown;
 }
 
@@ -44,6 +48,8 @@ export function normalizeLimits(raw: any): Limits {
     maxCues: toOptInt(raw?.maxCues),
     conversionTimeoutSeconds: toOptInt(raw?.conversionTimeoutSeconds),
     ebuStlMaxBytes: toOptInt(raw?.binary?.ebuStlMaxBytes),
+    storageList: raw?.storage?.list === true,
+    listSchemes: schemes(raw?.storage?.listSchemes)?.filter((s) => s !== "https"),
     raw,
   };
 }
