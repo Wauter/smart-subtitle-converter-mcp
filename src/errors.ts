@@ -1,4 +1,5 @@
 import { pathToFileURL } from "node:url";
+import { dataFence } from "./fence.js";
 import { z } from "zod";
 
 export const FieldError = z.object({ pointer: z.string(), message: z.string(), hint: z.string().nullish() });
@@ -63,7 +64,10 @@ export const ToolErrorSchema = z.object({
    * ambiguous-format: the format ids the bytes match (strings). ambiguous-encoding: PAC code page names (strings) for
    * probe pac-code-page, or {encoding, language, hits, sample} objects for probe text-encoding.
    */
+  /** ambiguous-encoding text-encoding: per-result markers right before and after `candidates` (their `sample`s are file text). */
+  dataStart: z.string().optional(),
   candidates: z.array(Candidate).optional(),
+  dataEnd: z.string().optional(),
   /** ambiguous-encoding: which probe could not decide ("pac-code-page" | "text-encoding"). */
   probe: z.string().optional(),
   phase: z.string().optional(),
@@ -204,7 +208,14 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
         ...(typeof e.hint === "string" ? { hint: e.hint } : {}),
       }));
   }
-  if (Array.isArray(b.candidates)) te.candidates = mapCandidates(b.candidates);
+  if (Array.isArray(b.candidates)) {
+    const candidates = mapCandidates(b.candidates);
+    const samples = candidates.flatMap((c) => (typeof c === "object" && typeof c.sample === "string" ? [c.sample] : []));
+    if (samples.length) {
+      const { dataStart, dataEnd } = dataFence(samples);
+      te.dataStart = dataStart; te.candidates = candidates; te.dataEnd = dataEnd;
+    } else te.candidates = candidates;
+  }
   if (typeof b.phase === "string") te.phase = b.phase;
   if (typeof b.probe === "string") te.probe = b.probe;
   if (ctx.includeDebug && ctx.mode !== "hosted" && b.debug !== undefined) te.debug = b.debug;

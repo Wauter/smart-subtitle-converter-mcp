@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { dataFence, DATA_START_DESCRIPTION, DATA_END_DESCRIPTION } from "../fence.js";
 import { pathToFileURL } from "node:url";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Call, Deps } from "../context.js";
@@ -39,7 +40,9 @@ export const PreviewTextOutput = {
   bytes: count.describe("Size of the stored file in bytes (before any SRT conversion)"),
   location: z.string().describe("The file's location (local path or API URI), with any credentials or query removed"),
   format: z.string().optional().describe("Format id of the stored file, when the job recorded it"),
+  dataStart: z.string().describe(DATA_START_DESCRIPTION),
   text: z.string().describe("One page of the text (SRT when convertedFrom is set), ending on a whole cue or line; no BOM"),
+  dataEnd: z.string().describe(DATA_END_DESCRIPTION),
   unit: z.enum(["cue", "line"]).describe("How pages are cut: whole cues (SRT, WebVTT) or whole lines (other text)"),
   maxBytes: count.describe("The page size in effect after clamping, in UTF-8 bytes"),
   truncated: z.boolean().describe("true when more text follows this page; pass `next` as `cursor` to read it"),
@@ -152,7 +155,7 @@ export function registerPreviewTextTool(server: McpServer, deps: Deps): void {
         const pos = total === 0 ? { [`returned${U}s`]: 0, [`total${U}s`]: 0 } : { [`from${U}`]: page.start + 1, [`to${U}`]: page.end, [`returned${U}s`]: n, [`total${U}s`]: total };
         const structured: any = {
           source: src.source, ...(byJob ? { jobId: a.jobId, which: a.which } : {}), fileName, mediaType, bytes, location, ...(formatId ? { format: formatId } : {}),
-          text: page.text, unit: seg.unit, maxBytes, truncated: page.more,
+          ...fenceAround("text", page.text), unit: seg.unit, maxBytes, truncated: page.more,
           ...(page.more ? { next: encodeCursor({ k: key, h: fp, u: seg.unit, f: page.end, m: maxBytes }) } : {}),
           returnedBytes: page.returnedBytes, totalBytes: seg.totalBytes, ...pos,
           ...(convertedFrom ? { convertedFrom, convertedTo: "srt" } : {}), warnings: [...clampWarning, ...warnings], ...(requestId ? { requestId } : {}),
@@ -360,4 +363,10 @@ function redactedLocation(value: string): string {
   if (value.startsWith("/")) return pathToFileURL(value).href;
   try { const url = new URL(value); url.username = ""; url.password = ""; url.search = ""; url.hash = ""; return url.href; }
   catch { throw mcpError("api-protocol-error", "The API returned an invalid stored location."); }
+}
+
+/** `{dataStart, [key]: content, dataEnd}` in that order, so the markers sit right around the content when serialised. */
+function fenceAround(key: string, content: string): Record<string, string> {
+  const { dataStart, dataEnd } = dataFence([content]);
+  return { dataStart, [key]: content, dataEnd };
 }
