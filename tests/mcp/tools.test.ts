@@ -67,7 +67,7 @@ describe("metadata tools", () => {
     apiInfo.version = "1.0.0";
     apiInfo.versionMismatch = true;
     const r = await callTool(h, "list_formats", {});
-    expect(r.structuredContent.warnings).toEqual([expect.objectContaining({ code: "mcp-api-version-mismatch", message: expect.stringMatching(/API version 1\.0\.0 is not compatible with this MCP \(1\.4\.x\)/) })]);
+    expect(r.structuredContent.warnings).toEqual([expect.objectContaining({ code: "mcp-api-version-mismatch", message: expect.stringMatching(/API version 1\.0\.0 is not compatible with this MCP \(1\.5\.x\)/) })]);
 
     // Tools whose `warnings` are FieldErrors keep a valid output schema (found by the contract run).
     mswServer.use(http.post(`${API}/v1/profiles/validate`, () => HttpResponse.json({ valid: true, errors: [], warnings: [{ pointer: "/target/format", message: "No target format" }], resolved: {} })));
