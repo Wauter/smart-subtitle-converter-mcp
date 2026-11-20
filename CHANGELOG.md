@@ -11,6 +11,7 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
 
 ## Unreleased
 
+- Dependencies: `@modelcontextprotocol/sdk` 1.32.1 to 1.32.2 (transport typings, and registering a tool after `connect()` when the capability was declared) and the lockfile's `hono` 4.13.13 to 4.13.19, which the SDK's `^4.11.4` range already allowed. `npm audit` reports no vulnerabilities.
 - EBU STL results carry `outputs[].header` (also from `get_job`): the language and country of origin written to the
   header as code plus name (`70 (Greek)`, `PRT (Portugal)`), and the title, publisher and translator fields that are
   set. The output schema declares it. The `profile` description now says how to set `formatOptions.ebuStl.language`
