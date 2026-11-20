@@ -129,32 +129,6 @@ describe("characters-replaced hint", () => {
   });
 });
 
-describe("EBU STL language hint", () => {
-  const lang = (value: string, detail?: string) => mapProblem(400, p(400, "format-option-invalid", {
-    detail: detail ?? `formatOptions has 1 invalid value(s); first at '/formatOptions/ebuStl/language': '${value}' has no EBU STL language code.`,
-    hint: "Use an ISO 639-1 code (sq, br, ca, hr, cy, cs, da, de, en, es, eo, et, ...), a two-digit EBU hex code like \"0A\", or \"auto\".",
-    errors: [{ pointer: "/formatOptions/ebuStl/language", message: `'${value}' has no EBU STL language code.`, hint: "Use an ISO 639-1 code (sq, ...)." }],
-  }), ctx);
-  it("gives the hex code for a known ISO code and the full list, never a cut-off list", () => {
-    const te = lang("el");
-    expect(te.hint).toMatch(/^Use "70" \(Greek, EBU Tech 3264 Appendix 3\)\. /);
-    expect(te.hint).toContain("sq br ca hr cy cs da de en es eo et eu fo fr fy ga gd gl is it la lv lb lt hu mt nl nb no oc pl pt ro rm sr sk sl fi sv tr.");
-    expect(te.hint).not.toContain("...");
-    expect(te.errors![0].hint).toBe(te.hint);
-    expect(lang("RU").hint).toMatch(/^Use "56" \(Russian/);
-  });
-  it("points to Tech 3264 for an unknown value", () => {
-    const te = lang("xx");
-    expect(te.hint).toMatch(/^ISO 639-1 codes work only for these languages: /);
-    expect(te.hint).toContain('upper case from EBU Tech 3264 Appendix 3 (for example Greek "70"');
-  });
-  it("keeps the API hint when another field is the first invalid value", () => {
-    const te = lang("el", "formatOptions has 2 invalid value(s); first at '/formatOptions/ebuStl/frameRate': bad.");
-    expect(te.hint).toMatch(/^Use an ISO 639-1 code \(sq/);
-    expect(te.errors![0].hint).toMatch(/^Use "70"/);
-  });
-});
-
 describe("characters-replaced hint for symbols outside any script", () => {
   const w = (codePoints: string[]) => mapWarnings([{ code: "characters-replaced", message: "m", hint: "Lost characters are outside the known scripts; use target fpc (Unicode PAC), or remove them (operations MultipleReplace).",
     details: { codePoints: codePoints.map((codePoint) => ({ codePoint, count: 1 })), remedy: { scripts: ["other"], currentEncoding: "cp850", candidatesTested: false, unicodeAlternative: "fpc", option: "formatOptions.ebuStl.characterTable", currentValue: "latin" } } }])[0];

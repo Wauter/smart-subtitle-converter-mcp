@@ -45,9 +45,7 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
   list_allowed_folders)`; the full advice stays in the startup instructions and `list_allowed_folders`. The startup
   instructions no longer mention `SUBTITLE_MCP_RESULT_IN` (it is documented in tools.md).
 - Clearer results and hints. A refused conversion request (HTTP 400 or 422, such as `frame-rate-required`) no
-  longer carries a `jobId` or the "not replayed; inspect any known job" advice, since nothing ran. A rejected EBU STL
-  `language` lists every ISO 639-1 code the API maps and, for other languages, the EBU Tech 3264 code (Greek
-  `"70"`). `characters-replaced` for symbols no character table holds (such as an em dash) leads with a
+  longer carries a `jobId` or the "not replayed; inspect any known job" advice, since nothing ran. `characters-replaced` for symbols no character table holds (such as an em dash) leads with a
   `MultipleReplace` operation to add to `profile.operations`. With `sidecar: true`, the result names the sidecar
   location in `outputs[].sidecar`.
 - File text in results sits between per-result markers: `preview_text` puts `dataStart` (`<file-data-…> File content

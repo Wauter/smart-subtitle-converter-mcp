@@ -205,9 +205,7 @@ Errors come back as `isError: true` with a structured `error`: `source` (`api` o
 `jobUrl`, a redacted `location`, `limit`, `retryAfterSeconds`, and for local write failures `path` + `osError`.
 API codes are on the API's [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page
 (what happened, why, what to do). MCP codes (`mcp-misconfigured`, `path-not-allowed`, `hidden-path`, `extension-not-allowed`, `folder-too-large`, `output-exists`, `cross-device`, …) are in
-[troubleshooting.md](troubleshooting.md). `path-not-allowed` hints include the current allowed folders. A rejected
-`formatOptions.ebuStl.language` hint lists every ISO 639-1 code the API maps and, for other languages, the two-digit
-EBU Tech 3264 code (for example Greek `"70"`).
+[troubleshooting.md](troubleshooting.md). `path-not-allowed` hints include the current allowed folders.
 
 ## Warnings
 

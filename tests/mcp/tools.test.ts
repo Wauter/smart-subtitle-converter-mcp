@@ -490,6 +490,8 @@ describe("convert_subtitle", () => {
       { code: "frame-quantised", message: "Rounded to frames", hint: "Use a time-based target.", details: { cueCount: 2 } },
       { code: "format-defaults-applied", message: "filled in", count: 2, hint: "Set formatOptions.ebuStl.originalProgrammeTitle, countryOfOrigin", details: { fields: { originalProgrammeTitle: "No Title", countryOfOrigin: "USA" } } },
       { code: "encoding-guessed", message: "guessed" },
+      { code: "format-defaults-applied", message: "language 09 (fallback: detected af has no built-in EBU mapping; set formatOptions.ebuStl.language to its two-digit upper-case hex code from EBU Tech 3264 Appendix 3)", hint: "Set formatOptions.ebuStl.language to the delivery's values.", details: { fields: { language: "09" } } },
+      { code: "ebu-language-mismatch", message: "formatOptions.ebuStl.language \"14\" writes EBU language code 14, but the text looks like el (EBU code 70).", hint: "If the text really is el, set formatOptions.ebuStl.language to \"70\" or \"auto\".", details: { fields: { language: "14", detectedLanguage: "el", detectedCode: "70" } } },
       { code: "sidecar-delete-failed", message: "stale sidecar kept" },
     ];
     mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.stl", content: "AAAA", contentEncoding: "base64" }], { warnings }))));
@@ -501,6 +503,10 @@ describe("convert_subtitle", () => {
     expect(out[1].details).toEqual(warnings[1].details);
     expect(out[2].details).toEqual({ timecode: "10:00:00:00" });
     expect(out[3].details).toEqual({ cueCount: 2 });
+    const fallback = out.find((w: { code: string; message: string }) => w.code === "format-defaults-applied" && /fallback: detected af/.test(w.message));
+    expect(fallback.message).toBe(warnings[6].message); expect(fallback.hint).toBe(warnings[6].hint);
+    const mismatch = out.find((w: { code: string }) => w.code === "ebu-language-mismatch");
+    expect(mismatch).toEqual({ code: "ebu-language-mismatch", message: warnings[7].message, hint: warnings[7].hint, details: { fields: { language: "14", detectedLanguage: "el", detectedCode: "70" } } });
     expect(out[4]).toMatchObject({ code: "format-defaults-applied", message: "filled in (count 2)", details: { fields: { originalProgrammeTitle: "No Title", countryOfOrigin: "USA" } } });
     expect(out[4].hint).toBe("Set formatOptions.ebuStl.originalProgrammeTitle, countryOfOrigin");
   });
