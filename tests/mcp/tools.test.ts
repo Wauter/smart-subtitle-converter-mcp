@@ -107,6 +107,24 @@ describe("metadata tools", () => {
     expect(r.structuredContent).toMatchObject({ valid: false, errors: [{ pointer: "/target/format", message: "Unknown format 'x'.", hint: "Did you mean 'webvtt'?" }] });
   });
 
+  it("validate_profile: every API error comes through, in the API's order, none merged or cut", async () => {
+    const profile = { target: { format: "ebustl" }, formatOptions: { ebuStl: { countryOfOrigin: "Belgique", programmeTitle: "Spring Promo" } } };
+    const errors = [
+      { pointer: "/formatOptions/ebuStl/programmeTitle", message: "Unknown property 'programmeTitle'.", hint: "Allowed: language, countryOfOrigin." },
+      { pointer: "/formatOptions/ebuStl/countryOfOrigin", message: "'Belgique' is not an ISO 3166-1 country.", hint: "Did you mean Belgium (BEL)?" },
+      // Same pointer and message twice, and many more errors: nothing is deduplicated or truncated.
+      { pointer: "/x", message: "same" }, { pointer: "/x", message: "same" },
+      ...Array.from({ length: 40 }, (_, i) => ({ pointer: `/e/${i}`, message: `m${i}` })),
+    ];
+    let sent = "";
+    mswServer.use(http.post(`${API}/v1/profiles/validate`, async ({ request }) => { sent = await request.text(); return HttpResponse.json({ valid: false, errors, warnings: [], resolved: profile }); }));
+    const r = await callTool(h, "validate_profile", { profile });
+    expect(r.isError).toBeFalsy();
+    expect(JSON.parse(sent)).toEqual(profile);
+    expect(r.structuredContent.errors).toEqual(errors.map((e) => ({ pointer: e.pointer, message: e.message, ...("hint" in e ? { hint: e.hint } : {}) })));
+    expect(r.structuredContent.errors).toHaveLength(44);
+  });
+
   it("detect_format 1.2.0: bom, lineEndings and source warnings", async () => {
     mswServer.use(http.post(`${API}/v1/detect`, () => HttpResponse.json({ format: "SubRip", id: "subrip", encoding: "utf-8", encodingConfidence: "bom", paragraphs: 3, kind: "text", bom: true, lineEndings: "crlf", warnings: [{ code: "zero-length-cue", message: "1 cue(s) …: cue(s) 1.", count: 1, hint: "Remove them.", details: { cueCount: 1, cues: [1] } }] })));
     const r = await callTool(h, "detect_format", { content: SRT, fileName: "m.srt" });
@@ -511,6 +529,7 @@ describe("convert_subtitle", () => {
       { code: "encoding-guessed", message: "guessed" },
       { code: "format-defaults-applied", message: "language 09 (fallback: detected af has no built-in EBU mapping; set formatOptions.ebuStl.language to its two-digit upper-case hex code from EBU Tech 3264 Appendix 3)", hint: "Set formatOptions.ebuStl.language to the delivery's values.", details: { fields: { language: "09" } } },
       { code: "ebu-language-mismatch", message: "formatOptions.ebuStl.language \"14\" writes EBU language code 14, but the text looks like el (EBU code 70).", hint: "If the text really is el, set formatOptions.ebuStl.language to \"70\" or \"auto\".", details: { fields: { language: "14", detectedLanguage: "el", detectedCode: "70" } } },
+      { code: "country-code-retired", message: "countryOfOrigin BUR is a retired ISO 3166 code (Burma, withdrawn 1989); current code MMR (Myanmar).", hint: "Keep BUR for archive material from when it was valid.", details: { fields: { countryOfOrigin: "BUR", name: "Burma", withdrawn: "1989", successors: "MMR" } } },
       { code: "sidecar-delete-failed", message: "stale sidecar kept" },
     ];
     mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.stl", content: "AAAA", contentEncoding: "base64" }], { warnings }))));
@@ -526,6 +545,7 @@ describe("convert_subtitle", () => {
     expect(fallback.message).toBe(warnings[6].message); expect(fallback.hint).toBe(warnings[6].hint);
     const mismatch = out.find((w: { code: string }) => w.code === "ebu-language-mismatch");
     expect(mismatch).toEqual({ code: "ebu-language-mismatch", message: warnings[7].message, hint: warnings[7].hint, details: { fields: { language: "14", detectedLanguage: "el", detectedCode: "70" } } });
+    expect(out.find((w: { code: string }) => w.code === "country-code-retired")).toEqual({ code: "country-code-retired", message: warnings[8].message, hint: warnings[8].hint, details: warnings[8].details });
     expect(out[4]).toMatchObject({ code: "format-defaults-applied", message: "filled in (count 2)", details: { fields: { originalProgrammeTitle: "No Title", countryOfOrigin: "USA" } } });
     expect(out[4].hint).toBe("Set formatOptions.ebuStl.originalProgrammeTitle, countryOfOrigin");
   });

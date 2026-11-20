@@ -227,7 +227,9 @@ name (`"70 (Greek)"`, `"PRT (Portugal)"`), and whichever of `originalProgrammeTi
 `translatedProgrammeTitle`, `translatorsName` and `publisher` are set. The API reads it back from the file bytes; the
 server passes it through unchanged, also in `get_job`. For the input, `formatOptions.ebuStl.language` is best left out
 (the API detects it), otherwise an ISO 639-1 code or an EBU hex code; `formatOptions.ebuStl.countryOfOrigin` is an
-alpha-3 code, an alpha-2 code or the English name, in any case.
+alpha-3 code, an alpha-2 code or the English name, in any case. A retired ISO 3166-3 alpha-3 code such as `BUR` is
+accepted for archive material: it is written as given, shows as `BUR (Burma, retired)`, and the API's
+`country-code-retired` warning (passed through with its hint and details) names the current code.
 
 ## Verification
 
