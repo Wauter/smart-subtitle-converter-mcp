@@ -11,7 +11,7 @@ the API's [security notes](https://github.com/Wauter/smart-subtitle-converter-ap
 
 - The usual setup is stdio: the server talks to one local client, not the network.
 - It reads and writes only inside folders you name (`SUBTITLE_MCP_ALLOWED_DIRS` / `SUBTITLE_MCP_READONLY_DIRS`).
-- File contents go by `path`, so they do not pass through the model's context.
+- File bytes travel between the server and the API, not through the model. The model sees file text only when it asks for it: `preview_text` returns text, and a conversion without an API `output` attaches the converted file to the result.
 - Logs never include subtitle content, profile values, API keys or tokens. Paths are hashed unless
   `SUBTITLE_MCP_LOG_PATHS=true`.
 - `--hosted` is not available and refuses to start.

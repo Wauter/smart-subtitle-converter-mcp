@@ -190,7 +190,7 @@ These change tool names, result shapes and configuration. The project is still a
 - Public release: drop `package.json` `"private": true` and the CI publishing guard; document how tags publish.
 - Examples and `CONTRACT_API_URL` use the API's default host port `http://localhost:8080` (Compose publishes `127.0.0.1:8080:8080`); Docker-network URLs stay `http://api:8080`.
 
-## 1.3.0 — Unreleased
+## 1.3.0 — 2026-11-06
 
 - Add a GitHub security policy (`SECURITY.md`) and [docs/security.md](docs/security.md) covering allowed folders, writes, API keys and HTTP mode.
 - Docs: troubleshooting explains MCP error codes with what happened, why and what to do, and points to the API's errors reference for API codes; README lists `get_job_file` and covers API locations and jobs in the main flow; tools lists the error and warning detail fields.
