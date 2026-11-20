@@ -385,6 +385,15 @@ export interface components {
             lineEndings?: null | string;
             warnings?: null | components["schemas"]["Warning"][];
         };
+        EbuHeaderEcho: {
+            language?: null | string;
+            countryOfOrigin?: null | string;
+            originalProgrammeTitle?: null | string;
+            originalEpisodeTitle?: null | string;
+            translatedProgrammeTitle?: null | string;
+            translatorsName?: null | string;
+            publisher?: null | string;
+        };
         /** @description A problem located by a JSON pointer (profile field, query parameter, ...). */
         FieldError: {
             /** @description JSON pointer, e.g. /target/format. */
@@ -517,6 +526,7 @@ export interface components {
             output?: null | string;
             /** Format: int32 */
             bytes?: null | number | string;
+            header?: null | components["schemas"]["EbuHeaderEcho"];
         };
         PresetDetail: {
             name: string;

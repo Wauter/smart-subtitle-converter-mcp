@@ -54,6 +54,14 @@ describe("get_job", () => {
     expect(recorded.some((x) => new URL(x.url).hostname === "elsewhere.example")).toBe(false);
   });
 
+  it("a stored EBU STL result keeps its header echo", async () => {
+    h = await harness();
+    const rec: any = record(); rec.result.outputs[0].header = { language: "70 (Greek)", countryOfOrigin: "GRC (Greece)" };
+    mswServer.use(http.get(`${API}${path}`, () => HttpResponse.json(rec)));
+    const r = await callTool(h, "get_job", { jobId: id });
+    expect(r.structuredContent.outputs[0].header).toEqual({ language: "70 (Greek)", countryOfOrigin: "GRC (Greece)" });
+  });
+
   it("wait:false checks once and reports a running job as a normal result", async () => {
     h = await harness();
     mswServer.use(http.get(`${API}${path}`, () => HttpResponse.json({ id, status: "running", createdAt: "2026-11-12T10:00:00Z" })));

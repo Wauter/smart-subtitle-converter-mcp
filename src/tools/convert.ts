@@ -20,6 +20,18 @@ import {
 
 const IF_EXISTS = z.enum(["error", "replace"]);
 
+const HEADER_FIELDS = ["language", "countryOfOrigin", "originalProgrammeTitle", "originalEpisodeTitle", "translatedProgrammeTitle", "translatorsName", "publisher"] as const;
+const EbuHeader = z.object(Object.fromEntries(HEADER_FIELDS.map((k) => [k, z.string().optional()])) as Record<(typeof HEADER_FIELDS)[number], z.ZodOptional<z.ZodString>>);
+type EbuHeaderT = z.infer<typeof EbuHeader>;
+
+/** The API's header echo, keeping only the known string fields (each cut to 200 characters). */
+function mapHeader(h: any): EbuHeaderT | undefined {
+  if (!h || typeof h !== "object") return undefined;
+  const out: Record<string, string> = {};
+  for (const k of HEADER_FIELDS) if (typeof h[k] === "string" && h[k] !== "") out[k] = h[k].slice(0, 200);
+  return Object.keys(out).length ? out : undefined;
+}
+
 export const ConvertOutput = {
   jobId: z.string().optional().describe("API job id, for preview_text {jobId, which} and support"),
   outputs: z.array(
@@ -38,6 +50,7 @@ export const ConvertOutput = {
       sidecar: z.string().optional().describe("API location of the JSON sidecar written beside `output` (sidecar:true)"),
       action: z.enum(["written", "replaced"]).optional().describe("Local writes: written (new file) or replaced (ifExists:replace)"),
       attached: z.boolean().optional().describe("true when the whole converted file is attached to this result as an embedded resource (no output location given)"),
+      header: EbuHeader.optional().describe("EBU STL outputs: the GSI header fields written, read back from the file (language and country as code plus name, e.g. \"70 (Greek)\"). Check them against what the user asked for; unset fields are absent"),
       verification: Verification.optional().describe("Binary outputs: the file read back and compared with what was written. verdict lossless | quantised (times rounded to frames only) | lossy | unverified, with cue counts, timing shift and replaced characters by cue number. A clean round trip shows the file is self-consistent through the converter's own reader, not that a given playout system accepts it"),
     }),
   ),
@@ -66,6 +79,7 @@ export interface ApiOutput {
   output?: string;
   text?: string;
   verification?: VerificationT;
+  header?: EbuHeaderT;
 }
 
 export function describeConvert(deps: Deps): string {
@@ -100,7 +114,7 @@ export function registerConvertTool(server: McpServer, deps: Deps): void {
     fileName: z.string().max(255).optional().describe("Source file name; used for detection and to name the output"),
     preset: z.string().max(200).optional().describe("Preset name from list_presets"),
     target: z.string().max(100).optional().describe("Target format id or alias, e.g. 'webvtt', 'ebustl'"),
-    profile: z.record(z.string(), z.unknown()).optional().describe("Profile JSON or overrides on top of preset, e.g. {\"target\":{\"fps\":25}}; check custom ones with validate_profile. Frame rates: formats that store frame numbers without a rate (PAC, Cavena 890, Cheetah CAP, MicroDVD, …) need one and the API never guesses it: set source.fps for such a source, and target.fps for such a target when the source gives no rate (SRT, WebVTT, …); otherwise the output uses the source's rate. Don't guess a rate either: on frame-rate-required ask the user. EBU STL output takes formatOptions.ebuStl.frameRate, else the source's EBU rate, else 25. EBU Tech 3264 has no 29.97 fps code, so a 29.97 fps EBU STL source is written with the STL30.01 code: timings change by less than one frame (no cumulative drift), the API warns `frame-rate-changed` with the workaround; tell the user"),
+    profile: z.record(z.string(), z.unknown()).optional().describe("Profile JSON or overrides on top of preset, e.g. {\"target\":{\"fps\":25}}; check custom ones with validate_profile. Frame rates: formats that store frame numbers without a rate (PAC, Cavena 890, Cheetah CAP, MicroDVD, …) need one and the API never guesses it: set source.fps for such a source, and target.fps for such a target when the source gives no rate (SRT, WebVTT, …); otherwise the output uses the source's rate. Don't guess a rate either: on frame-rate-required ask the user. EBU STL header: formatOptions.ebuStl.language is best left out (the API detects it), otherwise an ISO 639-1 code or an EBU hex code; formatOptions.ebuStl.countryOfOrigin is an alpha-3 code, an alpha-2 code or the English name. EBU STL output takes formatOptions.ebuStl.frameRate, else the source's EBU rate, else 25. EBU Tech 3264 has no 29.97 fps code, so a 29.97 fps EBU STL source is written with the STL30.01 code: timings change by less than one frame (no cumulative drift), the API warns `frame-rate-changed` with the workaround; tell the user"),
     ...(paths
       ? {
           profilePath: z.string().optional().describe("Absolute path to a profile .json file (instead of `profile`)"),
@@ -316,6 +330,7 @@ export function meta(o: ApiOutput) {
   return {
     fileName: stored || o.fileName, format: o.format, formatId: o.formatId, ...(o.kind ? { kind: o.kind } : {}), mediaType: o.mediaType, encoding: o.encoding,
     contentEncoding: o.contentEncoding, cues: o.cues, bytes: o.byteCount, ...(o.output ? { output: o.output } : {}), ...(o.verification ? { verification: o.verification } : {}),
+    ...(o.header ? { header: o.header } : {}),
   };
 }
 
@@ -329,6 +344,7 @@ export function parseApiOutput(o: any): ApiOutput {
     mediaType: String(o?.mediaType ?? "application/octet-stream"), encoding: String(o?.encoding ?? ""),
     contentEncoding: enc, cues: toInt(o?.cues), data, retained: typeof o?.content === "string", byteCount: toInt(o?.bytes, data.length), ...(typeof o?.output === "string" ? { output: o.output } : {}), ...(enc === "text" ? { text: content } : {}),
     ...(mapVerification(o?.verification) ? { verification: mapVerification(o?.verification) } : {}),
+    ...(mapHeader(o?.header) ? { header: mapHeader(o?.header) } : {}),
   };
 }
 

@@ -11,6 +11,11 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
 
 ## Unreleased
 
+- EBU STL results carry `outputs[].header` (also from `get_job`): the language and country of origin written to the
+  header as code plus name (`70 (Greek)`, `PRT (Portugal)`), and the title, publisher and translator fields that are
+  set. The output schema declares it. The `profile` description now says how to set `formatOptions.ebuStl.language`
+  and `countryOfOrigin` (the API accepts any case, ISO 639-1 or EBU hex codes, and alpha-2, alpha-3 or English country
+  names); the OpenAPI snapshot and types are refreshed.
 - Tool results carry the same information in both parts by default: `structuredContent`, and that object as JSON
   in the first text block (the spec's backwards-compatibility recommendation). The text block used to be a short
   human-readable summary; it is now the JSON for every tool, success and error. Attached files and

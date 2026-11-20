@@ -50,7 +50,7 @@ export function problem(status: number, code: string, extra: Record<string, unkn
   );
 }
 
-export function convertOk(outputs: { fileName: string; content: string; contentEncoding?: string; formatId?: string; source?: string; kind?: string; verification?: unknown }[], extra: Record<string, unknown> = {}) {
+export function convertOk(outputs: { fileName: string; content: string; contentEncoding?: string; formatId?: string; source?: string; kind?: string; verification?: unknown; header?: unknown }[], extra: Record<string, unknown> = {}) {
   return {
     outputs: outputs.map((o) => ({ format: o.formatId === "ebustl" ? "EBU STL" : "WebVTT", formatId: o.formatId ?? "webvtt", mediaType: o.formatId === "ebustl" ? "application/octet-stream" : "text/vtt", contentEncoding: "text", encoding: "utf-8", cues: "1", kind: o.kind ?? "text", ...o })),
     detected: { format: "SubRip", id: "subrip", encoding: "utf-8", encodingConfidence: "utf8-valid", language: "en", paragraphs: "1", kind: "text" },

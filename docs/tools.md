@@ -155,7 +155,7 @@ not readable with `resources/read`.
 
 The structured result describes the file but doesn't repeat its content: `outputs[]` has `fileName`, `format`,
 `formatId`, `kind`, `mediaType`, `encoding`, `cues`, `bytes` and `attached: true`, plus `verification` for
-binary targets. Alongside it are `jobId`, `detected`, `stats`, `warnings` and a short `hint` on reading the
+binary targets and `header` for EBU STL. Alongside it are `jobId`, `detected`, `stats`, `warnings` and a short `hint` on reading the
 converted text. The JSON text block holds the same object, not the file.
 
 Inline results are not stored anywhere, so `preview_text` cannot read them: the attached file is the only copy. If
@@ -219,6 +219,15 @@ script (such as an em dash) leads with a `MultipleReplace` operation to add to `
 several fitting values asks to choose by the text's language. It adds only `mcp-api-version-mismatch`
 ([troubleshooting.md](troubleshooting.md#version-mismatch)), `mcp-ebu-size` (a local `.stl` larger than
 the API's EBU STL limit) and `max-bytes-clamped` (a `preview_text` page size out of range).
+
+## EBU STL header
+
+EBU STL outputs carry `outputs[].header`: the language and country of origin written to the GSI header, as code plus
+name (`"70 (Greek)"`, `"PRT (Portugal)"`), and whichever of `originalProgrammeTitle`, `originalEpisodeTitle`,
+`translatedProgrammeTitle`, `translatorsName` and `publisher` are set. The API reads it back from the file bytes; the
+server passes it through unchanged, also in `get_job`. For the input, `formatOptions.ebuStl.language` is best left out
+(the API detects it), otherwise an ISO 639-1 code or an EBU hex code; `formatOptions.ebuStl.countryOfOrigin` is an
+alpha-3 code, an alpha-2 code or the English name, in any case.
 
 ## Verification
 

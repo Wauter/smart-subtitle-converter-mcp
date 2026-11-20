@@ -437,6 +437,25 @@ describe("convert_subtitle", () => {
     expect(r.structuredContent.warnings[0]).toEqual({ code: "characters-replaced", message: `${warning.message} (count 50)`, hint: warning.hint, details: warning.details });
   });
 
+  it("EBU STL header echo is passed through, trimmed to known string fields, and declared in the output schema", async () => {
+    await setup();
+    const header = { language: "70 (Greek)", countryOfOrigin: "PRT (Portugal)", originalProgrammeTitle: "Show", publisher: "Pub" };
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([
+      { fileName: "movie.stl", content: "AAAA", contentEncoding: "base64", kind: "binary", header: { ...header, unknown: "x", translatorsName: "", originalEpisodeTitle: null } },
+      { fileName: "movie.vtt", content: "WEBVTT\n" },
+    ]))));
+    const r = await callTool(h, "convert_subtitle", { path: path.join(dir, "in", "movie.srt"), target: "ebustl", outputDir: path.join(dir, "out") });
+    expect(r.isError).toBeFalsy();
+    expect(r.structuredContent.outputs[0].header).toEqual(header);
+    expect(r.structuredContent.outputs[1]).not.toHaveProperty("header");
+    const t = (await h.client.listTools()).tools.find((x: any) => x.name === "convert_subtitle")!;
+    const item: any = (t.outputSchema as any).properties.outputs.items.properties.header;
+    expect(Object.keys(item.properties)).toEqual(["language", "countryOfOrigin", "originalProgrammeTitle", "originalEpisodeTitle", "translatedProgrammeTitle", "translatorsName", "publisher"]);
+    const profile: string = (t.inputSchema as any).properties.profile.description;
+    expect(profile).toContain("formatOptions.ebuStl.language is best left out (the API detects it), otherwise an ISO 639-1 code or an EBU hex code");
+    expect(profile).toContain("formatOptions.ebuStl.countryOfOrigin is an alpha-3 code, an alpha-2 code or the English name");
+  });
+
   it("1.2.1: remedy without a hint keeps the candidates; null members are dropped", async () => {
     await setup();
     const warning = {
