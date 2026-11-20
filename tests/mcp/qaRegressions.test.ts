@@ -41,7 +41,7 @@ describe("QA p7/p8: long-file paging (1,569-cue fixture)", () => {
     h = await harness(); const text = longSrt(); serve(() => Buffer.concat([BOM, Buffer.from(text)]));
     const pages = (await walk({ jobId: id, which: "output", ...(maxBytes ? { maxBytes } : {}) })).map((r) => r.structuredContent);
     expect(pages.map((p) => p.text).join("")).toBe(text);
-    const size = Buffer.byteLength(text), page = maxBytes ?? 65536;
+    const size = Buffer.byteLength(text), page = maxBytes ?? 32768;
     expect(size).toBeGreaterThan(120_000); // the tester's ~120 KB programme
     expect(pages.length).toBeGreaterThanOrEqual(Math.ceil(size / page)); expect(pages.length).toBeLessThanOrEqual(Math.ceil(size / page) + 1);
     for (const [i, p] of pages.entries()) {
@@ -56,7 +56,7 @@ describe("QA p7/p8: long-file paging (1,569-cue fixture)", () => {
   it("p7a: default 64 KB pages split the long fixture at a whole cue with the counts the tester saw", async () => {
     h = await harness(); const text = longSrt(); serve(() => Buffer.from(text));
     const [p1, p2] = (await walk({ jobId: id, which: "input" })).map((r) => r.structuredContent);
-    expect(p1.returnedBytes).toBeLessThanOrEqual(65536); expect(p1.returnedBytes + Buffer.byteLength(text.split("\n\n")[p1.toCue] + "\n\n")).toBeGreaterThan(65536);
+    expect(p1.returnedBytes).toBeLessThanOrEqual(32768); expect(p1.returnedBytes + Buffer.byteLength(text.split("\n\n")[p1.toCue] + "\n\n")).toBeGreaterThan(32768);
     expect(p2.fromCue).toBe(p1.toCue + 1);
   });
   it("p7a: CRLF WebVTT with header and NOTE pages on whole cues and joins exactly", async () => {
@@ -68,17 +68,17 @@ describe("QA p7/p8: long-file paging (1,569-cue fixture)", () => {
     for (const p of pages) expect(p.text.endsWith("\r\n\r\n")).toBe(true);
     expect(pages[0]).toMatchObject({ unit: "cue", fromCue: 1, totalCues: LONG_CUES });
   });
-  it("p6b/p7i: preview text is sent once per page and the response stays close to the text size", async () => {
+  it("p6b/p7i: each page's text is in structuredContent and in the identical JSON text block, never more", async () => {
     h = await harness(); const text = longSrt(); serve(() => Buffer.from(text));
     let seen = 0;
     for (const r of await walk({ jobId: id, which: "output" })) {
       const raw = JSON.stringify(r);
-      expect(r.content).toHaveLength(1); expect(r.content[0].type).toBe("text");
-      expect(r.content[0].text).not.toContain(probe(1));
+      expect(r.content).toHaveLength(1); expect(r.content[0]).toEqual({ type: "text", text: JSON.stringify(r.structuredContent) });
       const inPage = occurrences(r.structuredContent.text, probe(1234) + "\n");
-      expect(occurrences(raw, probe(1234) + "\\n")).toBe(inPage); seen += inPage;
-      // JSON escaping adds about one byte per line; the old duplicate-content shape was about twice the text.
-      expect(raw.length).toBeLessThan(r.structuredContent.returnedBytes * 1.15 + 4096);
+      // Twice: structuredContent, and its JSON in the text block (escaped once more inside the outer JSON).
+      expect(occurrences(raw, probe(1234) + "\\n")).toBe(inPage); expect(occurrences(raw, probe(1234) + "\\\\n")).toBe(inPage); seen += inPage;
+      // Each part is about the page size plus JSON escaping; the whole result stays close to twice the text.
+      expect(raw.length).toBeLessThan(r.structuredContent.returnedBytes * 2.4 + 8192);
     }
     expect(seen).toBe(1);
   });
@@ -184,6 +184,7 @@ describe("QA p6b/p7j: every tool result validates against its advertised outputS
       ["convert_subtitle", { content: SRT, target: "srt" }], ["convert_subtitle", { content: SRT, target: "ebustl" }],
       ["convert_subtitle", { content: SRT, target: "srt", output: "s3://subs/out/a.srt" }], ["convert_subtitle", { content: SRT, target: "bad" }], ["convert_subtitle", { content: SRT }],
       ["preview_text", { jobId: id, which: "output", maxBytes: 1 }], ["preview_text", { jobId: id }], ["preview_text", { jobId: id, which: "output", cursor: "bad cursor" }],
+      ["get_job", { jobId: id }], ["get_job", { jobId: "not a job id" }],
       ["list_allowed_folders", {}], ["list_files", { location: "/nowhere" }],
     ];
     const seen = new Set<string>();
@@ -198,11 +199,11 @@ describe("QA p6b/p7j: every tool result validates against its advertised outputS
     }
     expect([...seen].sort()).toEqual(tools.map((t) => t.name).sort()); // every registered tool exercised
   });
-  it("p6b item 2: a missing argument is stated once in the error text", async () => {
+  it("p6b item 2: a missing argument is stated once in the error detail", async () => {
     h = await harness();
     for (const [name, args, field] of [["preview_text", { jobId: id }, "which"], ["get_profile", {}, "name"]] as const) {
-      const text = (await callTool(h, name, args)).content[0].text as string;
-      expect(occurrences(text, `\`${field}\` is required`), text).toBe(1);
+      const detail = (await callTool(h, name, args)).structuredContent.error.detail as string;
+      expect(occurrences(detail, `\`${field}\` is required`), detail).toBe(1);
     }
   });
 });

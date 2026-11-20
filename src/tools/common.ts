@@ -1,7 +1,7 @@
 import { z, type ZodTypeAny } from "zod";
 import type { McpServer, RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult, ContentBlock, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
-import { errorText, FieldError, mcpError, ToolFailure, ToolErrorSchema, Warning, type ToolError, type WarningT } from "../errors.js";
+import { FieldError, mcpError, ToolFailure, ToolErrorSchema, Warning, type ToolError, type WarningT } from "../errors.js";
 import { newCallId, withSuffix } from "../ids.js";
 import { newStats, type CallCtx } from "../api/client.js";
 import { capsFrom, type Caps } from "../api/limits.js";
@@ -13,12 +13,14 @@ import { mcpErrorFromZod } from "./zodError.js";
 import { apiInfo, mismatchWarning } from "../api/info.js";
 import { extensionCheckSkippedWarning } from "../fs/extensions.js";
 import { probeApi } from "../probe.js";
+import { toolResult } from "../result.js";
 
 export { FieldError, Warning };
 
 export interface ToolOutcome {
+  /** The whole result: sent as structuredContent and/or as its JSON in a text block (SUBTITLE_MCP_RESULT_IN). */
   structured: Record<string, unknown>;
-  summary: string;
+  /** Extra content blocks kept in every mode (an attached file, a resource_link). */
   blocks?: ContentBlock[];
   logFields?: Record<string, unknown>;
 }
@@ -31,7 +33,10 @@ export interface ToolDef<S extends Record<string, z.ZodType>> {
   shape: S;
   output: Record<string, z.ZodType>;
   annotations: ToolAnnotations;
-  /** structured.warnings is a Warning[] ({code,message}); the version-mismatch warning may be added there. */
+  /**
+   * structured.warnings is a Warning[] ({code,message}); the version-mismatch warning is added there. Without it, that
+   * warning goes in `warnings` when the tool has no warnings of its own, otherwise in `serverWarnings`.
+   */
   warningArray?: boolean;
   handler: (args: z.infer<z.ZodObject<S>>, call: Call) => Promise<ToolOutcome>;
 }
@@ -79,11 +84,16 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
       inputSchema: strict as unknown as S,
       // The client SDK validates structured errors too, even when isError=true. Advertise
       // both shapes; success is still validated against the original required shape below.
-      outputSchema: {
-        ...Object.fromEntries(Object.entries(def.output).map(([key, value]) => [key, value.optional()])),
-        error: ToolErrorSchema.optional(),
-        warnings: errorWarnings(def.output.warnings),
-      },
+      // SUBTITLE_MCP_RESULT_IN=content sends no structuredContent, so no outputSchema is declared (the spec requires
+      // structured results that conform to it when one is).
+      ...(deps.cfg.resultIn === "content" ? {} : {
+        outputSchema: {
+          ...Object.fromEntries(Object.entries(def.output).map(([key, value]) => [key, value.optional()])),
+          error: ToolErrorSchema.optional(),
+          warnings: errorWarnings(def.output.warnings),
+          ...(serverWarningsKey(def) === "serverWarnings" ? { serverWarnings: z.array(Warning).optional().describe("MCP server warnings (e.g. an API version mismatch), separate from the tool's own warnings") } : {}),
+        },
+      }),
       annotations: { title: def.title, openWorldHint: false, ...def.annotations },
     },
     (async (rawArgs: unknown, extra: any): Promise<CallToolResult> => {
@@ -95,6 +105,8 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
         tool: def.name,
         requestId: id,
         signal: extra?.signal,
+        // One time limit for the whole call: request attempts, retry waits and job polls all fit inside it.
+        deadline: started + deps.cfg.timeoutMs,
         stats: newStats(),
         log: {},
         progress: async (message: string) => {
@@ -117,17 +129,12 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
         // skipped extension check (an older API without storage.extensions).
         for (const w of [mismatchWarning(), call.extensionCheckSkipped ? extensionCheckSkippedWarning(apiInfo.version) : undefined]) {
           if (!w) continue;
-          if (def.warningArray) {
-            if (!Array.isArray(out.structured.warnings)) out.structured.warnings = [];
-            (out.structured.warnings as WarningT[]).push(w);
-          }
-          out.summary += `\nWarning ${w.code}: ${w.message}`;
+          const key = serverWarningsKey(def);
+          if (!Array.isArray(out.structured[key])) out.structured[key] = [];
+          (out.structured[key] as WarningT[]).push(w);
         }
         z.object(def.output).passthrough().parse(out.structured);
-        return {
-          content: [{ type: "text", text: out.summary }, ...(out.blocks ?? [])],
-          structuredContent: out.structured,
-        };
+        return toolResult(deps.cfg.resultIn, out.structured, out.blocks);
       } catch (err) {
         outcome = "error";
         const tf = err instanceof ToolFailure ? err : internalFailure(err, deps);
@@ -139,10 +146,7 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
         for (const mm of [mismatchWarning(), call.extensionCheckSkipped ? extensionCheckSkippedWarning(apiInfo.version) : undefined])
           if (mm && !tf.warnings.some((w) => w.code === mm.code)) tf.warnings.push(mm);
         if (tf.warnings.length) structured.warnings = tf.warnings;
-        let text = errorText(tf.toolError);
-        if (tf.warnings.length) text += "\n" + tf.warnings.map((w) => `Warning ${w.code}: ${w.message}`).join("\n");
-        if ((tf as any).partialText) text += "\n" + (tf as any).partialText;
-        return { isError: true, content: [{ type: "text", text }], structuredContent: structured };
+        return toolResult(deps.cfg.resultIn, structured, [], true);
       } finally {
         deps.log.info("tool", {
           tool: def.name,
@@ -168,6 +172,11 @@ export function defineTool<S extends Record<string, z.ZodType>>(server: McpServe
   }
 }
 
+/** Where server warnings (version mismatch, skipped extension check) go on a success result. */
+function serverWarningsKey(def: ToolDef<any>): "warnings" | "serverWarnings" {
+  return def.warningArray || !def.output.warnings ? "warnings" : "serverWarnings";
+}
+
 /**
  * Error results carry Warning[] in `warnings`. A success shape that already is Warning[] keeps its own schema (once,
  * not listed twice); a different success shape (e.g. profile FieldError[]) is unioned with Warning[].
@@ -184,10 +193,9 @@ function internalFailure(err: unknown, deps: Deps): ToolFailure {
   return mcpError("internal-error", `Unexpected MCP error: ${(err as Error)?.message ?? String(err)}`, "This is an MCP bug; report it with the requestId.");
 }
 
-/** Attaches already-committed outputs to an error result (structured + text). */
-export function withPartial(tf: ToolFailure, partial: Record<string, unknown>, text?: string): ToolFailure {
+/** Attaches already-committed outputs to an error result. */
+export function withPartial(tf: ToolFailure, partial: Record<string, unknown>): ToolFailure {
   (tf as any).partial = partial;
-  if (text) (tf as any).partialText = text;
   return tf;
 }
 
@@ -273,11 +281,6 @@ export function logSource(deps: Deps, call: Call, src: SourceInput): void {
   else if (src.fileName) call.log.inputHash = deps.log.p(src.fileName);
 }
 
-/** Human name of the source for summaries: the file name, else the API input's last segment, else "content". */
-export function sourceLabel(src: SourceInput): string {
-  return src.fileName ?? (src.input !== undefined ? inputBaseName(src.input) ?? redactInput(src.input) : undefined) ?? "content";
-}
-
 /** §4.2: path → base64 of raw bytes with fileName=basename; inline content validated. */
 export async function loadSource(deps: Deps, args: { content?: string; contentEncoding?: "text" | "base64"; path?: string; fileName?: string; input?: string }, caps: Caps, call?: CallCtx): Promise<SourceInput> {
   if (args.input !== undefined) {
@@ -336,16 +339,16 @@ export function ebuSizeWarning(src: SourceInput, caps: Caps): WarningT[] {
 // ---------- shared output shapes ----------
 
 export const DetectedOutput = z.object({
-  format: z.string(),
-  id: z.string(),
-  kind: z.enum(["text", "binary"]).optional(),
-  encoding: z.string(),
-  encodingConfidence: z.string(),
-  language: z.string().nullish(),
-  paragraphs: z.number().int(),
-  candidates: z.array(z.string()).nullish(),
-  codePage: z.string().optional(),
-  formatDetails: z.record(z.string(), z.unknown()).optional(),
+  format: z.string().describe("Display name of the source format"),
+  id: z.string().describe("Format id of the source (as in list_formats)"),
+  kind: z.enum(["text", "binary"]).optional().describe("text or binary source format"),
+  encoding: z.string().describe("Character encoding the source was read with"),
+  encodingConfidence: z.string().describe("How the encoding was decided, e.g. bom, profile (requested), detected, heuristic, binary"),
+  language: z.string().nullish().describe("Language detected from the text (ISO 639-1), when known"),
+  paragraphs: z.number().int().describe("Number of cues read from the source"),
+  candidates: z.array(z.string()).nullish().describe("Other formats the source also matched"),
+  codePage: z.string().optional().describe("PAC: the code page the text was read with"),
+  formatDetails: z.record(z.string(), z.unknown()).optional().describe("Format facts, e.g. frameRate and frameRateSource (header, profile, inferred, time-based, or unknown when the file records no rate and no source.fps was given), EBU header fields"),
   /** detect_format only (API 1.2.0): BOM and line endings of a text source. */
   bom: z.boolean().optional(),
   lineEndings: z.enum(["crlf", "lf", "cr", "mixed", "none"]).optional(),
@@ -354,20 +357,21 @@ export const DetectedOutput = z.object({
 const CueList = z.object({ total: z.number().int(), cues: z.array(z.number().int()) });
 /** API 1.2.0: read-back check of a binary output (positions and code points only, never cue text). */
 export const Verification = z.object({
-  verdict: z.enum(["lossless", "quantised", "lossy", "unverified"]),
-  cuesWritten: z.number().int(),
-  cuesReadBack: z.number().int().optional(),
-  timing: z.object({ maxShiftMs: z.number(), meanShiftMs: z.number(), frameMs: z.number(), cuesOverOneFrame: z.number().int() }).optional(),
+  verdict: z.enum(["lossless", "quantised", "lossy", "unverified"]).describe("lossless: read back identical; quantised: only times rounded to frames; lossy: text or cues lost or changed; unverified: not read back (see reason)"),
+  cuesWritten: z.number().int().describe("Cues written to the file"),
+  cuesReadBack: z.number().int().optional().describe("Cues found when the file was read back"),
+  timing: z.object({ maxShiftMs: z.number(), meanShiftMs: z.number(), frameMs: z.number(), cuesOverOneFrame: z.number().int() }).optional()
+    .describe("Time shift between written and read-back cues: largest and mean shift (ms), one frame in ms, and cues shifted by more than one frame"),
   replacedChars: z
     .object({
       total: z.number().int(), cueCount: z.number().int(), cues: z.array(z.number().int()), distinctCodePoints: z.number().int(),
       codePoints: z.array(z.object({ codePoint: z.string(), count: z.number().int() })),
     })
     .optional(),
-  truncatedCues: CueList.optional(),
-  missingCues: CueList.optional(),
-  zeroLengthCues: CueList.optional(),
-  reason: z.string().optional(),
+  truncatedCues: CueList.optional().describe("Cues whose text was cut to fit the format"),
+  missingCues: CueList.optional().describe("Cues not found in the read-back file"),
+  zeroLengthCues: CueList.optional().describe("Cues that start and end at the same time"),
+  reason: z.string().optional().describe("Why the verdict is unverified, or what made it lossy"),
 });
 export type VerificationT = z.infer<typeof Verification>;
 
@@ -398,24 +402,6 @@ export function mapVerification(v: any): VerificationT | undefined {
   return out;
 }
 
-const cuesText = (l: { total: number; cues: number[] }) => `${l.cues.join(", ")}${l.total > l.cues.length ? ", …" : ""}`;
-
-/** One compact line, e.g. "lossy: 3/3 cues read back; 50 chars replaced in cues 1, 2, 3 (U+03B1×5, …); timing max 13 ms (frame 41.7 ms)". */
-export function verificationText(v: VerificationT): string {
-  if (v.verdict === "unverified") return `unverified (${v.reason ?? "the read-back failed"})`;
-  const parts = [`${v.cuesReadBack ?? "?"}/${v.cuesWritten} cues read back`];
-  if (v.missingCues?.total) parts.push(`${v.missingCues.total} cue(s) missing: ${cuesText(v.missingCues)}`);
-  if (v.replacedChars?.total) {
-    const r = v.replacedChars;
-    const cps = r.codePoints.slice(0, 3).map((c) => `${c.codePoint}×${c.count}`).join(", ");
-    parts.push(`${r.total} char(s) replaced in cue(s) ${cuesText({ total: r.cueCount, cues: r.cues })}${cps ? ` (${cps}${r.distinctCodePoints > 3 ? ", …" : ""})` : ""}`);
-  }
-  if (v.truncatedCues?.total) parts.push(`text truncated in cue(s) ${cuesText(v.truncatedCues)}`);
-  if (v.zeroLengthCues?.total) parts.push(`zero-length cue(s) ${cuesText(v.zeroLengthCues)} not stored at their own time`);
-  if (v.timing) parts.push(`timing max ${v.timing.maxShiftMs} ms, mean ${v.timing.meanShiftMs} ms (frame ${v.timing.frameMs} ms${v.timing.cuesOverOneFrame ? `; ${v.timing.cuesOverOneFrame} cue(s) moved more than a frame` : ""})`);
-  return `${v.verdict}: ${parts.join("; ")}`;
-}
-
 export function mapDetected(d: any): z.infer<typeof DetectedOutput> | null {
   if (!d || typeof d !== "object") return null;
   const out: z.infer<typeof DetectedOutput> = {
@@ -435,6 +421,14 @@ export function mapDetected(d: any): z.infer<typeof DetectedOutput> | null {
   return out;
 }
 
+/** Result hint when warnings are present: they come first, before anything else the model says. */
+export function warningsHint(n: number): string | undefined {
+  if (n <= 0) return undefined;
+  return n === 1
+    ? "Tell the user about this warning before anything else; its `hint`, if any, says how to fix it."
+    : `Tell the user about these ${n} warnings before anything else; a warning's \`hint\` says how to fix it.`;
+}
+
 export function mapWarnings(ws: unknown): WarningT[] {
   if (!Array.isArray(ws)) return [];
   return ws.filter((w) => w && typeof w === "object").map((w: any) => {
@@ -452,14 +446,38 @@ export function mapWarnings(ws: unknown): WarningT[] {
       if (d.fields && typeof d.fields === "object" && !Array.isArray(d.fields))
         det.fields = Object.fromEntries(Object.entries(d.fields).slice(0, 20).map(([k, v]) => [k.slice(0, 100), String(v).slice(0, 200)]));
       if (typeof d.timecode === "string") det.timecode = d.timecode.slice(0, 20);
-      const fr = typeof d.frameRate === "number" ? d.frameRate : typeof d.frameRate === "string" ? Number(d.frameRate) : NaN;
-      if (Number.isFinite(fr)) det.frameRate = fr;
       const rm = mapRemedy(d.remedy);
       if (rm) det.remedy = rm;
       if (Object.keys(det).length) out.details = det;
     }
+    const rm = out.details?.remedy;
+    if (out.code === "characters-replaced" && rm && !rm.suggested && (rm.candidates?.length ?? 0) > 1)
+      out.hint = (out.hint ? out.hint + " " : "") + "Several values fit: choose by the text's language (ask the user if unsure), or use the Unicode alternative (`unicodeAlternative`).";
+    if (out.code === "characters-replaced" && rm && rm.scripts.length > 0 && rm.scripts.every((x) => x === "other")) {
+      const hint = symbolsHint(out.details?.codePoints ?? [], rm);
+      if (hint) out.hint = hint;
+    }
     return out;
   });
+}
+
+/** Usual plain stand-ins for typographic characters that legacy character tables lack. */
+const STAND_INS: Record<string, string> = {
+  "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-", "\u2015": "-", "\u2212": "-",
+  "\u2018": "'", "\u2019": "'", "\u201A": "'", "\u201C": '"', "\u201D": '"', "\u201E": '"', "\u2026": "...", "\u00A0": " ",
+};
+
+/**
+ * Lost symbols outside any script (dashes, quotes, ...): no character table keeps them, so lead with a replacement
+ * that keeps the delivery format, with the operation shape, before the Unicode format.
+ */
+function symbolsHint(cps: { codePoint: string }[], rm: NonNullable<NonNullable<WarningT["details"]>["remedy"]>): string | undefined {
+  const chars = cps.map((c) => /^U\+([0-9A-F]{4,6})$/i.exec(c.codePoint)).filter((m): m is RegExpExecArray => !!m).map((m) => String.fromCodePoint(parseInt(m[1], 16)));
+  if (!chars.length) return undefined;
+  const rules = chars.slice(0, 5).map((c) => ({ find: c, replace: STAND_INS[c] ?? "" }));
+  const op = JSON.stringify({ id: "MultipleReplace", rules });
+  const listed = chars.slice(0, 5).map((c) => `${c} (U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")})`).join(", ");
+  return `No ${rm.option ? `${rm.option} value` : "character table"} keeps ${listed}${chars.length > 5 ? ", ..." : ""}. To keep this format, replace them: add ${op} to profile.operations${rules.some((r) => r.replace === "") ? " (an empty replace removes the character; pick a stand-in if the user prefers)" : ""}, then convert again. Only if the delivery accepts another format, use target ${rm.unicodeAlternative} (Unicode).`;
 }
 
 const strs = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x).slice(0, 100)).slice(0, 50) : undefined);
@@ -479,13 +497,6 @@ function mapRemedy(r: any): NonNullable<WarningT["details"]>["remedy"] | undefin
     if (v) out[k] = v;
   }
   return out;
-}
-
-/** "code: message (hint: …)" for summaries. */
-export function warningText(w: WarningT): string {
-  const r = w.details?.remedy;
-  const opts = !w.hint && r?.option && r.candidates?.length ? ` (options for ${r.option}: ${r.candidates.join(", ")}; or target ${r.unicodeAlternative})` : "";
-  return `${w.code}: ${w.message}${w.hint ? ` (hint: ${w.hint})` : opts}`;
 }
 
 export function fieldErrors(v: unknown): z.infer<typeof FieldError>[] {

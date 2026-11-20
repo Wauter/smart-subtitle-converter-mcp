@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { API, EXTENSIONS, baseHandlers, callTool, convertOk, harness, mswServer, recorded, SRT, tmpDir, type Harness } from "../helpers/harness.js";
 import { realpathRoots } from "../../src/fs/guard.js";
 import { apiInfo } from "../../src/api/info.js";
+import { NOT_KEPT_HINT } from "../../src/api/jobs.js";
 
 beforeAll(() => mswServer.listen({ onUnhandledFrame: "error" }));
 afterAll(() => mswServer.close());
@@ -52,7 +53,9 @@ describe("API locations and jobs", () => {
     for (const name of ["convert_subtitle", "detect_format"]) {
       const description = tools.find(t => t.name === name)!.description;
       expect(description).toContain("API storage enabled: file, s3"); expect(description).toContain("Input schemes: file; output schemes: s3");
-      expect(description).toContain("list_allowed_folders");
+      const t = tools.find(t => t.name === name)!;
+      if (name === "detect_format") expect(t.description).toContain("list_allowed_folders");
+      else for (const f of ["input", "output"]) expect((t.inputSchema.properties as any)[f].description).toContain("not list_allowed_folders");
     }
   });
   it("omits scheme descriptions when either limits array is missing", async () => {
@@ -66,12 +69,12 @@ describe("API locations and jobs", () => {
     const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
     expect(r.structuredContent.jobId).toBe(id); expect(r.content[1].resource.text).toBe("\uFEFFWEBVTT\n");
   });
-  it("logs API inputs by scheme and names them in the summary, never as inline content", async () => {
+  it("logs API inputs by scheme, never as inline content", async () => {
     h = await harness(); mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.vtt", content: "WEBVTT\n" }], { id }))));
     for (const [input, kind] of [["s3://subs/in/show.srt", "s3"], ["file:///data/in/show.srt", "file"], ["/data/in/show.srt", "file"], ["https://mam.example.com/in/show.srt?X-Amz-Signature=secret", "https"]]) {
       h.logs.length = 0;
       const r = await callTool(h, "convert_subtitle", { input, target: "vtt" });
-      expect(r.content[0].text).toMatch(/^Converted show\.srt \(/);
+      expect(r.structuredContent.outputs[0].fileName).toBe("a.vtt");
       const line = h.logs.map((l) => JSON.parse(l)).find((l: any) => l.tool === "convert_subtitle");
       expect(line).toMatchObject({ source: kind, inputExt: ".srt" }); expect(line.attempts).toBe(1);
     }
@@ -116,7 +119,8 @@ describe("API locations and jobs", () => {
       mswServer.use(http.post(`${API}/v1/convert/json`, () => accepted()), http.get(`${API}${location}`, () => HttpResponse.json({ id, status: "succeeded", result: metadata() })));
       const out = path.join(dir, "show.vtt");
       const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt", outputPath: out });
-      expect(r.structuredContent.error).toMatchObject({ code: "job-output-not-stored", jobId: id }); expect(fs.existsSync(out)).toBe(false);
+      expect(r.structuredContent.error.code).toBe("job-output-not-stored"); expect(fs.existsSync(out)).toBe(false);
+      expect(r.structuredContent.error.hint).toMatch(/^Convert again with an API `output`.*SUBTITLE_MCP_TIMEOUT_MS.*including `outputPath` and `outputDir`/);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
   it("does not replay a conversion POST after a connection reset", async () => {
@@ -129,9 +133,56 @@ describe("API locations and jobs", () => {
     expect(r.structuredContent.error.code).toBe("api-unreachable"); expect(posts).toBe(1);
     expect(r.structuredContent.error.hint).toContain("not replayed");
   });
-  it("bounds polling time and returns the job id on timeout", async () => {
-    h = await harness({ timeoutMs: 200 }); mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json({ id }, { status: 202, headers: { Location: location, "Retry-After": "10" } })));
+  it.each([[0], [1], [2]])("convert_subtitle's hint starts with the warnings only when there are some (%s)", async (n) => {
+    h = await harness();
+    const warnings = [{ code: "lossy-format", message: "m", hint: "Use fpc." }, { code: "zero-length-cue", message: "z" }].slice(0, n);
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.vtt", content: "WEBVTT\n" }], { id, warnings }))));
     const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
-    expect(r.structuredContent.error).toMatchObject({ code: "job-not-ready", jobId: id, jobUrl: location }); expect(recorded.filter((x) => x.path === "/v1/convert/json")).toHaveLength(1);
+    const hint: string = r.structuredContent.hint;
+    if (n === 0) expect(hint).not.toMatch(/warning/i);
+    else if (n === 1) expect(hint).toMatch(/^Tell the user about this warning before anything else; its `hint`, if any, says how to fix it\. The whole file is in the attached/);
+    else expect(hint).toMatch(/^Tell the user about these 2 warnings before anything else; a warning's `hint` says how to fix it\. The whole file/);
   });
+  it.each([[false], [true]])("a conversion POST cut off by the deadline: quick mode says the result can't be kept, pipeline says to check the destination (pipeline %s)", async (pipeline) => {
+    h = await harness({ timeoutMs: 1000 });
+    mswServer.use(http.post(`${API}/v1/convert/json`, async () => { await delay(5000); return HttpResponse.json(convertOk([{ fileName: "a.vtt", content: "WEBVTT\n" }])); }));
+    const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt", ...(pipeline ? { output: "s3://subs/out/a.vtt" } : {}) });
+    expect(r.structuredContent.error.code).toBe("mcp-timeout");
+    if (pipeline) expect(r.structuredContent.error.hint).toMatch(/not replayed\. Check the destination before resubmitting/);
+    else { expect(r.structuredContent.error.hint).toBe(NOT_KEPT_HINT); expect(r.structuredContent.error.hint).not.toMatch(/resubmit/); }
+  });
+  it("pipeline (API output): bounds polling time and returns the job id for get_job", async () => {
+    h = await harness({ timeoutMs: 200 }); mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json({ id }, { status: 202, headers: { Location: location, "Retry-After": "10" } })));
+    const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt", output: "s3://subs/out/a.vtt" });
+    expect(r.structuredContent.error).toMatchObject({ code: "job-not-ready", jobId: id, jobUrl: location }); expect(recorded.filter((x) => x.path === "/v1/convert/json")).toHaveLength(1);
+    expect(r.structuredContent.error.hint).toMatch(/get_job .*Don't resubmit/);
+  });
+  it("quick conversion (no API output): a 202 that runs out the deadline is a plain 'result not kept' error, without get_job", async () => {
+    h = await harness({ timeoutMs: 1500 }); let polls = 0;
+    mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json({ id }, { status: 202, headers: { Location: location, "Retry-After": "0" } })),
+      http.get(`${API}${location}`, () => { polls++; return HttpResponse.json({ id, status: "running" }, { headers: { "Retry-After": "0" } }); }));
+    const started = Date.now();
+    const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
+    expect(Date.now() - started).toBeLessThan(2500);
+    expect(r.structuredContent.error.code).toBe("job-output-not-stored");
+    expect(r.structuredContent.error.detail).toMatch(/couldn't be kept/);
+    expect(r.structuredContent.error.hint).toMatch(/^Convert again with an API `output`, or ask the user to raise SUBTITLE_MCP_TIMEOUT_MS/);
+    expect(JSON.stringify(r.structuredContent.error)).not.toMatch(/get_job|resubmit/);
+    expect(r.structuredContent.error.jobId).toBeUndefined();
+    expect(polls).toBeGreaterThan(0); // polled within the deadline, so a failure would still have been reported
+  });
+  it("quick conversion: a job that fails after the 202 still reports its own error", async () => {
+    h = await harness(); mswServer.use(http.post(`${API}/v1/convert/json`, () => HttpResponse.json({ id }, { status: 202, headers: { Location: location, "Retry-After": "0" } })),
+      http.get(`${API}${location}`, () => HttpResponse.json({ id, status: "failed", error: { status: 422, code: "ambiguous-encoding", detail: "d" } })));
+    const r = await callTool(h, "convert_subtitle", { content: SRT, target: "vtt" });
+    expect(r.structuredContent.error).toMatchObject({ code: "ambiguous-encoding", jobId: id, jobStatus: "failed" });
+  });
+  it.each([[false, 45_000, undefined, 42], [true, 45_000, undefined, 30], [false, 65_000, undefined, 60], [false, 45_000, 20, 20], [true, 45_000, 20, 20]])(
+    "Prefer: wait with an API output %s, timeout %s, API max %s → %s", async (pipeline, timeoutMs, maxWait, expected) => {
+      h = await harness({ timeoutMs });
+      mswServer.use(http.get(`${API}/v1/limits`, () => HttpResponse.json({ requestMaxWaitSeconds: maxWait, storage: { extensions: EXTENSIONS, inputSchemes: ["file", "s3"], outputSchemes: ["file", "s3"] } })),
+        http.post(`${API}/v1/convert/json`, () => HttpResponse.json(convertOk([{ fileName: "a.vtt", content: "WEBVTT\n" }]))));
+      await callTool(h, "convert_subtitle", { content: SRT, target: "vtt", ...(pipeline ? { output: "s3://subs/out/a.vtt" } : {}) });
+      expect(recorded.find((x) => x.path === "/v1/convert/json")!.headers.prefer).toBe(`wait=${expected}`);
+    });
 });

@@ -2,7 +2,8 @@
 
 The MCP only reads and writes files inside folders you name. Every tool that takes a path lists them in its
 description, each marked read-write or read-only, e.g. `Allowed folders: /Users/me/Subtitles (read-write),
-/Volumes/Masters (read-only).` With none available, the descriptions say so and name the settings below.
+/Volumes/Masters (read-only).` With none available, the descriptions say `Allowed folders: none (paths disabled; see list_allowed_folders)`, and
+the startup instructions and `list_allowed_folders` name the settings below.
 
 ## Name the folders
 

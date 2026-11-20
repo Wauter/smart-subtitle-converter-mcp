@@ -17,15 +17,18 @@ Warnings from the API are passed through unchanged; they are on that same page. 
 **Symptom:** results carry an `mcp-api-version-mismatch` warning, or the startup log warns about the API version.
 
 The MCP reads the API's `/healthz` at startup and compares major.minor with its own; use the MCP release whose
-major.minor matches the API (patch versions may differ). There are no fallbacks for older APIs. It also checks
-that `GET /v1/limits` exists and warns if it doesn't.
+major.minor matches the API (patch versions may differ). Any major.minor difference, older or newer, or a
+version it can't read, only warns: the server keeps running, logs a warning and adds `mcp-api-version-mismatch`
+to every tool result. It also checks that `GET /v1/limits` exists; without it, it warns and uses the documented
+default limits. An API that doesn't report its subtitle extensions gets `mcp-extension-check-skipped` instead of
+the local extension check.
 
 If you did update and still see an older MCP version in the warning, the client is running a different copy:
 
 - Check which command the client starts (`claude mcp get smart-subtitle-convert` in Claude Code, the JSON config elsewhere).
 - Built from source: rerun `npm ci && npm run build` after `git pull`.
 - Client in a VM or container: it runs the copy **inside** that environment. If you copied `dist/` there, copy it
-  again after every update ([clients.md](clients.md#clients-in-a-vm-or-container)).
+  again after every update.
 - Restart the client completely afterwards.
 
 **`mcp-extension-check-skipped`**
@@ -155,9 +158,10 @@ listings and reads on its own, within `SUBTITLE_MCP_RETRY_*`; if the error still
 
 **`mcp-timeout`**
 
-- **What:** The API didn't answer within the MCP's timeout.
+- **What:** The API didn't answer within the MCP's time limit for the call (`SUBTITLE_MCP_TIMEOUT_MS`).
 - **Why:** The converter may be busy or the work is large.
-- **What to do:** Retry later, or raise `SUBTITLE_MCP_TIMEOUT_MS` for slow work.
+- **What to do:** Retry later. For long conversions pass an API `output` and check the job with `get_job`. Raise
+  `SUBTITLE_MCP_TIMEOUT_MS` only together with your client's tool timeout.
 
 **`cancelled`**
 
@@ -207,10 +211,12 @@ Storage, overwrite, sidecar and job codes from the API are on the
 [errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) page.
 
 Cancelling an MCP call, or running out of wait time, does not cancel work the API has already accepted.
-If the MCP stops waiting it reports `job-not-ready` and keeps the `jobId`; the API job continues. Don't send
-the same convert again just because you stopped waiting: the first job may still finish and write its `output`.
-Use an API `output` location for work that may take a while (job records don't keep subtitle bytes). MCP-local
-folder grants don't give the API access to its own storage.
+With an API `output`, the MCP reports `job-not-ready` with the `jobId` when it stops waiting; the job continues and
+writes its output, and `get_job {jobId}` reports it. Don't send the same convert again. Without an API `output`, the
+result of a conversion that outlives the call can't be kept (`job-output-not-stored`, job records don't keep
+subtitle bytes): convert again with an API `output`, or raise `SUBTITLE_MCP_TIMEOUT_MS` together with the client's
+tool timeout ([time limits](configuration.md#time-limits)). If a conversion may take long or another system picks the file up from API storage, give an API `output`. MCP-local folder grants
+don't give the API access to its own storage.
 
 **`job-metadata-truncated`**
 

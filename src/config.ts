@@ -43,6 +43,21 @@ export interface Config {
    * locations follow the API's own setting (GET /v1/limits storage.list), checked on use. false hides both.
    */
   listEnabled: boolean;
+  /**
+   * SUBTITLE_MCP_RESULT_IN (default both): where tool results go. both: structuredContent plus the same object as JSON in a
+   * text block; structured: structuredContent only; content: the JSON text block only, and tools declare no outputSchema.
+   */
+  resultIn: ResultIn;
+}
+
+export const RESULT_IN = ["both", "structured", "content"] as const;
+export type ResultIn = (typeof RESULT_IN)[number];
+
+export function parseResultIn(v: string | undefined): ResultIn {
+  if (v === undefined || v.trim() === "") return "both";
+  const t = v.trim().toLowerCase();
+  if ((RESULT_IN as readonly string[]).includes(t)) return t as ResultIn;
+  throw new ConfigError(`SUBTITLE_MCP_RESULT_IN: expected both, structured or content, got '${v}'`);
 }
 
 const KNOWN_ENV = new Set([
@@ -53,7 +68,7 @@ const KNOWN_ENV = new Set([
   "SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES", "SUBTITLE_MCP_PREVIEW_MAX_BYTES", "SUBTITLE_MCP_PREVIEW_CACHE_BYTES", "SUBTITLE_MCP_PREVIEW_CACHE_TTL_MS",
   "SUBTITLE_MCP_JSON_MAX_DECODED_BYTES", "SUBTITLE_MCP_LIMITS_TTL_MS",
   "SUBTITLE_MCP_INCLUDE_DEBUG", "SUBTITLE_MCP_ALLOWED_ORIGINS", "SUBTITLE_MCP_ALLOWED_HOSTS", "SUBTITLE_MCP_LOG_LEVEL",
-  "SUBTITLE_MCP_LOG_PATHS", "SUBTITLE_MCP_LIST_ENABLED",
+  "SUBTITLE_MCP_LOG_PATHS", "SUBTITLE_MCP_LIST_ENABLED", "SUBTITLE_MCP_RESULT_IN",
 ]);
 
 export const USAGE = `Usage: smart-subtitle-converter-mcp [options]
@@ -216,7 +231,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv, opts: { checkF
 
   const previewMaxBytes = int("SUBTITLE_MCP_PREVIEW_MAX_BYTES", env.SUBTITLE_MCP_PREVIEW_MAX_BYTES, 262_144, PREVIEW_MIN_BYTES)!;
   if (previewMaxBytes > PREVIEW_HARD_CEILING_BYTES) throw new ConfigError(`SUBTITLE_MCP_PREVIEW_MAX_BYTES: must be at most ${PREVIEW_HARD_CEILING_BYTES} (hard ceiling), got ${previewMaxBytes}`);
-  const previewDefaultBytes = int("SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES", env.SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES, Math.min(65_536, previewMaxBytes), PREVIEW_MIN_BYTES)!;
+  const previewDefaultBytes = int("SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES", env.SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES, Math.min(32_768, previewMaxBytes), PREVIEW_MIN_BYTES)!;
   if (previewDefaultBytes > previewMaxBytes) throw new ConfigError(`SUBTITLE_MCP_PREVIEW_DEFAULT_BYTES (${previewDefaultBytes}) must not exceed SUBTITLE_MCP_PREVIEW_MAX_BYTES (${previewMaxBytes})`);
 
   const allowedHosts = env.SUBTITLE_MCP_ALLOWED_HOSTS ? list(env.SUBTITLE_MCP_ALLOWED_HOSTS) : ["localhost", "127.0.0.1", "[::1]"];
@@ -235,10 +250,10 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv, opts: { checkF
     useClientRoots: bool("SUBTITLE_MCP_USE_CLIENT_ROOTS", env.SUBTITLE_MCP_USE_CLIENT_ROOTS, true),
     partialMaxAgeMs: int("SUBTITLE_MCP_PARTIAL_MAX_AGE_MS", env.SUBTITLE_MCP_PARTIAL_MAX_AGE_MS, 3_600_000, 1)!,
     maxBytes: int("SUBTITLE_MCP_MAX_BYTES", env.SUBTITLE_MCP_MAX_BYTES, undefined, 1),
-    timeoutMs: int("SUBTITLE_MCP_TIMEOUT_MS", env.SUBTITLE_MCP_TIMEOUT_MS, 120_000, 1)!,
+    timeoutMs: int("SUBTITLE_MCP_TIMEOUT_MS", env.SUBTITLE_MCP_TIMEOUT_MS, 45_000, 1)!,
     retryMaxAttempts: int("SUBTITLE_MCP_RETRY_MAX_ATTEMPTS", env.SUBTITLE_MCP_RETRY_MAX_ATTEMPTS, 3)!,
-    retryMaxWaitMs: int("SUBTITLE_MCP_RETRY_MAX_WAIT_MS", env.SUBTITLE_MCP_RETRY_MAX_WAIT_MS, 60_000)!,
-    retryBudgetMs: int("SUBTITLE_MCP_RETRY_BUDGET_MS", env.SUBTITLE_MCP_RETRY_BUDGET_MS, 90_000)!,
+    retryMaxWaitMs: int("SUBTITLE_MCP_RETRY_MAX_WAIT_MS", env.SUBTITLE_MCP_RETRY_MAX_WAIT_MS, 30_000)!,
+    retryBudgetMs: int("SUBTITLE_MCP_RETRY_BUDGET_MS", env.SUBTITLE_MCP_RETRY_BUDGET_MS, 30_000)!,
     previewDefaultBytes,
     previewMaxBytes,
     previewCacheBytes: int("SUBTITLE_MCP_PREVIEW_CACHE_BYTES", env.SUBTITLE_MCP_PREVIEW_CACHE_BYTES, 67_108_864, 0)!,
@@ -251,6 +266,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv, opts: { checkF
     logLevel: logLevel as LogLevel,
     logPaths: bool("SUBTITLE_MCP_LOG_PATHS", env.SUBTITLE_MCP_LOG_PATHS, false),
     listEnabled: bool("SUBTITLE_MCP_LIST_ENABLED", env.SUBTITLE_MCP_LIST_ENABLED, true),
+    resultIn: parseResultIn(env.SUBTITLE_MCP_RESULT_IN),
   };
   return { kind: "config", config: cfg };
 }
@@ -271,9 +287,9 @@ export function safeUrl(u: string): string {
 export function defaultConfig(over: Partial<Config> = {}): Config {
   return {
     mode: "local", apiUrl: "http://api.test", httpTokens: [], allowedDirs: [], readonlyDirs: [], useClientRoots: true,
-    partialMaxAgeMs: 3_600_000, timeoutMs: 120_000, retryMaxAttempts: 3, retryMaxWaitMs: 60_000,
-    retryBudgetMs: 90_000, previewDefaultBytes: 65_536, previewMaxBytes: 262_144, previewCacheBytes: 67_108_864, previewCacheTtlMs: 300_000,
+    partialMaxAgeMs: 3_600_000, timeoutMs: 45_000, retryMaxAttempts: 3, retryMaxWaitMs: 30_000,
+    retryBudgetMs: 30_000, previewDefaultBytes: 32_768, previewMaxBytes: 262_144, previewCacheBytes: 67_108_864, previewCacheTtlMs: 300_000,
     limitsTtlMs: 300_000, includeDebug: false, allowedOrigins: [], allowedHosts: ["localhost", "127.0.0.1", "[::1]"],
-    logLevel: "error", logPaths: false, listEnabled: true, ...over,
+    logLevel: "error", logPaths: false, listEnabled: true, resultIn: "both", ...over,
   };
 }

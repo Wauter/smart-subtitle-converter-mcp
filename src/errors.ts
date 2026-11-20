@@ -1,4 +1,5 @@
 import { pathToFileURL } from "node:url";
+import { dataFence } from "./fence.js";
 import { z } from "zod";
 
 export const FieldError = z.object({ pointer: z.string(), message: z.string(), hint: z.string().nullish() });
@@ -14,8 +15,6 @@ export const WarningDetails = z.object({
   fields: z.record(z.string(), z.string()).optional(),
   /** programme-start-not-applied: the EBU STL TCP, HH:MM:SS:FF. */
   timecode: z.string().optional(),
-  /** frame-rate-assumed: the rate a frame-based source was read at. */
-  frameRate: z.number().optional(),
   /** API 1.2.1, characters-replaced: the facts to choose a fix (option, allowed values, tested candidates). */
   remedy: z
     .object({
@@ -55,6 +54,8 @@ export const ToolErrorSchema = z.object({
   location: z.string().optional(),
   jobId: z.string().optional(),
   jobUrl: z.string().optional(),
+  /** get_job (and convert polling): "failed" when the job itself failed, so asking again won't change the answer. */
+  jobStatus: z.literal("failed").optional(),
   errors: z.array(FieldError).optional(),
   retryAfterSeconds: z.number().optional(),
   attempts: z.number().int().optional(),
@@ -63,7 +64,10 @@ export const ToolErrorSchema = z.object({
    * ambiguous-format: the format ids the bytes match (strings). ambiguous-encoding: PAC code page names (strings) for
    * probe pac-code-page, or {encoding, language, hits, sample} objects for probe text-encoding.
    */
+  /** ambiguous-encoding text-encoding: per-result markers right before and after `candidates` (their `sample`s are file text). */
+  dataStart: z.string().optional(),
   candidates: z.array(Candidate).optional(),
+  dataEnd: z.string().optional(),
   /** ambiguous-encoding: which probe could not decide ("pac-code-page" | "text-encoding"). */
   probe: z.string().optional(),
   phase: z.string().optional(),
@@ -177,7 +181,14 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
         ...(typeof e.hint === "string" ? { hint: e.hint } : {}),
       }));
   }
-  if (Array.isArray(b.candidates)) te.candidates = mapCandidates(b.candidates);
+  if (Array.isArray(b.candidates)) {
+    const candidates = mapCandidates(b.candidates);
+    const samples = candidates.flatMap((c) => (typeof c === "object" && typeof c.sample === "string" ? [c.sample] : []));
+    if (samples.length) {
+      const { dataStart, dataEnd } = dataFence(samples);
+      te.dataStart = dataStart; te.candidates = candidates; te.dataEnd = dataEnd;
+    } else te.candidates = candidates;
+  }
   if (typeof b.phase === "string") te.phase = b.phase;
   if (typeof b.probe === "string") te.probe = b.probe;
   if (ctx.includeDebug && ctx.mode !== "hosted" && b.debug !== undefined) te.debug = b.debug;
@@ -201,14 +212,19 @@ export function mapProblem(status: number, body: unknown, ctx: MapContext): Tool
       te.code = "api-protocol-error";
       mcpHint = "Report this with the requestId.";
       break;
+    case "frame-rate-required":
+      mcpHint = "Don't guess the rate: take it from the user, the file name or the delivery spec, and ask the user if none says.";
+      break;
     case "format-not-supported":
       mcpHint = "Pick a format from list_formats.";
       break;
     case "ambiguous-encoding":
       if (b.probe === "pac-code-page")
-        mcpHint = "Pass profile.formatOptions.pac.inputCodePage (one of candidates, or the code page for the file's language, e.g. 'greek').";
+        mcpHint = Array.isArray(b.candidates) && b.candidates.length
+          ? "Pass profile.formatOptions.pac.inputCodePage set to only one of the candidates, and tell the user which one you chose."
+          : "No code page produced recognisable words. Ask the user which code page the file was written with, pass it in profile.formatOptions.pac.inputCodePage, and tell the user which one you used.";
       else if (b.probe === "text-encoding")
-        mcpHint = "Pass profile.encoding.input (one of candidates), or save the file as UTF-8.";
+        mcpHint = "Show the user the candidates' samples, pass profile.encoding.input (only one of candidates) or profile.encoding.language, and tell the user which one you chose; or save the file as UTF-8.";
       break;
     case "conversion-timeout":
       mcpHint =
@@ -243,31 +259,3 @@ export function mapCandidates(v: unknown[]): CandidateT[] {
   return out;
 }
 
-/** "windows-1256 (ar, 12 words): \"sample\"" for an object candidate; strings as they are. */
-export function candidateText(c: CandidateT): string {
-  if (typeof c === "string") return c;
-  const facts = [c.language, c.hits !== undefined ? `${c.hits} word${c.hits === 1 ? "" : "s"}` : undefined].filter(Boolean).join(", ");
-  return `${c.encoding}${facts ? ` (${facts})` : ""}${c.sample ? `: ${JSON.stringify(c.sample)}` : ""}`;
-}
-
-/** Text block for an error result: "<code>: <detail>\nHint: <hint>\nrequestId: <id>". */
-export function errorText(e: ToolError): string {
-  let s = `${e.code}: ${e.detail ?? e.title ?? "error"}`;
-  // A single field error is already spelled out in detail ("Invalid arguments: /which: …"); don't repeat it.
-  const single = e.errors?.length === 1 && e.detail?.includes(`${e.errors[0].pointer}: ${e.errors[0].message}`);
-  if (e.errors?.length && !single) s += "\n" + e.errors.slice(0, 10).map((x) => `  ${x.pointer}: ${x.message}${x.hint ? ` (${x.hint})` : ""}`).join("\n");
-  if (e.candidates?.length) {
-    s += e.candidates.some((c) => typeof c !== "string")
-      ? `\nCandidates:\n${e.candidates.map((c) => `  - ${candidateText(c)}`).join("\n")}`
-      : `\nCandidates: ${e.candidates.join(", ")}`;
-  }
-  if (e.probe) s += `\nProbe: ${e.probe}`;
-  if (e.osError) s += `\nOS error: ${e.osError.code}${e.osError.syscall ? ` (${e.osError.syscall})` : ""}`;
-  if (e.limit) s += `\nLimit ${e.limit.name}=${e.limit.value}, actual ${e.limit.actual}`;
-  if (e.retryAfterSeconds !== undefined) s += `\nRetry after: ${e.retryAfterSeconds}s`;
-  if (e.hint) s += `\nHint: ${e.hint}`;
-  if (e.location) s += `\nLocation: ${e.location}`;
-  if (e.jobId) s += `\njobId: ${e.jobId}${e.jobUrl ? ` (${e.jobUrl})` : ""}`;
-  if (e.requestId) s += `\nrequestId: ${e.requestId}`;
-  return s;
-}

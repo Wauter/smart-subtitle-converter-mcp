@@ -48,9 +48,15 @@ client, use the [API](https://github.com/Wauter/smart-subtitle-converter-api) di
 **1. Start the API.** Its [quick start](https://github.com/Wauter/smart-subtitle-converter-api#quick-start) serves
 `http://localhost:8080` and writes an API key to `api_keys.txt`.
 
-**2. Give the MCP the key.** Open the API's `api_keys.txt` (it belongs to the API's container user, so you may
-need `sudo cat api_keys.txt`) and save the key in a file of your own, for example `~/subtitle-api-key.txt`, with
-nothing else in it. Keep that file private (`chmod 600`).
+**2. Give the MCP the key.** The API's `api_keys.txt` belongs to its container user, so copy the first key into a
+private file of your own, from the API's folder:
+
+```bash
+sudo grep -v -e '^#' -e '^$' api_keys.txt | head -n 1 > ~/subtitle-api-key.txt && chmod 600 ~/subtitle-api-key.txt
+```
+
+The MCP uses the first line of the file that isn't empty or a comment (lines starting with `#` are skipped), so a
+copy of the whole `api_keys.txt` works too.
 
 **3. Add the server.** Point `SUBTITLE_MCP_ALLOWED_DIRS` at the folder that holds your subtitles:
 
@@ -74,7 +80,7 @@ claude mcp add \
 The second one needs that bucket in the API's
 [storage allowlist](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/configuration.md#jobs-and-storage).
 
-Claude Desktop, Cursor, Windows, a VM, or building from source: see [docs/clients.md](docs/clients.md).
+Claude Desktop, Cursor, VS Code, Codex, other clients, Windows, or building from source: see [docs/clients.md](docs/clients.md).
 
 ## Supported subtitle formats
 
@@ -96,6 +102,7 @@ describes the formats themselves.
 | Tool | What it does |
 |---|---|
 | `convert_subtitle` | Convert one file (`path`, inline, or API `input`) to inline, local output, or API `output` |
+| `get_job` | Status and result metadata of a conversion job, for work that outlasted a call |
 | `detect_format` | Format, encoding, BOM, line endings and language of a file |
 | `list_formats` | Formats with read/write and text/binary flags |
 | `list_presets` / `get_profile` | Built-in and mounted presets, raw and resolved |
@@ -104,7 +111,9 @@ describes the formats themselves.
 | `list_files` | List a local folder or an API storage location, page by page (`SUBTITLE_MCP_LIST_ENABLED=false` hides it) |
 | `list_allowed_folders` | The folders in effect right now, with mode and source; with browsing on, also the API's storage locations |
 
-Inputs, results and warning fields: [docs/tools.md](docs/tools.md).
+Inputs, results and warning fields: [docs/tools.md](docs/tools.md). Each result is sent both as structured data
+and as the same JSON in a text block, because apps differ in which part they pass to the model;
+`SUBTITLE_MCP_RESULT_IN` keeps one ([why](docs/tools.md#why-results-are-sent-twice)).
 
 ## API storage and job tracking
 
@@ -113,8 +122,8 @@ Inputs, results and warning fields: [docs/tools.md](docs/tools.md).
   `sidecar` JSON next to the output. `detect_format` accepts `input` too. These are resolved by the API with its
   own allowlists, separately from the MCP's local folders.
 - **No silent overwrites.** Outputs are never overwritten unless you send `ifExists: "replace"`. One file per call.
-- **Jobs.** Every conversion returns a `jobId`. When work outlasts the wait, the MCP polls the job. The API keeps
-  metadata only, so use an API `output` location for work that may take a while.
+- **Jobs.** Every conversion returns a `jobId`. When work outlasts the wait, the MCP polls the job, and `get_job`
+  checks it later. The API keeps metadata only, so: if a conversion may take long or another system picks the file up from API storage, give an API `output`.
 - **Previewing.** `preview_text` reads the text of a job's stored input or output, in pages that end on whole
   cues, while the API still has its record.
 - **Browsing.** `list_files` lists a folder and `preview_text` reads a file by its full URI or path. The API's
@@ -138,7 +147,7 @@ audited, and it is meant for a trusted environment, not the public internet. Det
 
 | Read this | When you want to |
 |---|---|
-| [docs/clients.md](docs/clients.md) | Set it up in Claude Code, Claude Desktop, Cursor, Windows or a VM; build from source |
+| [docs/clients.md](docs/clients.md) | Set it up in Claude Code, Claude Desktop, Cursor, VS Code, Codex and other clients; Windows; build from source |
 | [docs/folders-and-roots.md](docs/folders-and-roots.md) | Understand which folders it may use |
 | [docs/tools.md](docs/tools.md) | See every tool's inputs, results, verification and warning fields |
 | [API errors and warnings](https://github.com/Wauter/smart-subtitle-converter-api/blob/main/docs/errors.md) | Look up what an API error or warning means, why it happened and what to do |
@@ -150,8 +159,9 @@ audited, and it is meant for a trusted environment, not the public internet. Det
 | [docs/development.md](docs/development.md) | Build, test, run the contract suite and the smoke checklist |
 | [CHANGELOG.md](CHANGELOG.md) | See what changed in each version |
 
-**Versions:** use the MCP release whose major.minor matches your API; patch versions may differ. On a mismatch the
-server adds an `mcp-api-version-mismatch` warning.
+**Versions:** use the MCP release whose major.minor matches your API; patch versions may differ. If the API's
+major.minor differs in any way (major or minor, older or newer), the server still runs and adds an
+`mcp-api-version-mismatch` warning to tool results.
 
 ## Feedback and author
 

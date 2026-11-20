@@ -102,6 +102,8 @@ export interface Cursor {
   u: Unit;
   /** 0-based index of the next unit. */
   f: number;
+  /** Page size in effect when the cursor was issued; later pages keep it unless the call sets maxBytes. */
+  m?: number;
 }
 
 const b64u = (b: Buffer) => b.toString("base64url");
@@ -124,9 +126,10 @@ export function decodeCursor(cursor: string): Cursor {
   if (cursor.length > 0 && cursor.length <= CURSOR_MAX_CHARS && /^[A-Za-z0-9_-]+$/.test(cursor)) {
     try { o = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")); } catch { o = undefined; }
   }
-  if (!o || o.v !== 1 || typeof o.k !== "string" || typeof o.h !== "string" || (o.u !== "cue" && o.u !== "line") || !Number.isSafeInteger(o.f) || o.f < 1)
+  if (!o || o.v !== 1 || typeof o.k !== "string" || typeof o.h !== "string" || (o.u !== "cue" && o.u !== "line") || !Number.isSafeInteger(o.f) || o.f < 1
+    || (o.m !== undefined && (!Number.isSafeInteger(o.m) || o.m < 1)))
     throw mcpError("preview-cursor-invalid", "`cursor` is not a cursor returned by preview_text.", `Pass the \`next\` value from the previous page unchanged. ${RESTART}`);
-  return { k: o.k, h: o.h, u: o.u, f: o.f };
+  return { k: o.k, h: o.h, u: o.u, f: o.f, ...(o.m !== undefined ? { m: o.m } : {}) };
 }
 
 /** The stored bytes differ from the ones the (well-formed, matching) cursor was issued for. */
@@ -139,18 +142,10 @@ export function sourceChanged() {
  * a cursor for another file, or one whose unit or position can't have been issued for these bytes, is preview-cursor-invalid.
  */
 export function checkCursor(c: Cursor, key: string, fp: string, s: Segments): void {
-  if (c.k !== key) throw mcpError("preview-cursor-invalid", "`cursor` belongs to a different file (another job id, `which` or location).", `Use a cursor only with the arguments it was returned for. ${RESTART}`);
+  if (c.k !== key) throw mcpError("preview-cursor-invalid", "`cursor` belongs to a different file (another job id, `which`, location or `fps`).", `Use a cursor only with the arguments it was returned for. ${RESTART}`);
   if (c.h !== fp) throw sourceChanged();
   if (c.u !== s.unit || c.f >= s.parts.length)
     throw mcpError("preview-cursor-invalid", "`cursor` does not point into this file's text (its unit or position was not issued by preview_text for these bytes).", `Pass the \`next\` value from the previous page unchanged. ${RESTART}`);
-}
-
-/** One summary sentence for a partial page, e.g. "Showing cues 1–402 of 5020 (65431 of 812004 bytes)." */
-export function pageText(p: { unit: Unit; from: number; to: number; total: number; returnedBytes: number; totalBytes: number; truncated: boolean }): string {
-  if (p.total === 0) return " The file is empty.";
-  const all = p.from === 1 && !p.truncated;
-  if (all) return ` Showing all ${p.total} ${p.unit}${p.total === 1 ? "" : "s"} (${p.totalBytes} bytes).`;
-  return ` Showing ${p.unit}s ${p.from}–${p.to} of ${p.total} (${p.returnedBytes} of ${p.totalBytes} bytes).${p.truncated ? " MORE TEXT FOLLOWS: pass `next` as `cursor` to read the next page." : " This is the last page."}`;
 }
 
 /** Last path segment of an API location (bare path, file:, s3: or https: URI), decoded; undefined if none. */

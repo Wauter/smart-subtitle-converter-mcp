@@ -14,7 +14,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
     name: "list_formats",
     title: "List subtitle formats",
     description:
-      "List subtitle formats the converter can read and write. Use it to find the format id or alias to pass as `target` (or `profile.source.format`). By default it lists text formats (SRT, WebVTT, ASS, TTML, …) and binary broadcast formats (EBU STL, PAC, Cavena 890, CapMaker Plus, …); set `includeBinary: false` for text formats only. Use `query` to filter by name, id or extension (e.g. \"stl\", \"vtt\"). Set `writableOnly: true` when you are choosing a conversion target. Formats with `lossy: true` may drop characters or timing precision. `options` names the `profile.formatOptions` block for format-specific settings.",
+      "List the subtitle formats the converter reads and writes, with the id or alias to pass as `target` or `profile.source.format`. Lists text formats (SRT, WebVTT, ASS, TTML, …) and binary broadcast formats (EBU STL, PAC, Cavena 890, …); `includeBinary: false` lists text formats only. Filter with `query` (name, id or extension, e.g. \"stl\"). Set `writableOnly: true` when choosing a target. Formats with `lossy: true` may drop characters or timing precision. `options` names the format's `profile.formatOptions` block.",
     shape: {
       query: z.string().max(100).optional().describe("Filter by name, id, alias or extension"),
       includeBinary: z.boolean().default(true).describe("Include binary broadcast formats (EBU STL, PAC, …); false lists text formats only"),
@@ -32,6 +32,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
       ),
       total: z.number().int(),
       truncated: z.boolean(),
+      hint: z.string().optional().describe("Set when nothing matched: how to widen the search"),
     },
     annotations: RO,
     handler: async (a, call) => {
@@ -58,10 +59,8 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
       if (a.writableOnly) formats = formats.filter((f) => f.canWrite);
       const total = formats.length;
       const shown = formats.slice(0, a.limit);
-      const head = total === 0 ? `No formats${a.query ? ` matching '${a.query}'` : ""}. Try a broader query${a.includeBinary ? "" : " or drop includeBinary: false"}.` : `${total} format${total === 1 ? "" : "s"}${a.query ? ` matching '${a.query}'` : ""}${total > shown.length ? ` (showing ${shown.length})` : ""}:`;
-      const lines = shown.map((f) => `${f.id} | ${f.name} (${f.extension}) | ${f.kind} | ${f.canRead && f.canWrite ? "read/write" : f.canRead ? "read-only" : "write-only"}${f.lossy ? " | lossy" : ""}`);
-      const summary = [head, ...lines].join("\n");
-      return { structured: { formats: shown, total, truncated: total > shown.length }, summary };
+      const hint = total === 0 ? `No formats${a.query ? ` matching '${a.query}'` : ""}. Try a broader query${a.includeBinary ? "" : " or drop includeBinary: false"}.` : undefined;
+      return { structured: { formats: shown, total, truncated: total > shown.length, ...(hint ? { hint } : {}) } };
     },
   });
 
@@ -74,7 +73,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
     name: "list_presets",
     title: "List conversion presets",
     description:
-      "List the conversion presets available on this server: built-in ones plus any the operator mounted. Each preset fixes a target format and a set of clean-up operations (e.g. \"netflix-en-vtt\"). Pass a preset `name` as `preset` to convert_subtitle . Invalid presets are listed too, with `valid: false` and errors, so you can explain why one can't be used. Use get_profile to see what a preset does.",
+      "List the conversion presets on this server: built-in ones and any the operator mounted. A preset fixes a target format and a set of clean-up operations (e.g. \"netflix-en-vtt\"); pass its `name` as convert_subtitle `preset`. Invalid presets are listed with `valid: false` and their errors; explain these to the user. get_profile shows what a preset does.",
     shape: {},
     output: { presets: z.array(presetShape), profilesDir: z.string().nullish(), mountError: z.string().nullish() },
     annotations: RO,
@@ -93,10 +92,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
       });
       const structured: any = { presets, mountError: body.mountError ?? null };
       if (!hosted) structured.profilesDir = body.profilesDir ?? null;
-      const lines = presets.map((p) => `${p.name} → ${p.target ?? "?"} (${p.origin})${p.valid ? "" : ` INVALID: ${p.errors?.[0]?.message ?? "see errors"}`}`);
-      let summary = presets.length ? lines.join("\n") : "No presets on this server.";
-      if (body.mountError) summary = `Mounted presets folder problem: ${body.mountError}\n${summary}`;
-      return { structured, summary };
+      return { structured };
     },
   });
 
@@ -104,7 +100,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
     name: "get_profile",
     title: "Show a preset",
     description:
-      "Show one preset in full: its raw JSON, the resolved profile (with `extends` flattened) that a conversion would actually use, and any load errors or warnings. Use it to explain what a preset does, or as a starting point for a custom `profile` (copy `resolved` and change it, then check it with validate_profile).",
+      "Show one preset in full: its raw JSON, the resolved profile a conversion uses (`extends` flattened), and any load errors or warnings. Use it to explain a preset, or to start a custom `profile`: copy `resolved`, change it, then check it with validate_profile.",
     shape: { name: z.string().min(1).max(200) },
     output: {
       name: z.string(), origin: z.string(), valid: z.boolean(), description: z.string().nullish(), target: z.string().nullish(), shadows: z.string().nullish(),
@@ -120,11 +116,7 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
         raw: p.raw && typeof p.raw === "object" ? p.raw : null, resolved: p.resolved && typeof p.resolved === "object" ? p.resolved : null,
       };
       if (!hosted) out.path = p.path ?? null;
-      const ops = Array.isArray(out.resolved?.operations) ? out.resolved.operations.map((o: any) => o?.id).filter(Boolean) : null;
-      let summary = `${out.name} (${out.origin}) → ${out.target ?? "no target"}, ${out.valid ? "valid" : "INVALID"}.`;
-      if (ops) summary += ` Operations: ${ops.length ? ops.join(", ") : "none"}.`;
-      if (out.errors.length) summary += `\nErrors: ${out.errors.map((e: any) => `${e.pointer}: ${e.message}`).join("; ")}`;
-      return { structured: out, summary };
+      return { structured: out };
     },
   });
   void toInt;

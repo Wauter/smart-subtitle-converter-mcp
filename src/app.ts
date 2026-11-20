@@ -5,7 +5,7 @@ import { ApiClient } from "./api/client.js";
 import { LimitsCache } from "./api/limits.js";
 import { StaticKeyAuth, type UpstreamAuth } from "./auth.js";
 import { CombinedRoots, ClientRoots, PathGuard, StaticRoots, type Root, type RootsProvider } from "./fs/guard.js";
-import { allowedFoldersText } from "./fs/folders.js";
+import { descriptionFoldersText } from "./fs/folders.js";
 import { realFsOps, SafeWriter, type FsOps } from "./fs/write.js";
 import { VERSION } from "./version.js";
 import { ExtensionPolicy } from "./fs/extensions.js";
@@ -55,7 +55,7 @@ export function buildDeps(cfg: Config, o: DepsOptions = {}): Deps {
     pathsInSchema,
     writable,
     get rootsText() {
-      return allowedFoldersText(provider.snapshot());
+      return descriptionFoldersText(provider.snapshot());
     },
     dynamicRoots,
     version: VERSION,

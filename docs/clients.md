@@ -12,42 +12,169 @@ The API asks for an API key by default. Put the key in a file your user can read
 readable only by its container user, so copy it:
 `sudo grep -v -e '^#' -e '^$' api_keys.txt | head -n 1 > ~/subtitle-api-key.txt && chmod 600 ~/subtitle-api-key.txt`)
 and point `SUBTITLE_API_KEY_FILE` at it; the MCP uses the first key and re-reads the file when it changes. Or set
-`SUBTITLE_API_KEY`. In JSON configs, add it to
-`"env"` next to `SUBTITLE_API_URL`.
+`SUBTITLE_API_KEY`.
+
+## About these sections
+
+Claude Code is **tested by us**; the other sections are **based on the client's docs** (linked, with the date we
+checked). If a section disagrees with the linked page, the page wins. Replace the server name and the
+`/Users/me/...` paths with your own. CI checks that every JSON, TOML and YAML snippet here parses and starts the
+server.
+
+Separate several folders with `:` (`;` on Windows), or give a JSON array such as
+`["/Users/me/subtitles","/Users/me/exports"]`.
 
 ## Claude Code
+
+Tested by us.
 
 ```bash
 claude mcp add \
   --env SUBTITLE_API_URL=http://localhost:8080 \
   --env SUBTITLE_API_KEY_FILE=/Users/me/subtitle-api-key.txt \
-  --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/Subtitles \
+  --env SUBTITLE_MCP_ALLOWED_DIRS=/Users/me/subtitles:/Users/me/exports \
   --transport stdio \
   smart-subtitle-convert -- npx -y smart-subtitle-converter-mcp
 ```
 
-`--env` accepts every following `KEY=value` as an environment variable, so put `--transport stdio`
-between the last `--env` and the server name (`smart-subtitle-convert`). If the name comes right after
-`--env`, Claude Code rejects it as an invalid environment variable.
+Gotcha: `--env` swallows every following `KEY=value`, so keep `--transport stdio` between the last `--env` and the
+server name. To change settings, `claude mcp remove smart-subtitle-convert`, add it again and restart.
 
-- Add more folders the same way (`SUBTITLE_MCP_ALLOWED_DIRS` for read-write,
-  `SUBTITLE_MCP_READONLY_DIRS=/Volumes/Masters` for read-only). Separate several paths with `:` (`;` on Windows),
-  or use a JSON array.
-- To change settings: `claude mcp remove smart-subtitle-convert`, add it again, and restart Claude Code.
-- Check what is registered with `claude mcp get smart-subtitle-convert`.
+## Claude Desktop
 
-## Claude Desktop and Cursor
+Add to `claude_desktop_config.json`
+([docs](https://modelcontextprotocol.io/docs/develop/connect-local-servers), checked on 2026-11-12):
 
-Claude Desktop does not pass folders you approve in a chat to this server. Name them in the config:
-
-```jsonc
-{ "mcpServers": { "smart-subtitle-convert": {
-    "command": "npx", "args": ["-y", "smart-subtitle-converter-mcp"],
-    "env": { "SUBTITLE_API_URL": "http://localhost:8080",
-             "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/Subtitles" } } } }
+```json
+{
+  "mcpServers": {
+    "smart-subtitle-convert": {
+      "command": "npx",
+      "args": ["-y", "smart-subtitle-converter-mcp"],
+      "env": {
+        "SUBTITLE_API_URL": "http://localhost:8080",
+        "SUBTITLE_API_KEY_FILE": "/Users/me/subtitle-api-key.txt",
+        "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/subtitles:/Users/me/exports"
+      }
+    }
+  }
+}
 ```
 
-Quit the app completely (Cmd+Q on macOS) and reopen it after every change.
+Gotchas: folders approved in a chat are not passed to this server, so name them in `SUBTITLE_MCP_ALLOWED_DIRS`;
+fully quit and reopen the app after every change.
+
+## Cursor
+
+Add to `~/.cursor/mcp.json` or a project's `.cursor/mcp.json`
+([docs](https://cursor.com/docs/mcp), checked on 2026-11-12):
+
+```json
+{
+  "mcpServers": {
+    "smart-subtitle-convert": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "smart-subtitle-converter-mcp"],
+      "env": {
+        "SUBTITLE_API_URL": "http://localhost:8080",
+        "SUBTITLE_API_KEY_FILE": "/Users/me/subtitle-api-key.txt",
+        "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/subtitles:/Users/me/exports"
+      }
+    }
+  }
+}
+```
+
+
+## VS Code (GitHub Copilot)
+
+Add to `~/.copilot/mcp-config.json` or `.mcp.json` at the workspace root
+([docs](https://code.visualstudio.com/docs/agents/reference/mcp-configuration), checked on 2026-11-12):
+
+```json
+{
+  "mcpServers": {
+    "smart-subtitle-convert": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "smart-subtitle-converter-mcp"],
+      "env": {
+        "SUBTITLE_API_URL": "http://localhost:8080",
+        "SUBTITLE_API_KEY_FILE": "/Users/me/subtitle-api-key.txt",
+        "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/subtitles:/Users/me/exports"
+      },
+      "tools": ["*"]
+    }
+  }
+}
+```
+
+Gotcha: the older `.vscode/mcp.json` (`servers`) belongs to a harness VS Code lists as deprecated.
+
+## ChatGPT desktop app and Codex (CLI, IDE extension)
+
+All three read `~/.codex/config.toml` (or `.codex/config.toml` in a trusted project)
+([docs](https://learn.chatgpt.com/docs/extend/mcp), checked on 2026-11-12):
+
+```toml
+[mcp_servers.smart-subtitle-convert]
+command = "npx"
+args = ["-y", "smart-subtitle-converter-mcp"]
+
+[mcp_servers.smart-subtitle-convert.env]
+SUBTITLE_API_URL = "http://localhost:8080"
+SUBTITLE_API_KEY_FILE = "/Users/me/subtitle-api-key.txt"
+SUBTITLE_MCP_ALLOWED_DIRS = "/Users/me/subtitles:/Users/me/exports"
+```
+
+Gotchas: ask for `outputPath` (or an API `output`) when converting, since Codex may not deliver attached files.
+ChatGPT on the web does not read this file and is not covered.
+
+## OpenAI Agents SDK (Python)
+
+Use `MCPServerStdio` ([docs](https://openai.github.io/openai-agents-python/mcp/), checked on 2026-11-12):
+
+```python
+from agents.mcp import MCPServerStdio
+
+subtitles = MCPServerStdio(
+    name="smart-subtitle-convert",
+    params={
+        "command": "npx",
+        "args": ["-y", "smart-subtitle-converter-mcp"],
+        "env": {
+            "SUBTITLE_API_URL": "http://localhost:8080",
+            "SUBTITLE_API_KEY_FILE": "/Users/me/subtitle-api-key.txt",
+            "SUBTITLE_MCP_ALLOWED_DIRS": "/Users/me/subtitles:/Users/me/exports",
+        },
+    },
+    client_session_timeout_seconds=60,
+)
+```
+
+Gotcha: the default `client_session_timeout_seconds` is 5, too short for conversions; keep it above
+`SUBTITLE_MCP_TIMEOUT_MS` (45 s by default).
+
+## Goose
+
+Add to `~/.config/goose/config.yaml`
+([docs](https://goose-docs.ai/docs/getting-started/using-extensions), checked on 2026-11-12):
+
+```yaml
+extensions:
+  smart-subtitle-convert:
+    type: stdio
+    name: smart-subtitle-convert
+    cmd: npx
+    args: ["-y", "smart-subtitle-converter-mcp"]
+    envs:
+      SUBTITLE_API_URL: "http://localhost:8080"
+      SUBTITLE_API_KEY_FILE: "/Users/me/subtitle-api-key.txt"
+      SUBTITLE_MCP_ALLOWED_DIRS: "/Users/me/subtitles:/Users/me/exports"
+    enabled: true
+    timeout: 300
+```
 
 ## Windows
 
@@ -65,16 +192,6 @@ npm ci && npm run build        # rerun after every git pull
 
 Then replace `npx -y smart-subtitle-converter-mcp` with `node /path/to/smart-subtitle-converter-mcp/dist/index.js`
 (in JSON configs: `"command": "node", "args": ["/path/to/smart-subtitle-converter-mcp/dist/index.js"]`).
-
-## Clients in a VM or container
-
-If the client runs in a Linux VM or container (paths like `/mnt/mac/Users/...`), it starts whatever server exists
-**inside** that environment, not the one on your host.
-
-- Prefer `npx` inside the VM, point the client at a checkout the VM can see (a shared folder), or build inside the VM.
-- If you copy `dist/` into the VM, copy it again after every update. A stale copy shows up as an
-  `mcp-api-version-mismatch` warning naming an older MCP version, and newer tools or fields are missing.
-- `SUBTITLE_API_URL` must be reachable from inside the VM; `localhost` there may not be your host.
 
 ## Check that it works
 

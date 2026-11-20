@@ -8,40 +8,60 @@ import type { Call, Deps } from "../context.js";
 import { mcpError, ToolFailure, type WarningT } from "../errors.js";
 import { sanitizeOutputName, type WriteResult } from "../fs/write.js";
 import { hiddenPathError } from "../fs/guard.js";
-import { finishConversion } from "../api/jobs.js";
+import { finishConversion, NOT_KEPT_HINT } from "../api/jobs.js";
+import { preferWaitSeconds } from "../api/client.js";
 import { toInt } from "../api/coerce.js";
 import { locationBaseName } from "./textPage.js";
 import {
-  apiStorageDescription, DetectedOutput, logSource, sourceLabel, defineTool, ebuSizeWarning, exactlyOne, getCaps, loadProfile, loadSource, mapDetected, mapWarnings,
-  mapVerification, mutuallyExclusive, requirePathsAllowed, refreshToolDescriptions, tooLarge, Verification, verificationText, Warning, warningText, withPartial,
+  apiStorageDescription, DetectedOutput, logSource, defineTool, ebuSizeWarning, exactlyOne, getCaps, loadProfile, loadSource, mapDetected, mapWarnings,
+  mapVerification, mutuallyExclusive, warningsHint, requirePathsAllowed, refreshToolDescriptions, tooLarge, Verification, Warning, withPartial,
   type SourceInput, type VerificationT,
 } from "./common.js";
 
 const IF_EXISTS = z.enum(["error", "replace"]);
 
+const HEADER_FIELDS = ["language", "countryOfOrigin", "originalProgrammeTitle", "originalEpisodeTitle", "translatedProgrammeTitle", "translatorsName", "publisher"] as const;
+const EbuHeader = z.object(Object.fromEntries(HEADER_FIELDS.map((k) => [k, z.string().optional()])) as Record<(typeof HEADER_FIELDS)[number], z.ZodOptional<z.ZodString>>);
+type EbuHeaderT = z.infer<typeof EbuHeader>;
+
+/** The API's header echo, keeping only the known string fields (each cut to 200 characters). */
+function mapHeader(h: any): EbuHeaderT | undefined {
+  if (!h || typeof h !== "object") return undefined;
+  const out: Record<string, string> = {};
+  for (const k of HEADER_FIELDS) if (typeof h[k] === "string" && h[k] !== "") out[k] = h[k].slice(0, 200);
+  return Object.keys(out).length ? out : undefined;
+}
+
 export const ConvertOutput = {
-  jobId: z.string().optional(),
+  jobId: z.string().optional().describe("API job id, for preview_text {jobId, which} and support"),
   outputs: z.array(
     z.object({
-      fileName: z.string(), format: z.string(), formatId: z.string(),
-      kind: z.enum(["text", "binary"]).optional(),
-      mediaType: z.string(), encoding: z.string(),
-      contentEncoding: z.enum(["text", "base64"]),
-      cues: z.number().int(), bytes: z.number().int(),
-      writtenTo: z.string().optional(),
-      output: z.string().optional(),
-      action: z.enum(["written", "replaced"]).optional(),
+      fileName: z.string().describe("Name of the output file (the stored name for an API output)"),
+      format: z.string().describe("Display name of the output format"),
+      formatId: z.string().describe("Format id of the output (as in list_formats)"),
+      kind: z.enum(["text", "binary"]).optional().describe("text or binary output format"),
+      mediaType: z.string().describe("Media type of the output file"),
+      encoding: z.string().describe("Character encoding the output was written in"),
+      contentEncoding: z.enum(["text", "base64"]).describe("How an attached file is carried: text, or base64 (binary formats and encodings text can't hold byte-exact)"),
+      cues: z.number().int().describe("Cues in the output"),
+      bytes: z.number().int().describe("Size of the output in bytes (of the attached text when attached as text)"),
+      writtenTo: z.string().optional().describe("Local file written (outputPath/outputDir)"),
+      output: z.string().optional().describe("API location the output was stored at (server-side `output`)"),
+      sidecar: z.string().optional().describe("API location of the JSON sidecar written beside `output` (sidecar:true)"),
+      action: z.enum(["written", "replaced"]).optional().describe("Local writes: written (new file) or replaced (ifExists:replace)"),
       attached: z.boolean().optional().describe("true when the whole converted file is attached to this result as an embedded resource (no output location given)"),
-      verification: Verification.optional(),
+      header: EbuHeader.optional().describe("EBU STL outputs: the GSI header fields written, read back from the file (language and country as code plus name, e.g. \"70 (Greek)\"). Check them against what the user asked for; unset fields are absent"),
+      verification: Verification.optional().describe("Binary outputs: the file read back and compared with what was written. verdict lossless | quantised (times rounded to frames only) | lossy | unverified, with cue counts, timing shift and replaced characters by cue number. A clean round trip shows the file is self-consistent through the converter's own reader, not that a given playout system accepts it"),
     }),
   ),
-  detected: DetectedOutput.nullish(),
-  stats: z.object({ paragraphsIn: z.number(), paragraphsOut: z.number(), elapsedMs: z.number().optional(), queueWaitMs: z.number().optional() }),
-  warnings: z.array(Warning),
-  profile: z.record(z.string(), z.unknown()).optional(),
+  detected: DetectedOutput.nullish().describe("What the API found in the source"),
+  stats: z.object({ paragraphsIn: z.number(), paragraphsOut: z.number(), elapsedMs: z.number().optional(), queueWaitMs: z.number().optional() })
+    .describe("Cues read and written, conversion time and time waiting for a converter slot (ms)"),
+  warnings: z.array(Warning).describe("Everything the conversion lost, changed or assumed; report these to the user (each may carry a hint and details)"),
+  profile: z.record(z.string(), z.unknown()).optional().describe("The merged profile the API applied (includeEffectiveProfile)"),
   hint: z.string().optional().describe("How to read the converted text: preview_text when the job has a stored file, otherwise how to get one"),
-  requestId: z.string().optional(),
-  attempts: z.number().int(),
+  requestId: z.string().optional().describe("API request id, for support"),
+  attempts: z.number().int().describe("API calls made, including retries and job polls"),
 };
 
 export interface ApiOutput {
@@ -59,46 +79,42 @@ export interface ApiOutput {
   output?: string;
   text?: string;
   verification?: VerificationT;
+  header?: EbuHeaderT;
 }
 
 export function describeConvert(deps: Deps): string {
-  let d =
-    "Convert one subtitle file to another format, optionally applying a preset's or profile's clean-up operations (timing offset, frame-rate change, line splitting, …).";
-  if (deps.pathsInSchema) {
-    d +=
-      " Give the source as server-side `input` (file/S3/HTTPS, resolved by the API allowlists), `path` (preferred: nothing passes through your context, and binary formats stay byte-exact) or as inline `content`; exactly one source.";
-  } else d += " Give the source as inline `content` (base64 for binary formats) or server-side `input` (file/S3/HTTPS URI).";
-  d +=
-    " Choose the result with `target` (a format id or alias from list_formats), a `preset` (from list_presets), and/or a `profile` (custom JSON, checked first with validate_profile); at least one is required. `profile` values are merged over the preset.";
-  if (deps.pathsInSchema) {
-    d += " With outputPath (exact file) or outputDir (API-generated basename), write a local result and return metadata. ifExists is error (default) | replace, for both local writes and API output. Explicit replace is sufficient. Choose another path if replacement is unwanted.";
-  }
-  d += ` Without ${deps.pathsInSchema ? "outputPath/outputDir or " : ""}an API \`output\`, the whole converted file is attached as an embedded resource (text formats as text, binary formats as base64) for the client to save; it is the deliverable, not a view for you, and \`outputs[].attached\` is true. Its text is not repeated in the structured result. Inline results are not stored, so preview_text cannot read them: save the attached file and read it locally, or convert with an API \`output\` and call preview_text {jobId, which:"output"}; \`hint\` says what applies.`;
-  d += " Server-side `output` stores the result via the API instead of returning bytes; `sidecar:true` requests output.json. It cannot be combined with local outputPath/outputDir. Jobs expose jobId and the MCP polls 202 responses. Cancelling this call does not cancel accepted API work. Filesystem and S3 reject an existing output by default; ifExists:replace allows replacement. Presigned HTTPS PUT follows whatever the signer/receiver allowed, not a filesystem/S3 lock. API locations are not governed by list_allowed_folders.";
-  d +=
-    " Note: EBU Tech 3264 has no 29.97 fps code, so a 29.97 fps EBU STL source is written with the STL30.01 code; the API flags such frame-rate code mismatches with the warning `frame-rate-changed`. Timings change by less than one frame (no cumulative drift); tell the user, and see the warning for the workaround. Always report `warnings` to the user: they flag lossy formats, replaced characters, truncated text, zero-length cues, frame quantisation and frame-rate changes; many carry a `hint` with the setting that fixes them (the API never switches code pages or character tables by itself) and `details` with cue numbers and code points. For `characters-replaced`, `details.remedy` lists the setting (`option`), its `allowedValues`, the value in effect and the `candidates` that keep the characters (for PAC tested by the converter); `suggested` is set only when exactly one fits. With several candidates, choose by the text's language (ask the user if unsure), or use `unicodeAlternative` (fpc)." +
-    " Binary outputs carry `verification`: the file is read back and compared with what was written (verdict lossless | quantised (times rounded to frames only) | lossy | unverified, with cue counts, timing shift and replaced characters by cue number). A clean round trip proves the file is self-consistent through the converter's own reader, not that a given playout system accepts it." +
-    " If a file matches both PAC and Unicode PAC (FPC) and its name doesn't decide, the API fails with `ambiguous-format`; pass `profile.source.format` ('pac' or 'fpc'). If it can't tell the character set from the words, it fails with `ambiguous-encoding`; show the candidate samples, pick only from that list, tell the user, then retry with `profile.formatOptions.pac.inputCodePage`, `profile.encoding.input` or `profile.encoding.language` as `error.probe` says. On `conversion-timeout`, split the file and convert the parts.";
-  d += apiStorageDescription(deps);
-  d += " One file per call; loop for folders, never zip them. If work may outlive the wait, pass output; response-only bytes may never be available after 202. Use preview_text after a conversion with API `input`/`output` to read the stored file's text (paged).";
-  if (deps.pathsInSchema) d += ` ${deps.rootsText}`;
-  return d;
+  const paths = deps.pathsInSchema;
+  // Only what nearly every call needs; edge cases live in the field descriptions and in the hints of the errors and
+  // warnings they cause. Some clients cut long descriptions (Claude Code shows the first 4,096 characters).
+  return (
+    "Convert one subtitle file per call (for a folder, one call per file; never zip them), optionally with a preset's or profile's clean-up such as a timing offset, frame-rate change or line splitting." +
+    (paths ? ` ${deps.rootsText}` : "") +
+    (paths
+      ? " Give the source as exactly one of `path` (preferred: binary formats stay byte-exact), inline `content` or an API `input` URI,"
+      : " Give the source as exactly one of inline `content` (base64 for binary formats) or an API `input` URI,") +
+    " and choose the result with `target` (from list_formats), `preset` (from list_presets) and/or `profile`." +
+    (paths ? " Write the file with `outputPath` or `outputDir`, or store it with an API `output`;" : " Store the file with an API `output`;") +
+    " with neither, the whole file is attached for the client to save (the deliverable, not a view for you), and the result's `hint` says how to read its text." +
+    " If a conversion may take long or another system picks the file up from API storage, give an API `output`." +
+    " Binary outputs carry verification.verdict: lossless; quantised (only times rounded to frames); lossy (text or cues lost or changed: tell the user, using reason, replacedChars, missingCues, truncatedCues); unverified (not read back; see reason). A clean verdict means the converter reads its own file back, not that a playout system accepts it." +
+    apiStorageDescription(deps)
+  );
 }
 
 export function registerConvertTool(server: McpServer, deps: Deps): void {
   const paths = deps.pathsInSchema;
   const shape = {
-    input: z.string().max(16384).optional().describe("Server-side input URI (file, s3 or https); mutually exclusive with content/path"),
-    output: z.string().max(16384).optional().describe("Exact server-side destination URI; mutually exclusive with local outputPath/outputDir"),
-    ifExists: IF_EXISTS.default("error").describe("error (default) | replace; applies to local and API outputs; HTTPS follows signer/receiver policy"),
-    sidecar: z.boolean().default(false).describe("Write output.json beside a server-side output; HTTPS output skips it with a warning"),
+    input: z.string().max(16384).optional().describe("Server-side input URI (file, s3 or https), resolved by the API allowlists, not list_allowed_folders; mutually exclusive with content/path"),
+    output: z.string().max(16384).optional().describe("Exact server-side destination URI (file, s3 or https), resolved by the API allowlists, not list_allowed_folders. Give one when a conversion may take long or another system picks the file up from API storage: if the job outlives this call, the call returns job-not-ready with a jobId for get_job (don't resubmit; the job still writes this output). Without one, a result the call can't wait for is lost. Mutually exclusive with local outputPath/outputDir"),
+    ifExists: IF_EXISTS.default("error").describe("error (default): refuse an existing file (local, filesystem and S3 outputs); replace: overwrite it (an explicit replace is enough, no other switch). A presigned HTTPS PUT follows whatever its signer/receiver allows, not this setting"),
+    sidecar: z.boolean().default(false).describe("Write output.json (the conversion report) beside a server-side `output`; HTTPS output skips it with a warning"),
     content: z.string().optional().describe("Subtitle content: text, or base64 if contentEncoding is 'base64'"),
-    contentEncoding: z.enum(["text", "base64"]).default("text"),
+    contentEncoding: z.enum(["text", "base64"]).default("text").describe("How `content` is given: text (default) or base64 (required for binary formats such as EBU STL or PAC)"),
     ...(paths ? { path: z.string().optional().describe("Absolute path to the source file in an allowed folder") } : {}),
     fileName: z.string().max(255).optional().describe("Source file name; used for detection and to name the output"),
     preset: z.string().max(200).optional().describe("Preset name from list_presets"),
     target: z.string().max(100).optional().describe("Target format id or alias, e.g. 'webvtt', 'ebustl'"),
-    profile: z.record(z.string(), z.unknown()).optional().describe("Profile JSON or overrides on top of preset"),
+    profile: z.record(z.string(), z.unknown()).optional().describe("Profile JSON or overrides on top of preset, e.g. {\"target\":{\"fps\":25}}; check custom ones with validate_profile. Frame rates: formats that store frame numbers without a rate (PAC, Cavena 890, Cheetah CAP, MicroDVD, …) need one and the API never guesses it: set source.fps for such a source, and target.fps for such a target when the source gives no rate (SRT, WebVTT, …); otherwise the output uses the source's rate. Don't guess a rate either: on frame-rate-required ask the user. EBU STL header: formatOptions.ebuStl.language is best left out (the API detects it), otherwise an ISO 639-1 code or an EBU hex code; formatOptions.ebuStl.countryOfOrigin is an alpha-3 code, an alpha-2 code or the English name. EBU STL output takes formatOptions.ebuStl.frameRate, else the source's EBU rate, else 25. EBU Tech 3264 has no 29.97 fps code, so a 29.97 fps EBU STL source is written with the STL30.01 code: timings change by less than one frame (no cumulative drift), the API warns `frame-rate-changed` with the workaround; tell the user"),
     ...(paths
       ? {
           profilePath: z.string().optional().describe("Absolute path to a profile .json file (instead of `profile`)"),
@@ -176,10 +192,11 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
     const n = Buffer.byteLength(json);
     if (n > caps.jsonBody) throw tooLarge("The request body", { name: "maxRequestBodyBytes.json", value: caps.jsonBody }, n);
     let res;
-    const started = Date.now();
     try {
-      res = await deps.api.request({ method: "POST", path: "/v1/convert/json", kind: "conversion", headers: { Prefer: `wait=${Math.max(0, Math.min(caps.requestMaxWaitSeconds ?? 60, Math.floor(deps.cfg.timeoutMs / 1000)))}` }, raw: { body: json, contentType: "application/json" } }, call);
-      res = await finishConversion(deps.api, res, call, deps.cfg, started);
+      // Quick conversion (no API output) waits as long as allowed; a pipeline (API output) waits briefly and polls.
+      const pipeline = a.output !== undefined;
+      res = await deps.api.request({ method: "POST", path: "/v1/convert/json", kind: "conversion", headers: { Prefer: `wait=${preferWaitSeconds(caps.requestMaxWaitSeconds, call, pipeline)}` }, ...(pipeline ? {} : { deadlineHint: NOT_KEPT_HINT }), raw: { body: json, contentType: "application/json" } }, call);
+      res = await finishConversion(deps.api, res, call, { mode: deps.cfg.mode, includeDebug: deps.cfg.includeDebug, ...(pipeline ? {} : { notKept: resultNotKept }) });
     } catch (e) {
       if (e instanceof ToolFailure && e.toolError.status === 413) deps.limits.invalidate();
       throw e;
@@ -203,7 +220,7 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
   }
 
   if (!a.output && result.outputs.some((o) => !o.retained))
-    throw mcpError("job-output-not-stored", "The asynchronous response-only conversion retained no file bytes or stored output.", "Inspect the original result. Pass output for work that can outlive the wait; do not blindly resubmit writes.", { jobId: result.jobId });
+    throw resultNotKept();
   const outputs: any[] = [];
   const blocks: ContentBlock[] = [];
   const written: WriteResult[] = [];
@@ -224,7 +241,7 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
         if (e instanceof ToolFailure) {
           if (!e.toolError.requestId && result.requestId) e.toolError.requestId = result.requestId;
           if (outputs.length) {
-            throw withPartial(e, { outputs }, `Already written: ${outputs.map((x) => x.writtenTo).join(", ")}. Failed: ${nodePath.join(dir, name)}.`);
+            throw withPartial(e, { outputs });
           }
         }
         throw e;
@@ -237,6 +254,9 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
   } else {
     for (const o of result.outputs) {
       const m: any = meta(o);
+      // The API writes the sidecar at the output location plus ".json", unless it reports skipping or failing it.
+      if (a.sidecar && a.output !== undefined && !warnings.some((w) => w.code === "sidecar-skipped" || w.code === "sidecar-write-failed"))
+        m.sidecar = `${m.output ?? a.output}.json`;
       if (!o.retained) {
         outputs.push(m);
         continue;
@@ -256,7 +276,7 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
     }
   }
 
-  const hint = readHint(result.jobId, outputs, src);
+  const hint = [warningsHint(warnings.length), readHint(result.jobId, outputs, src)].filter(Boolean).join(" ") || undefined;
   const structured: any = {
     outputs,
     ...(result.jobId ? { jobId: result.jobId } : {}),
@@ -269,7 +289,12 @@ export async function convertSubtitle(deps: Deps, a: any, call: Call) {
     attempts: call.stats.attempts,
   };
   call.log.actions = countActions(written);
-  return { structured, summary: convertSummary(src, result, outputs, warnings, deps, toDisk), blocks };
+  return { structured, blocks };
+}
+
+/** A quick conversion (no API output) outlived this call: the API keeps job metadata, never the result bytes. */
+function resultNotKept() {
+  return mcpError("job-output-not-stored", "This conversion took longer than this call can wait, so its result couldn't be kept.", NOT_KEPT_HINT);
 }
 
 /**
@@ -299,12 +324,13 @@ function readHint(jobId: string | undefined, outputs: any[], src: SourceInput): 
   return h;
 }
 
-function meta(o: ApiOutput) {
+export function meta(o: ApiOutput) {
   // A stored output's real name is the last segment of its location, not the converter's generated name.
   const stored = o.output ? locationBaseName(o.output) : undefined;
   return {
     fileName: stored || o.fileName, format: o.format, formatId: o.formatId, ...(o.kind ? { kind: o.kind } : {}), mediaType: o.mediaType, encoding: o.encoding,
     contentEncoding: o.contentEncoding, cues: o.cues, bytes: o.byteCount, ...(o.output ? { output: o.output } : {}), ...(o.verification ? { verification: o.verification } : {}),
+    ...(o.header ? { header: o.header } : {}),
   };
 }
 
@@ -318,6 +344,7 @@ export function parseApiOutput(o: any): ApiOutput {
     mediaType: String(o?.mediaType ?? "application/octet-stream"), encoding: String(o?.encoding ?? ""),
     contentEncoding: enc, cues: toInt(o?.cues), data, retained: typeof o?.content === "string", byteCount: toInt(o?.bytes, data.length), ...(typeof o?.output === "string" ? { output: o.output } : {}), ...(enc === "text" ? { text: content } : {}),
     ...(mapVerification(o?.verification) ? { verification: mapVerification(o?.verification) } : {}),
+    ...(mapHeader(o?.header) ? { header: mapHeader(o?.header) } : {}),
   };
 }
 
@@ -325,28 +352,4 @@ export function countActions(ws: { action: string }[]) {
   const c = { written: 0, replaced: 0 };
   for (const w of ws) (c as any)[w.action]++;
   return c;
-}
-
-function convertSummary(src: SourceInput, r: any, outputs: any[], warnings: WarningT[], deps: Deps, toDisk: boolean): string {
-  const d = r.detected;
-  const from = `${sourceLabel(src)}${d ? ` (${d.format}, ${d.encoding}${d.language ? `, ${d.language}` : ""})` : ""}`;
-  const to = outputs.map((o) => `${o.fileName} (${o.format}, ${o.encoding})`).join(", ");
-  let s = `Converted ${from} → ${to}: ${r.stats.paragraphsIn} → ${r.stats.paragraphsOut} cues${r.stats.elapsedMs !== undefined ? ` in ${r.stats.elapsedMs} ms` : ""}.`;
-  for (const o of outputs) {
-    if (o.output) s += ` Stored at ${o.output}.`;
-    if (!o.writtenTo) continue;
-    if (o.action === "replaced") s += ` Replaced ${o.writtenTo}.`;
-    else s += ` Wrote ${o.writtenTo}.`;
-  }
-  if (!toDisk && outputs.some((o) => o.attached)) s += deps.pathsInSchema ? " The whole converted file is attached as an embedded resource; use outputPath/outputDir to write it to disk instead." : " The whole converted file is attached as an embedded resource.";
-  for (const o of outputs) if (o.verification) s += ` Verification of ${o.fileName}: ${verificationText(o.verification)}.`;
-  if (warnings.length) s += ` ${warnings.length} warning${warnings.length === 1 ? "" : "s"}: ${warnings.map(warningText).join("; ")}`;
-  // §5.6.5: frame-rate-changed goes on its own line right after the first line, before everything else.
-  const frc = warnings.filter((w) => w.code === "frame-rate-changed");
-  if (frc.length) {
-    const nl = s.indexOf("\n");
-    const line = frc.map((w) => `Frame rate changed: ${w.message}`).join("\n");
-    s = nl === -1 ? `${s}\n${line}` : `${s.slice(0, nl)}\n${line}${s.slice(nl)}`;
-  }
-  return s;
 }

@@ -1,4 +1,4 @@
-import { ConfigError, parseArgs, safeUrl, USAGE } from "./config.js";
+import { ConfigError, parseArgs, parseResultIn, safeUrl, USAGE, type ResultIn } from "./config.js";
 import { createLogger } from "./log.js";
 import { realpathRoots } from "./fs/guard.js";
 import { VERSION } from "./version.js";
@@ -16,7 +16,9 @@ async function notConfigured(message: string): Promise<never> {
   process.stderr.write(`smart-subtitle-converter-mcp: not configured: ${m.problem} Fix: ${m.fix} Starting in not-configured mode: every tool call returns mcp-misconfigured until this is fixed and the server restarted.\n`);
   const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
   const transport = new StdioServerTransport();
-  await createMisconfiguredServer(m, VERSION).connect(transport);
+  let resultIn: ResultIn = "both";
+  try { resultIn = parseResultIn(process.env.SUBTITLE_MCP_RESULT_IN); } catch { /* the problem being reported; keep the default */ }
+  await createMisconfiguredServer(m, VERSION, resultIn).connect(transport);
   await new Promise<void>((resolve) => { transport.onclose = () => resolve(); process.stdin.on("end", () => resolve()); });
   process.exit(0);
 }

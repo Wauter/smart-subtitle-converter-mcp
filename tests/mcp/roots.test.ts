@@ -129,19 +129,28 @@ describe("allowed folders in tool descriptions", () => {
     const sentence = `Allowed folders: ${rw} (read-write), ${ro} (read-only).`;
     expect(allowedFoldersText(h.deps.guard.roots.snapshot())).toBe(sentence);
     const tools = (await h.client.listTools()).tools;
-    for (const name of PATH_TOOLS) expect(tools.find((t) => t.name === name)!.description!.endsWith(sentence)).toBe(true);
+    // convert_subtitle names the folders right after its first sentence (key rules first); the others end with them.
+    for (const name of PATH_TOOLS) {
+      const d = tools.find((t) => t.name === name)!.description!;
+      if (name === "convert_subtitle") { expect(d.indexOf(sentence)).toBeGreaterThan(0); expect(d.indexOf(sentence)).toBeLessThan(250); } else expect(d.endsWith(sentence)).toBe(true);
+    }
     for (const t of tools.filter((t) => !PATH_TOOLS.includes(t.name))) expect(t.description).not.toContain("Allowed folders");
     expect(h.client.getInstructions()).toContain(sentence);
     expect(h.client.getServerCapabilities()?.tools?.listChanged).toBe(true);
     await h.close();
   });
 
-  it("with no folders the descriptions say so and name the settings", async () => {
+  it("with no folders the descriptions point to list_allowed_folders; the instructions and list_allowed_folders name the settings", async () => {
     mswServer.use(...baseHandlers());
     const h = await harness();
     for (const t of (await h.client.listTools()).tools.filter((t) => PATH_TOOLS.includes(t.name))) {
-      expect(t.description).toMatch(/Allowed folders: none, so file paths are disabled \(.+\)\. Ask the user to set SUBTITLE_MCP_ALLOWED_DIRS \(read-write folders\) and\/or SUBTITLE_MCP_READONLY_DIRS \(read-only folders\)/);
+      expect(t.description).toContain("Allowed folders: none (paths disabled; see list_allowed_folders).");
+      expect(t.description).not.toContain("SUBTITLE_MCP_ALLOWED_DIRS");
     }
+    const full = /Allowed folders: none, so file paths are disabled \(.+\)\. Ask the user to set SUBTITLE_MCP_ALLOWED_DIRS \(read-write folders\) and\/or SUBTITLE_MCP_READONLY_DIRS \(read-only folders\)/;
+    expect(h.client.getInstructions()).toMatch(full);
+    const r: any = await h.client.callTool({ name: "list_allowed_folders", arguments: {} });
+    expect(JSON.stringify(r.structuredContent)).toMatch(/SUBTITLE_MCP_ALLOWED_DIRS/);
     await h.close();
   });
 });
@@ -188,7 +197,7 @@ describe("configured folders combined with client roots (supersedes D-13)", () =
     await s.firstChange;
     const sentence = `Allowed folders: ${a} (read-write), ${b} (read-only), ${c} (read-write).`;
     const d = await s.descriptions();
-    for (const name of PATH_TOOLS) expect(d[name].endsWith(sentence)).toBe(true);
+    for (const name of PATH_TOOLS) expect(name === "convert_subtitle" ? d[name].includes(sentence) : d[name].endsWith(sentence)).toBe(true);
     const r: any = await s.client.callTool({ name: "list_allowed_folders", arguments: {} });
     expect(r.structuredContent.folders).toEqual([
       { path: a, mode: "read-write", source: "config" },
@@ -223,7 +232,7 @@ describe("configured folders combined with client roots (supersedes D-13)", () =
     const s = await stdioLike([], async () => []);
     await s.firstChange;
     expect(s.rootsCalls()).toBe(1);
-    expect((await s.descriptions()).convert_subtitle).toContain("Allowed folders: none, so file paths are disabled (the client's roots/list is empty). Ask the user to set SUBTITLE_MCP_ALLOWED_DIRS");
+    expect((await s.descriptions()).convert_subtitle).toContain("Allowed folders: none (paths disabled; see list_allowed_folders).");
     expect(s.logs.some((l) => /"level":"info".*"msg":"client roots received".*"received":0,"count":0/.test(l))).toBe(true);
     const r: any = await s.client.callTool({ name: "list_allowed_folders", arguments: {} });
     expect(r.structuredContent).toMatchObject({ state: "roots-empty", folders: [], clientRoots: "empty" });

@@ -70,7 +70,7 @@ describe("config", () => {
   it("defaults to local stdio", () => {
     const c = cfg([]);
     expect(c.mode).toBe("local");
-    expect(c.timeoutMs).toBe(120000);
+    expect(c.timeoutMs).toBe(45000);
   });
 
   it("--http needs a long enough token; flags override env", () => {
@@ -82,7 +82,7 @@ describe("config", () => {
     expect(c.apiUrl).toBe("http://other");
   });
   it("preview page sizes: defaults, range, hard ceiling and the removed inline-text variable", () => {
-    expect(cfg([])).toMatchObject({ previewDefaultBytes: 65536, previewMaxBytes: 262144 });
+    expect(cfg([])).toMatchObject({ previewDefaultBytes: 32768, previewMaxBytes: 262144 });
     expect(cfg([], { SUBTITLE_MCP_PREVIEW_MAX_BYTES: "8192" })).toMatchObject({ previewDefaultBytes: 8192, previewMaxBytes: 8192 });
     expect(err([], { SUBTITLE_MCP_PREVIEW_MAX_BYTES: "2000000" })).toMatch(/at most 1048576/);
     expect(err([], { SUBTITLE_MCP_PREVIEW_MAX_BYTES: "100" })).toMatch(/>= 4096/);
@@ -160,9 +160,9 @@ describe("version check (D-37/D-43)", () => {
     expect(versionCompatible("1.1.0", "1.1.2")).toBe(true);
     expect(versionCompatible("1.2.0", "1.1.2")).toBe(false);
   });
-  it("package.json carries the shared 1.4 version line (pairs with API 1.4.x) and is publishable", async () => {
+  it("package.json carries the shared 1.5 version line (pairs with API 1.5.x) and is publishable", async () => {
     const pkg = JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
-    expect(pkg.version).toMatch(/^1\.4\.\d+$/);
+    expect(pkg.version).toMatch(/^1\.5\.\d+$/);
     expect(pkg.private).toBeUndefined();
   });
 });

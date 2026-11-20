@@ -24,6 +24,12 @@ export function allowedFoldersText(s: RootsSnapshot): string {
   return `Allowed folders: none, so file paths are disabled${s.reason ? ` (${s.reason})` : ""}. Ask the user to ${CONFIGURE}. Until then, pass inline content.`;
 }
 
+/** Tool descriptions: the folder list, or a short pointer when there is none (the full advice is in the instructions and list_allowed_folders). */
+export function descriptionFoldersText(s: RootsSnapshot): string {
+  if (s.roots.length) return allowedFoldersText(s);
+  return s.pending ? "Allowed folders: none yet (see list_allowed_folders)." : "Allowed folders: none (paths disabled; see list_allowed_folders).";
+}
+
 /**
  * Server instructions (sent once, in the initialize result). When client roots can still arrive (they always come
  * after notifications/initialized), the instructions never claim there are none; they point at the live sources.

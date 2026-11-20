@@ -28,7 +28,7 @@ describe("not-configured mode", () => {
       const r: any = await client.callTool({ name, arguments: { anything: 1 } });
       expect(r.isError).toBe(true);
       expect(r.structuredContent.error).toMatchObject({ source: "mcp", code: "mcp-misconfigured" });
-      expect(r.content[0].text).toContain("/k does not exist");
+      expect(r.content).toEqual([{ type: "text", text: JSON.stringify(r.structuredContent) }]); expect(r.structuredContent.error.detail).toContain("/k does not exist");
     }
     await client.close();
   });

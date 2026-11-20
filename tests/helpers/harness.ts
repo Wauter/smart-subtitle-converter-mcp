@@ -50,7 +50,7 @@ export function problem(status: number, code: string, extra: Record<string, unkn
   );
 }
 
-export function convertOk(outputs: { fileName: string; content: string; contentEncoding?: string; formatId?: string; source?: string; kind?: string; verification?: unknown }[], extra: Record<string, unknown> = {}) {
+export function convertOk(outputs: { fileName: string; content: string; contentEncoding?: string; formatId?: string; source?: string; kind?: string; verification?: unknown; header?: unknown }[], extra: Record<string, unknown> = {}) {
   return {
     outputs: outputs.map((o) => ({ format: o.formatId === "ebustl" ? "EBU STL" : "WebVTT", formatId: o.formatId ?? "webvtt", mediaType: o.formatId === "ebustl" ? "application/octet-stream" : "text/vtt", contentEncoding: "text", encoding: "utf-8", cues: "1", kind: o.kind ?? "text", ...o })),
     detected: { format: "SubRip", id: "subrip", encoding: "utf-8", encodingConfidence: "utf8-valid", language: "en", paragraphs: "1", kind: "text" },
@@ -84,7 +84,7 @@ mswServer.events.on("request:start", async ({ request }) => {
 });
 
 export const baseHandlers = (opts: { limits?: "ok" | "404"; formats?: unknown[] } = {}): HttpHandler[] => [
-  http.get(`${API}/healthz`, () => HttpResponse.json({ status: "ok", version: "1.4.1", libse: "5.1.0" })),
+  http.get(`${API}/healthz`, () => HttpResponse.json({ status: "ok", version: "1.5.0", libse: "5.1.0" })),
   http.get(`${API}/v1/limits`, () => (opts.limits === "404" ? problem(404, "not-found") : HttpResponse.json(LIMITS))),
   http.get(`${API}/v1/formats`, () => HttpResponse.json(opts.formats ?? FORMATS)),
 ];
@@ -126,5 +126,10 @@ export async function callTool(h: Harness, name: string, args: Record<string, un
     ...(extra.progress ? { onprogress: (p: any) => extra.progress!(p.message) } : {}),
     ...(extra.signal ? { signal: extra.signal } : {}),
   });
+  // Default SUBTITLE_MCP_RESULT_IN=both: the first text block is exactly the structured result as JSON.
+  if (h.deps.cfg.resultIn === "both" && r.structuredContent !== undefined) {
+    if (r.content?.[0]?.type !== "text" || r.content[0].text !== JSON.stringify(r.structuredContent))
+      throw new Error(`${name}: content[0] is not the serialized structuredContent: ${JSON.stringify(r.content?.[0])?.slice(0, 300)}`);
+  }
   return r as { isError?: boolean; content: any[]; structuredContent: any };
 }
