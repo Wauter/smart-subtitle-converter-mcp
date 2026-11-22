@@ -46,6 +46,46 @@ describe("metadata tools", () => {
     expect(r.structuredContent).toMatchObject({ total: 4, truncated: true });
   });
 
+  it("list_formats: default page pins common delivery formats first and hints when truncated", async () => {
+    const pad = (n: number, kind: "text" | "binary" = "text") =>
+      Array.from({ length: n }, (_, i) => ({
+        id: `aaformat${String(i).padStart(3, "0")}`, name: `Pad ${i}`, aliases: [], extension: ".txt",
+        kind, canRead: true, canWrite: true, lossy: false,
+      }));
+    const late = (id: string, name: string, kind: "text" | "binary" = "text") =>
+      ({ id, name, aliases: [], extension: ".x", kind, canRead: true, canWrite: true, lossy: false });
+    // API order is by id: 55 early pads, then the usual delivery formats (ebustl is index 62 on a real 379-format list).
+    const all = [
+      ...pad(55),
+      late("avidstl", "Avid STL", "binary"), late("cavena890", "Cavena 890", "binary"),
+      late("ebustl", "EBU STL", "binary"), late("pacscreenelectronics", "PAC (Screen Electronics)", "binary"),
+      late("pacunicodeunipac", "PAC Unicode (UniPac)", "binary"), late("subrip", "SubRip"), late("webvtt", "WebVTT"),
+    ];
+    mswServer.use(http.get(`${API}/v1/formats`, ({ request }) => {
+      const q = new URL(request.url).searchParams.get("q")?.toLowerCase();
+      return HttpResponse.json(q ? all.filter((f) => f.id.includes(q) || f.name.toLowerCase().includes(q)) : all);
+    }));
+    const r = await callTool(h, "list_formats", {});
+    expect(r.isError).toBeFalsy();
+    const ids: string[] = r.structuredContent.formats.map((f: { id: string }) => f.id);
+    expect(ids).toHaveLength(50);
+    expect(r.structuredContent).toMatchObject({ total: 62, truncated: true });
+    expect(ids.slice(0, 7)).toEqual(["subrip", "webvtt", "ebustl", "pacscreenelectronics", "pacunicodeunipac", "cavena890", "avidstl"]);
+    expect(ids.slice(7)).toEqual(pad(43).map((f) => f.id));
+    expect(r.structuredContent.hint).toBe("Showing 50 of 62. Pass query (name, id or extension, e.g. \"stl\" or \"pac\") or a higher limit (max 500) to see the rest.");
+    const full = await callTool(h, "list_formats", { limit: 500 });
+    expect(full.structuredContent.truncated).toBe(false);
+    expect(full.structuredContent.hint).toBeUndefined();
+    expect(full.structuredContent.formats.map((f: { id: string }) => f.id).slice(0, 7)).toEqual(ids.slice(0, 7));
+    const text = await callTool(h, "list_formats", { includeBinary: false });
+    expect(text.structuredContent.formats.map((f: { id: string }) => f.id).slice(0, 2)).toEqual(["subrip", "webvtt"]);
+    expect(text.structuredContent.formats.some((f: { id: string }) => f.id === "ebustl")).toBe(false);
+    const q = await callTool(h, "list_formats", { query: "stl" });
+    expect(q.structuredContent.formats[0].id).toBe("ebustl");
+    expect(q.structuredContent.truncated).toBe(false);
+    expect(q.structuredContent.hint).toBeUndefined();
+  });
+
   it("list_formats: empty text-only result suggests dropping includeBinary: false", async () => {
     mswServer.use(http.get(`${API}/v1/formats`, () => HttpResponse.json([])));
     let r = await callTool(h, "list_formats", { includeBinary: false, query: "stl" });

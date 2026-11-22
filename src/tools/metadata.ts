@@ -7,6 +7,15 @@ import { toInt } from "../api/coerce.js";
 
 const RO = { readOnlyHint: true, idempotentHint: true } as const;
 
+/** Common delivery formats, listed first in list_formats so a default page of 50 includes them (the API sorts by id). */
+const PINNED_FORMAT = new Map(
+  [
+    "subrip", "webvtt", "advancedsubstationalpha", "timedtext10", "scenaristclosedcaptions",
+    "ebustl", "pacscreenelectronics", "pacunicodeunipac", "cavena890", "cheetahcaption", "capmakerplus", "avidstl",
+  ].map((id, i) => [id, i]),
+);
+
+
 export function registerMetadataTools(server: McpServer, deps: Deps): void {
   const hosted = deps.cfg.mode === "hosted";
 
@@ -14,12 +23,12 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
     name: "list_formats",
     title: "List subtitle formats",
     description:
-      "List the subtitle formats the converter reads and writes, with the id or alias to pass as `target` or `profile.source.format`. Lists text formats (SRT, WebVTT, ASS, TTML, …) and binary broadcast formats (EBU STL, PAC, Cavena 890, …); `includeBinary: false` lists text formats only. Filter with `query` (name, id or extension, e.g. \"stl\"). Set `writableOnly: true` when choosing a target. Formats with `lossy: true` may drop characters or timing precision. `options` names the format's `profile.formatOptions` block.",
+      "List the subtitle formats the converter reads and writes, with the id or alias to pass as `target` or `profile.source.format`. Lists text formats (SRT, WebVTT, ASS, TTML, …) and binary broadcast formats (EBU STL, PAC, Cavena 890, …); `includeBinary: false` lists text formats only. Filter with `query` (name, id or extension, e.g. \"stl\"). Set `writableOnly: true` when choosing a target. Formats with `lossy: true` may drop characters or timing precision. `options` names the format's `profile.formatOptions` block. The first page lists common delivery formats first; when `truncated` is true, pass `query` or a higher `limit` to see the rest.",
     shape: {
-      query: z.string().max(100).optional().describe("Filter by name, id, alias or extension"),
+      query: z.string().max(100).optional().describe("Filter by name, id or extension (e.g. \"stl\" or \"pac\")"),
       includeBinary: z.boolean().default(true).describe("Include binary broadcast formats (EBU STL, PAC, …); false lists text formats only"),
       writableOnly: z.boolean().default(false).describe("Only formats that can be a conversion target"),
-      limit: z.number().int().min(1).max(500).default(50),
+      limit: z.number().int().min(1).max(500).default(50).describe("Page size (default 50). Common delivery formats come first; raise this or pass `query` when `truncated` is true."),
     },
     output: {
       formats: z.array(
@@ -57,10 +66,18 @@ export function registerMetadataTools(server: McpServer, deps: Deps): void {
         .filter((f) => ["text", "binary", "image", "container"].includes(f.kind));
       if (!a.includeBinary) formats = formats.filter((f) => f.kind === "text");
       if (a.writableOnly) formats = formats.filter((f) => f.canWrite);
+      // The API lists formats by id (abc…, then later ebustl/PAC/SubRip). Pin common delivery formats first so a
+      // default page of 50 still includes them; the rest keep the API's order.
+      formats.sort((x, y) => (PINNED_FORMAT.get(x.id) ?? PINNED_FORMAT.size) - (PINNED_FORMAT.get(y.id) ?? PINNED_FORMAT.size));
       const total = formats.length;
       const shown = formats.slice(0, a.limit);
-      const hint = total === 0 ? `No formats${a.query ? ` matching '${a.query}'` : ""}. Try a broader query${a.includeBinary ? "" : " or drop includeBinary: false"}.` : undefined;
-      return { structured: { formats: shown, total, truncated: total > shown.length, ...(hint ? { hint } : {}) } };
+      const truncated = total > shown.length;
+      const hint = total === 0
+        ? `No formats${a.query ? ` matching '${a.query}'` : ""}. Try a broader query${a.includeBinary ? "" : " or drop includeBinary: false"}.`
+        : truncated
+          ? `Showing ${shown.length} of ${total}. Pass query (name, id or extension, e.g. "stl" or "pac") or a higher limit (max 500) to see the rest.`
+          : undefined;
+      return { structured: { formats: shown, total, truncated, ...(hint ? { hint } : {}) } };
     },
   });
 

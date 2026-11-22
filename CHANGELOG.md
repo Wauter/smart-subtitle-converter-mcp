@@ -9,6 +9,10 @@ The MCP shares its major.minor version with the
 major.minor matches your API. Patch versions move independently. Versions are recorded here when merged to `main`.
 Tagged releases publish the GHCR image and GitHub Release; npm publishing is a separate manual action.
 
+## Unreleased
+
+- `list_formats` lists common delivery formats first (SRT, WebVTT, ASS, TTML, SCC, EBU STL, PAC, PAC Unicode, Cavena 890, Cheetah CAP, CapMaker Plus, Avid STL) so the default page of 50 includes them. The API sorts by id, which used to put EBU STL, PAC, SubRip and WebVTT after the first page. When the list is truncated, a hint says to pass `query` or a higher `limit`.
+
 ## 1.5.0 — 2026-11-20
 
 - Dependencies: `@modelcontextprotocol/sdk` 1.32.1 to 1.32.2 (transport typings, and registering a tool after `connect()` when the capability was declared) and the lockfile's `hono` 4.13.13 to 4.13.19, which the SDK's `^4.11.4` range already allowed. `npm audit` reports no vulnerabilities.
