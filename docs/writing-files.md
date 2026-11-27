@@ -1,6 +1,6 @@
 # Writing files
 
-Every MCP-local output is staged next to its destination and committed with an atomic rename, so a failed or interrupted
+Every MCP-local output is staged in `<output-root>/.subtitle-mcp-staging/` and committed with an atomic rename, so a failed or interrupted
 write doesn't leave a half-written file behind.
 
 ## `convert_subtitle`

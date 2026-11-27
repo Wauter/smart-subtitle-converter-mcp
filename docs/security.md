@@ -46,7 +46,7 @@ the API's [security notes](https://github.com/Wauter/smart-subtitle-converter-ap
 
 ## Writing files
 
-Single-file outputs are staged next to the destination and committed with a rename, so a failed write does not
+Single-file outputs are staged in `<output-root>/.subtitle-mcp-staging/` and committed with a rename, so a failed write does not
 leave a half-written file. Existing files are not replaced unless the request sends `ifExists: "replace"`.
 There is no separate operator gate. Details: [writing-files.md](writing-files.md).
 

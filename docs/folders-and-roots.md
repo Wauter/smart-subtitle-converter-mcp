@@ -38,9 +38,9 @@ and `source` (`config` / `client-roots`), plus a `state`:
 | `none` | No folders from config or client |
 
 When there are none, it adds a hint naming the settings. An allowed folder whose path has a component starting with
-`.` (such as `/home/me/.subtitles`) is hidden: nothing in it can be read or listed, it isn't shown, and
-`hiddenFolders` counts it. Files can still be written there ([hidden files](tools.md#hidden-files-and-folders)). Path errors (`path-not-allowed`) include the current list
-in their hint. With browsing off (the default) this tool reports MCP-local folders only — not API `STORAGE_FILE_ROOTS`, S3
+`.` is hidden: nothing in it can be read, listed or written (`hidden-path`), it isn't shown, and
+`hiddenFolders` counts it. Details: [hidden files](tools.md#hidden-files-and-folders). Path errors (`path-not-allowed`) include the current list
+in their hint. Browsing is on by default. With browsing off (`SUBTITLE_MCP_LIST_ENABLED=false`) this tool reports MCP-local folders only — not API `STORAGE_FILE_ROOTS`, S3
 buckets or HTTPS hosts.
 
 ## Local folders and API locations

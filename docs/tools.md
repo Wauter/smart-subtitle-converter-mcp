@@ -17,8 +17,9 @@ sees are the authoritative, live version of this page (they include the allowed 
 | `list_files` | – (local) or `GET /v1/storage/list` | Unless `SUBTITLE_MCP_LIST_ENABLED=false`: one page of the files and sub-folders in a location |
 | `list_allowed_folders` | – (local), + `GET /v1/storage/locations` when browsing is on | The folders in effect, with `mode`, `source` and `state` ([folders-and-roots.md](folders-and-roots.md)); with browsing on, also the API's storage locations |
 
-`list_allowed_folders` stays registered even when paths are unavailable (empty folders, state none). With browsing
-off (the default) it covers MCP-local folders only, never API input/output URIs.
+`list_allowed_folders` stays registered even when paths are unavailable (empty folders, state none). Browsing is on
+by default. With browsing off (`SUBTITLE_MCP_LIST_ENABLED=false`) it covers MCP-local folders only, never API
+input/output URIs.
 
 ## Result format
 

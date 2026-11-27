@@ -6,8 +6,9 @@
 **An MCP server for converting and checking subtitles from Claude, Cursor or any other MCP client.**
 
 It handles SRT, WebVTT, TTML, ASS and broadcast formats such as EBU STL, PAC and Cavena 890. The agent is told
-whether anything was lost in the conversion and which setting fixes it. Files go by path, so their contents
-don't need to pass through the model's context.
+whether anything was lost in the conversion and which setting fixes it. Files go by path, so their bytes stay
+between this server and the converter. The model sees subtitle text when it asks for a preview, or when a
+conversion returns the file inline.
 
 > **Built on Subtitle Edit.** Conversions run in the
 > [Smart Subtitle Converter API](https://github.com/Wauter/smart-subtitle-converter-api), which wraps `libse`, the
@@ -30,7 +31,8 @@ client, use the [API](https://github.com/Wauter/smart-subtitle-converter-api) di
 - **A verdict on every broadcast output.** EBU STL, PAC and the other binary outputs are read back and reported
   as `lossless`, `quantised`, `lossy` or `unverified`. Warnings carry a `hint` and structured `details`, such as a
   `remedy` for lost characters.
-- **Files go by path.** Their contents don't need to pass through the model's context. Content, keys and tokens
+- **Files go by path.** File bytes stay between this server and the converter. The model sees subtitle text when
+  it asks for a preview (`preview_text`) or when a conversion returns the file inline. Content, keys and tokens
   are never logged.
 - **Access to named folders only.** The server reads and writes inside the folders you set
   (`SUBTITLE_MCP_ALLOWED_DIRS` / `SUBTITLE_MCP_READONLY_DIRS`). Read-only folders stay read-only.

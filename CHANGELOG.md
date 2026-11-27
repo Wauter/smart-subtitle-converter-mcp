@@ -11,6 +11,11 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
 
 ## Unreleased
 
+- Docs: browsing is on by default (`list_allowed_folders` with browsing off was described as the default); hidden
+  allowed folders cannot be written (`hidden-path`; the folders page had said writes were allowed); MCP-local
+  outputs are staged in `<output-root>/.subtitle-mcp-staging/`, not next to the destination; the README now says
+  the model sees subtitle text from `preview_text` or an inline conversion, not that file contents never enter
+  its context.
 - `list_formats` lists common delivery formats first (SRT, WebVTT, ASS, TTML, SCC, EBU STL, PAC, PAC Unicode, Cavena 890, Cheetah CAP, CapMaker Plus, Avid STL) so the default page of 50 includes them. The API sorts by id, which used to put EBU STL, PAC, SubRip and WebVTT after the first page. When the list is truncated, a hint says to pass `query` or a higher `limit`.
 
 ## 1.5.0 — 2026-11-20
