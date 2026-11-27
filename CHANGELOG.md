@@ -11,6 +11,7 @@ Tagged releases publish the GHCR image and GitHub Release; npm publishing is a s
 
 ## Unreleased
 
+- Dependencies: lockfile `hono` 4.13.19 to 4.13.23 and `@hono/node-server` 2.1.8 to 2.1.11, which the SDK's `^4.11.4` and `^1.19.9 || ^2.0.5` ranges already allowed. `npm audit` reports no vulnerabilities.
 - Docs: browsing is on by default (`list_allowed_folders` with browsing off was described as the default); hidden
   allowed folders cannot be written (`hidden-path`; the folders page had said writes were allowed); MCP-local
   outputs are staged in `<output-root>/.subtitle-mcp-staging/`, not next to the destination; the README now says
